@@ -30,7 +30,10 @@ def bc_drugsense_scrape(driver):
         WebDriverWait(driver, 10).until(expected_conditions.presence_of_element_located((By.XPATH, "//table[contains(@class, 'cell-table')]/tbody/tr")))
     except TimeoutException:
         print("Timed out waiting for page to load")
-    print(results_tab.text)
+    # Collect the current page of the table, and the total number of table pages as elements
+    table_pages = WebDriverWait(driver, 10).until(expected_conditions.presence_of_element_located((By.XPATH, "//div[contains(@class, 'last-page')]")))
+    current_page = WebDriverWait(driver, 10).until(expected_conditions.presence_of_element_located((By.XPATH, "//div[contains(@class, 'current-page-container')]")))
+    print(table_pages.text, current_page.text)
 
 # Test code below
 if __name__ == "__main__":
