@@ -17,7 +17,7 @@ sys.path.append("data_scraping/scraping_utilities")
 from driver import start_driver
 
 #######################################################################################
-#                                      Notes:                                         #
+#                                       Notes:                                        #
 # This script is used to scrape the results table from the BC Drug sense website,     #
 # which can be found at https://bccsu-drugsense.onrender.com/. This data is           #
 # just in a plain HTML table and so it's easy enough to start up a selenium           #

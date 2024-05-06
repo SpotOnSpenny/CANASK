@@ -19,6 +19,15 @@ from selenium.webdriver.chrome.options import Options
 # used for multiple scrapes sequentially instead of needing to open a new browser   #
 # instance, which will make things cleaner in the long run.                         #
 #                                                                                   #
+# The script will also check the operating system of the user and select the        #
+# appropriate chromedriver for that operating system. This feature was added        #
+# somewhat selfishly as my home PC uses a windows OS while my coding laptop is      #
+# linux based, but it should be useful for others using the code as well, and makes #
+# adding support for other operating systems nice and easy, as you'll just need to  #
+# add and re-name the chromedriver file for the desired OS to match the current     #
+# naming convention. The current convention is "chromedriver-______", where the     #
+# blank is the name of the OS as output by the platform.system() function.          #
+#                                                                                   #
 # It may also be worth noting that the scripts will operate using the a headless    #
 # browser, which means that the browser window will not actually open on the screen.#
 # Do not be alarmed if you don't actually see anything happening! This will also    #
