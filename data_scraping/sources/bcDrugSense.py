@@ -16,22 +16,38 @@ sys.dont_write_bytecode = True
 sys.path.append("data_scraping/scraping_utilities")
 from driver import start_driver
 
-######################################################################################
-#                                      Notes:                                        #
-# This script is used to scrape the results table from the BC Drug sense website,    #
-# which can be found at https://bccsu-drugsense.onrender.com/. This data is          #
-# just in a plain HTML table and so it's easy enough to start up a selenium          #
-# instance, click the "results" tab, and then scrape each row of the table. The      #
-# structure of the scraped data has been formatted to match the existing structure   #
-# of provided monthly DAS data, with the exception of the "Drugs" column, which on   #
-# that spreadsheet is 12 separate columns (which is really not very efficient!).     #
-# Also, the "visit date" column on the website table has been matched to the         #
-# "received date" column on the DAS data, as it seems logical that that would be     #
-# the date that the drug was "discovered" in both sources. There are also additional #
-# columns on the website table which are NOT present in the DAS data, so it is not   #
-# a one for one match. Instead we'll need to process these later on and decide what  #
-# we'd like to do to consolidate all this data from these different sources.         #
-######################################################################################
+#######################################################################################
+#                                      Notes:                                         #
+# This script is used to scrape the results table from the BC Drug sense website,     #
+# which can be found at https://bccsu-drugsense.onrender.com/. This data is           #
+# just in a plain HTML table and so it's easy enough to start up a selenium           #
+# instance, click the "results" tab, and then scrape each row of the table. The       #
+# structure of the scraped data has been formatted to match the existing structure    #
+# of provided monthly DAS data, with the exception of the "spectrometer" column,      #
+# that is 12 separate columns on the DAS sheet (which is really not very efficient!). #
+# Also, the "visit date" column on the website table has been matched to the          #
+# "received date" column on the DAS data, as it seems logical that that would be      #
+# the date that the drug was "discovered" in both sources. There are also additional  #
+# columns on the website table which are NOT present in the DAS data, so it is not    #
+# a one for one match. Instead we'll need to process these later on and decide what   #
+# we'd like to do to consolidate all this data from these different sources. All of   #
+# this consolidating and matching will take place in another script that will process #
+# all the data from different sources at once. TODO: add that script here when done.  #                         
+#                                                                                     #   
+# Before running, the script will also check to see if there's an existing file for   #
+# the bcDrugSense data in the output directory. If there is, it will scrape data      #
+# from the website until it finds that the last 5 rows of scraped data match the      #
+# first 5 rows of the existing data. This way, we don't re-scrape data we already     #
+# have. If there is no existing file, then the script will scrape all the data from   #
+# the table on the website.                                                           #
+#                                                                                     #
+# I'm unsure how relevant this may be to whoever may read this in the future, but we  #
+# also have disabled pycache with the sys.dont_write_bytecode = True line at the top  #
+# under imports. I've done this because it was caching the value for the headless     #
+# driver variable, which kind of takes away from the purpose of having it at all, and #
+# made it more difficult to test by swapping the headless value around. Feel free to  #
+# re-enable it in the future if you find it's needed by commenting that line out!     #
+#######################################################################################
 
 # Function to do the actual scraping
 def bc_drugsense_scrape(driver):
