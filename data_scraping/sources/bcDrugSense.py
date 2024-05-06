@@ -12,6 +12,7 @@ from selenium.common.exceptions import TimeoutException
 from alive_progress import alive_bar
 
 # Internal Dependency Imports
+sys.dont_write_bytecode = True
 sys.path.append("data_scraping/scraping_utilities")
 from driver import start_driver
 
@@ -34,6 +35,26 @@ from driver import start_driver
 
 # Function to do the actual scraping
 def bc_drugsense_scrape(driver):
+    # Check for any output file in the output directory
+    output_dir = os.path.join(os.getcwd(), "output")
+    # If the output doesn't exist, neither will the file so we need to scrape all the data
+    if not os.path.exists(output_dir):
+        print("No output folder found, scraping all data from BCCSU DrugSense website...")
+        scrape_all = True
+    # Otherwise, we need to check if there is a bcDugSense file in the output directory
+    else:
+        for file in os.listdir(output_dir):
+            if "bcDrugSense" in file:
+                scrape_all = False
+                break
+        if scrape_all:
+            print("Output folder exists, but contians no bcDrugSense file. Scraping all data from BCCSU DrugSense website...")
+        else:
+            # If we are not scraping all the data, we need to pull the first 5 rows of the table so we can check it against the website
+            print("A bcDrugSense file was found in the output folder! Scraping new data from the BCCSU DrugSense website...")
+            # Also load the csv so that we can join the new data and old data together
+            existing_data = pandas.read_csv(os.path.join(output_dir, file))
+            data_to_check = existing_data.head(5).fillna("")
     # Go to the website
     driver.get("https://bccsu-drugsense.onrender.com/")
     # Click the results tab and wait for it to load
@@ -71,6 +92,17 @@ def bc_drugsense_scrape(driver):
                     "Spectrometer": row.find_elements(By.XPATH, "td")[10].text
                 }
                 drug_data = pandas.concat([drug_data, pandas.DataFrame(data, index=[0])], ignore_index=True)
+                # If we are only scraping new data, compare the tail of this data to the head of the existing data
+                if not scrape_all:
+                    if data_to_check.equals(drug_data.tail(5).reset_index(drop=True)):
+                        print("Data matches existing data, stopping the scrape...")
+                        # Remove the last 5 rows that match
+                        drug_data = drug_data[:-5]
+                        # Add the new data to the existing data
+                        drug_data = pandas.concat([drug_data, existing_data], ignore_index=True)
+                        # Break the for loop and move to the else statement below to break the while loop and move to save data
+                        current_page = table_pages
+                        break
             bar()
             # If there is another page, click the next button
             if current_page != table_pages:
@@ -87,11 +119,12 @@ def bc_drugsense_scrape(driver):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     # Save the dataframe to a csv file
-    date = datetime.datetime.now().strftime("%Y-%m-%d")
+    date = datetime.datetime.now().strftime("%Y-%m-%d").replace("-", "")
     drug_data.to_csv(os.path.join(output_dir, f"{date}_bcDrugSense.csv"), index=False)
+    print("Data scraped and saved to csv file in the output directory!")
 
 # Test code below
 if __name__ == "__main__":
-    driver = start_driver(headless=False)
+    driver = start_driver(headless=True)
     print("driver started!")
     bc_drugsense_scrape(driver)
