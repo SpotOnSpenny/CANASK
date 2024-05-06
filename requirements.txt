@@ -1,2 +1,3 @@
-"Selenium",
-"alive-progress
+selenium
+alive-progress
+sodapy
