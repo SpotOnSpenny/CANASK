@@ -34,7 +34,7 @@ from driver import start_driver
 #######################################################################################
 
 # Function to scrape the data used on the Nova Scotia Numbers and Rates of Substance-Related Fatalities Dashboard
-def mn_ems_scrape(driver):
+def ns_ratesfatalities_scrape(driver):
     # Instantiate a list of URLs and data sources in case we want to add another later on
     ems_sources = [
         # Substance Use Patient data, each row = 1 patient and 1 substance    
@@ -102,4 +102,4 @@ def mn_ems_scrape(driver):
 # Test code below
 if __name__ == "__main__":
     driver = start_driver(headless=True)
-    mn_ems_scrape(driver)
+    ns_ratesfatalities_scrape(driver)
