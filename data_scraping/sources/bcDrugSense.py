@@ -63,6 +63,8 @@ def bc_drugsense_scrape(driver):
             if "bcDrugSense" in file:
                 scrape_all = False
                 break
+            else:
+                scrape_all = True
         if scrape_all:
             print("Output folder exists, but contians no bcDrugSense file. Scraping all data from BCCSU DrugSense website...")
         else:

@@ -1,3 +1,5 @@
 selenium
 alive-progress
 sodapy
+urllib3
+zipfile
