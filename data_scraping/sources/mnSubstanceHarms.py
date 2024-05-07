@@ -82,6 +82,7 @@ def mn_ems_scrape(driver):
         limit = None
         # If there's not, then we need to request all data
         if not os.path.exists(output_dir):
+            os.mkdir(output_dir)
             print(f"No output folder found, requesting all {rows} rows from API for {source['source']}...")
             limit = rows + 100 # Add 100 to the limit to be safe, in case it's 120 rows that are different or something
         # Otherwise, check if there's an existing file for this source
