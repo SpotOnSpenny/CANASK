@@ -15,6 +15,7 @@ from sodapy import Socrata
 sys.dont_write_bytecode = True
 sys.path.append("data_scraping/scraping_utilities")
 from driver import start_driver
+from checkUps import checkup_output
 
 #######################################################################################
 #                                       Notes:                                        #
@@ -63,6 +64,8 @@ def mn_ems_scrape(driver):
         "url": "https://data.winnipeg.ca/Fire-and-Paramedic-Service/Narcan-Administrations/qd6b-q49i/about_data",
         "api_endpoint": "qd6b-q49i"}
     ]
+    # Check the output directory
+    output_dir, needed_files, existing_files = checkup_output([source["source"] for source in ems_sources])
     # Instantiate the SODA API client
     client = Socrata("data.winnipeg.ca", None)
     # Loop through the URLs to collect the data
@@ -72,31 +75,22 @@ def mn_ems_scrape(driver):
         # Wait for the page to load, and get the number of rows when it does
         try:
             rows = WebDriverWait(driver, 10).until(expected_conditions.presence_of_element_located((By.XPATH, "//dt[contains(text(), 'Rows')]/following-sibling::dd"))).text
-            rows = int(float(rows.replace("K", "")) * 1000)
+            limit = int(float(rows.replace("K", "")) * 1000) + 100 # Add 100 to the limit to be safe, in case it's 120 rows that are different or something
         except TimeoutException:
             print(f"Timed out waiting for {source['source']} to load.")
             quit(1)
-        # Check if there's existing output directory
-        output_dir = os.path.join(os.getcwd(), "output")
-        # Instantiate a "limit" variable to determine how many rows to request from the API
-        limit = None
-        # If there's not, then we need to request all data
-        if not os.path.exists(output_dir):
-            os.mkdir(output_dir)
-            print(f"No output folder found, requesting all {rows} rows from API for {source['source']}...")
-            limit = rows + 100 # Add 100 to the limit to be safe, in case it's 120 rows that are different or something
-        # Otherwise, check if there's an existing file for this source
-        else:
-            for file in os.listdir(output_dir):
-                # If there is an existing file, then compare the rows to see how many new rows to request
-                if source["source"] in file:
-                    existing_file = file
-                    limit = rows + 100 # Add 100 to the limit to be safe, in case it's 120 rows that are different or something
-                    print(f"Existing data found for {source['source']} file. Requesting newest {rows} rows from API...")
-            # If limit is still none, then we need to request all the data, because there was no existing file in the output directory
-            if limit is None:
-                print(f"Output folder exists, but contians no {source['source']} file. Requesting all {rows} rows from API...")
-                limit = rows + 100 # Add 100 to the limit to be safe, in case it's 120 rows that are different or something
+        # Check if there's an existing file for this source
+        existing_file = None
+        for file in existing_files:
+            # If there is an existing file, then compare the rows to see how many new rows to request
+            if source["source"] in file:
+                # Set the existing file to the file name
+                existing_file = os.path.join(output_dir, file)
+                print(f"Existing data found for {source['source']} file. Replacing with data with new {rows} rows from API...")
+                break
+        # If no file exists we will safely create a brand new file
+        if existing_file is None:
+            print(f"Output folder exists, but contians no {source['source']} file. Requesting all {rows} rows from API...")
         # Request the data from the SODA API
         try:
             data = client.get(source["api_endpoint"], limit=limit)
@@ -108,8 +102,8 @@ def mn_ems_scrape(driver):
         # Collect the current date for filename
         date = datetime.now().strftime("%Y-%m-%d").replace("-", "")
         # Remove the existing file if there is one
-        if "existing_file" in locals():
-            os.remove(os.path.join(output_dir, existing_file))
+        if existing_file is not None:
+            os.remove(existing_file)
             print(f"Old {source['source']} data removed from output directory!")
         # Save the data to a csv file in the output directory
         data.to_csv(os.path.join(output_dir, f"{date}_{source['source']}.csv"), index=False)
