@@ -15,6 +15,7 @@ from alive_progress import alive_bar
 sys.dont_write_bytecode = True
 sys.path.append("data_scraping/scraping_utilities")
 from driver import start_driver
+from checkUps import checkup_output
 
 #######################################################################################
 #                                       Notes:                                        #
@@ -52,27 +53,19 @@ from driver import start_driver
 # Function to do the actual scraping
 def bc_drugsense_scrape(driver):
     # Check for any output file in the output directory
-    output_dir = os.path.join(os.getcwd(), "output")
-    # If the output doesn't exist, neither will the file so we need to scrape all the data
-    if not os.path.exists(output_dir):
-        print("No output folder found, scraping all data from BCCSU DrugSense website...")
+    output_dir, needed_files, existing_files = checkup_output(["bcDrugSense"])
+    # If bcDrugSense is in the needed list, scrape all the data
+    if "bcDrugSense" in needed_files:
+        print("No existing data found. Scraping all data from BCCSU DrugSense website...")
         scrape_all = True
-    # Otherwise, we need to check if there is a bcDugSense file in the output directory
+    # Otherwise, check the existing data to see how much to scrape
     else:
-        for file in os.listdir(output_dir):
-            if "bcDrugSense" in file:
-                scrape_all = False
-                break
-            else:
-                scrape_all = True
-        if scrape_all:
-            print("Output folder exists, but contians no bcDrugSense file. Scraping all data from BCCSU DrugSense website...")
-        else:
-            # If we are not scraping all the data, we need to pull the first 5 rows of the table so we can check it against the website
-            print("A bcDrugSense file was found in the output folder! Scraping new data from the BCCSU DrugSense website...")
-            # Also load the csv so that we can join the new data and old data together
-            existing_data = pandas.read_csv(os.path.join(output_dir, file))
-            data_to_check = existing_data.head(5).fillna("")
+        # If we are not scraping all the data, we need to pull the first 5 rows of the table so we can check it against the website
+        print("A bcDrugSense file was found in the output folder! Scraping new data from the BCCSU DrugSense website...")
+        # Also load the csv so that we can join the new data and old data together
+        existing_data = pandas.read_csv(os.path.join(output_dir, existing_files[0]))
+        data_to_check = existing_data.head(5).fillna("")
+        scrape_all = False
     # Go to the website
     driver.get("https://bccsu-drugsense.onrender.com/")
     # Click the results tab and wait for it to load
