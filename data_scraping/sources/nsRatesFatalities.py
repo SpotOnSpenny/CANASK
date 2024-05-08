@@ -15,6 +15,7 @@ from sodapy import Socrata
 sys.dont_write_bytecode = True
 sys.path.append("data_scraping/scraping_utilities")
 from driver import start_driver
+from checkUps import checkup_output
 
 
 #######################################################################################
@@ -42,6 +43,8 @@ def ns_ratesfatalities_scrape(driver):
         "url": "https://data.novascotia.ca/Health-and-Wellness/Numbers-and-rates-of-substance-related-fatalities-/iu6y-z4n3/about_data",
         "api_endpoint": "iu6y-z4n3"}
     ]
+    # Check for the output directory and needed files
+    output_dir, needed_files, existing_files = checkup_output([source["source"] for source in ems_sources])
     # Instantiate the SODA API client
     client = Socrata("data.novascotia.ca", None)
     # Loop through the URLs to collect the data
@@ -53,33 +56,20 @@ def ns_ratesfatalities_scrape(driver):
             rows = WebDriverWait(driver, 10).until(expected_conditions.presence_of_element_located((By.XPATH, "//dt[contains(text(), 'Rows')]/following-sibling::dd"))).text
             # At the time of writing, this page only has 5000 some odd rows, and it is displayed as "5,xxx", so we do not need to remove the K and *1000
             if "K" in rows:
-                rows = int(float(rows.replace("K", "")) * 1000)
+                limit = int(float(rows.replace("K", "")) * 1000) + 100 # Add 100 to the limit to be safe, in case it's 120 rows that are different or something
             else:
-                rows = int(rows.replace(",", ""))
+                limit = int(rows.replace(",", "")) + 100 # Add 100 to the limit to be safe, in case it's 120 rows that are different or something
         except TimeoutException:
             print(f"Timed out waiting for {source['source']} to load.")
             quit(1)
-        # Check if there's existing output directory
-        output_dir = os.path.join(os.getcwd(), "output")
-        # Instantiate a "limit" variable to determine how many rows to request from the API
-        limit = None
-        # If there's not, then we need to request all data
-        if not os.path.exists(output_dir):
-            print(f"No output folder found, requesting all {rows} rows from API for {source['source']}...")
-            os.mkdir(output_dir)
-            limit = rows + 100 # Add 100 to the limit to be safe, in case it's 120 rows that are different or something
-        # Otherwise, check if there's an existing file for this source
-        else:
-            for file in os.listdir(output_dir):
-                # If there is an existing file, then compare the rows to see how many new rows to request
-                if source["source"] in file:
-                    existing_file = file
-                    limit = rows + 100 # Add 100 to the limit to be safe, in case it's 120 rows that are different or something
-                    print(f"Existing data found for {source['source']} file. Requesting newest {rows} rows from API...")
-            # If limit is still none, then we need to request all the data, because there was no existing file in the output directory
-            if limit is None:
-                print(f"Output folder exists, but contians no {source['source']} file. Requesting all {rows} rows from API...")
-                limit = rows + 100 # Add 100 to the limit to be safe, in case it's 120 rows that are different or something
+        # Check if there's an existing file for this source
+        existing_file = None
+        if source["source"] not in needed_files:
+            existing_file = [file for file in existing_files if source["source"] in file][0]
+            print(f"Existing data found for {source['source']} file. Replacing with new data containing {rows} rows...")
+        # If limit is still none, then we need to request all the data, because there was no existing file in the output directory
+        if existing_file is None:
+            print(f"Output folder exists, but contians no {source['source']} file. Requesting all {rows} rows from API...")
         # Request the data from the SODA API
         try:
             data = client.get(source["api_endpoint"], limit=limit)
@@ -91,7 +81,7 @@ def ns_ratesfatalities_scrape(driver):
         # Collect the current date for filename
         date = datetime.now().strftime("%Y-%m-%d").replace("-", "")
         # Remove the existing file if there is one
-        if "existing_file" in locals():
+        if existing_file is not None:
             os.remove(os.path.join(output_dir, existing_file))
             print(f"Old {source['source']} data removed from output directory!")
         # Save the data to a csv file in the output directory

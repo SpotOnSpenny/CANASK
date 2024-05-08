@@ -81,13 +81,9 @@ def mn_ems_scrape(driver):
             quit(1)
         # Check if there's an existing file for this source
         existing_file = None
-        for file in existing_files:
-            # If there is an existing file, then compare the rows to see how many new rows to request
-            if source["source"] in file:
-                # Set the existing file to the file name
-                existing_file = os.path.join(output_dir, file)
-                print(f"Existing data found for {source['source']} file. Replacing with data with new {rows} rows from API...")
-                break
+        if source["source"] not in needed_files:
+            existing_file = [file for file in existing_files if source["source"] in file][0]
+            print(f"Existing data found for {source['source']} file. Replacing with new data containing {rows} rows...")
         # If no file exists we will safely create a brand new file
         if existing_file is None:
             print(f"Output folder exists, but contians no {source['source']} file. Requesting all {rows} rows from API...")
