@@ -88,25 +88,6 @@ def ns_ratesfatalities_scrape(driver):
         data.to_csv(os.path.join(output_dir, f"{date}_{source['source']}.csv"), index=False)
         print(f"{source['source']} data saved to output directory!")
 
-# I think the workflow will go something like this
-# 1. check for the output directory and needed files
-    # If one exists, then check the date
-# 2. Request from the API based on the date of existing data
-    # If the most recent call was today, tell them to screw off, exit the function
-    # If the most recent call was yesterday or beyond, request data since then
-    # If there is no existing data, request all data
-# 3. Unzip the CSV and load it into a pandas dataframe
-# 4. Do some data cleaning
-    # We want to seperate the large dataframe into smaller ones based on Area and Criminal Code
-    # We want to remove any rows that are not related to substance use
-        # We also may want to think about instead, just building a better query to the API to only get the data we want, instead of parsing through it
-        # Trouble is, at this stage we don't actually know what the data we want looks like which makes this difficult
-            # For instance, we may want more granular aggregate geographic data later on, beyond just province wide
-# 5. Save the data to the output directory under several different files based on geographic area
-    # ex. date_nsRatesFatalities.csv, date_peRatesFatalities.csv, date_nlRatesFatalities.csv, etc.
-    # Remember, this data source is for ALL the Atlantic provinces, so we should be able to get data for all of them from the single source
-
-
 # Test code below
 if __name__ == "__main__":
     driver = start_driver(headless=True)
