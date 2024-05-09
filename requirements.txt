@@ -1,5 +1,5 @@
 selenium
+pandas
 alive-progress
 sodapy
 urllib3
-zipfile

@@ -1,16 +1,21 @@
 # Python Standard Library Imports
-import urllib3
 import json
 import os
 import shutil
 import zipfile
 import pandas
+import sys
+
+import csv
 
 # External Dependency Imports
-
+import urllib3
+from alive_progress import alive_bar
 
 # Internal Dependency Imports
-
+sys.dont_write_bytecode = True
+sys.path.append("data_scraping/scraping_utilities")
+from checkUps import checkup_output
 
 #######################################################################################
 #                                       Notes:                                        #
@@ -35,40 +40,57 @@ import pandas
 # once the massive CSV is pulled, that we should go through and process it into       #
 # smaller chunks related to the specific data that we're looking for. I imagine we    #
 # can do this based on the type of violation and also the Geography.                  #
+#                                                                                     #
+# The API also provides a method for looking identifying the tables that have changed #
+# since a specific date. To avoid pulling the same data over and over again, we'll    #
+# instead use this method getCubeMetadata. This allows us to see the date of the last #
+# datapoint. **NOTE** This is used to name the file as well so that we can easily see #
+# the date of the data, as opposed to the other sources, which are named with the     #
+# date of the last pull for comparison.
 #######################################################################################
 
 # Function to pull the data used on the New Brunswick Public Safety Crime Dashboard
 def nb_crime_scrape():
-    # Check for output directory, make it if one doesn't exist
-    output_dir = os.path.join(os.getcwd(), "output")
-    if not os.path.exists(output_dir):
-        print("No output directory")
-    # If the rawCSV.zip file already exists, skip the download
-    if os.path.exists(os.path.join(output_dir, "rawCSV.zip")):
-        print("rawCSV.zip file already exists in the output directory. Skipping download.")
-    # Otherwise, download the csv from the source
-    else:
-        print("No rawCSV.zip file found in the output directory. Downloading...")
-        # Request the data using the API
-        http = urllib3.PoolManager()
-        response = http.request("GET",  "https://www.statcan.gc.ca/t1/wds/rest/")#"https://www150.statcan.gc.ca/t1/wds/rest/getFullTableDownloadCSV/35100178/en")
-        response = json.loads(response.data.decode("utf-8"))
-        #TODO Add error handling here
-        # Download the zip file from the url in the response
-        with http.request('GET', response["object"], preload_content=False) as data_response, open(os.path.join(output_dir, "rawCSV.zip"), 'wb') as out_file:       
-            print("Downloading raw data csv zip file. This may take a while...")
-            shutil.copyfileobj(data_response, out_file)
-        # Release the connection stream
-        data_response.release_conn()
+    # Set up the http client to make requests to the Stat Can API
+    http = urllib3.PoolManager()
+
+    # Pull the metadata to get the date of the last data point
+    # TODO Add error handling here for the API request
+    metadata = http.request("POST", "https://www150.statcan.gc.ca/t1/wds/rest/getCubeMetadata", body=json.dumps([{"productId": 35100178}]), headers={"Content-Type": "application/json"})
+    end_date = json.loads(metadata.data.decode("utf-8"))[0]["object"]["cubeEndDate"]
+
+    # Check the output directory for the data
+    output_dir, needed_files, existing_files = checkup_output(["35100178"])
+    # Check if the existing files are up to  date, exit if they are
+    for file in existing_files:
+        if file.split("_")[0] == end_date and file.split("_")[1] == "35100178":
+            print("Data from Atlantic Canada is up to date! No need to pull it again.")
+            return
+    # Check existing files to see if there's a CSV that we need to delete
+    for file in existing_files:
+        if file.split("_")[1] == "35100178":
+            existing_file = os.path.join(output_dir, file)
+    # If the data is not up to date, pull the data
+    response = http.request("GET",  "https://www.statcan.gc.ca/t1/wds/rest/")#"https://www150.statcan.gc.ca/t1/wds/rest/getFullTableDownloadCSV/35100178/en")
+    response = json.loads(response.data.decode("utf-8"))
+    #TODO Add error handling here
+    # Download the zip file from the url in the response
+    with http.request('GET', response["object"], preload_content=False) as data_response, open(os.path.join(output_dir, "rawCSV.zip"), 'wb') as out_file:       
+        print("Downloading raw data csv zip file. This may take a while...")
+        shutil.copyfileobj(data_response, out_file)
+    # Release the connection stream
+    data_response.release_conn()
     # Unzip the raw csv, without extracting the metadata
     print("Extracting the raw data csv file from the downloaded zip file...")
     with zipfile.ZipFile(os.path.join(output_dir, "rawCSV.zip"), "r") as zip_object:
         zip_object.extract("35100178.csv", output_dir)
-    # Remove the zipfile now that we have the csv
-    os.remove(os.path.join(output_dir, "rawCSV.zip"))
-    # Split the CSV into smaller files based on the data we're interested in
-    print("Processing the raw data csv file into smaller files...")
-    raw_dataframe = pandas.read_csv(os.path.join(output_dir, "35100178.csv"))
+    # Open the CSV  into a pandas dataframe
+    raw_data = pandas.read_csv(os.path.join(output_dir, "35100178.csv"))
+    # Clean out data that is out of scope (date, and non-substance related data)
+    raw_data = raw_data.loc[int(raw_data["REF_DATE"]) >= 2007]
+    # Cleanup output and remove files no longer needed
+    
+
 
 # I think the workflow will go something like this
 # 1. check for the output directory and needed files
@@ -88,7 +110,45 @@ def nb_crime_scrape():
     # ex. date_nsRatesFatalities.csv, date_peRatesFatalities.csv, date_nlRatesFatalities.csv, etc.
     # Remember, this data source is for ALL the Atlantic provinces, so we should be able to get data for all of them from the single source
 
+# CSV Generator function to iterate/clean the data at the same time
+def data_generator(file: str, year: int):
+    try:
+        print("Beginning data cleaning...")
+        # Open the CSV with chunks
+        reader = pandas.read_csv(file, chunksize=10000)
+        # Find the first chunk with data from target year
+        for chunk in reader:
+            if chunk.tail(1)["REF_DATE"].values[0] >= year:
+                chunk_with_index = chunk
+                break
+        # Find the first row with data from target year
+        for index, row in chunk_with_index.iterrows():
+            # Find the first row with 
+            if row["REF_DATE"] == year:
+                first_year_row = index
+                break
+        print("Found the index of the first row with data from 2007")
+        # Instantiate the list of codes for drug related offences
+        drug_offences = ["401", "4140", "4120", "410", "4110", "4130", "420", "4240", "4340", "4440", "430", "4220", "4320", "440", "440", "4210", "4230", "4310", "4330"]
+        # Open the CSV (still in chunks), skipping to the first row with data from target year
+        reader = pandas.read_csv(file, chunksize=10000, skiprows=range(1, first_year_row))
+        # Iterate over each row, chunk by chunk and yield each row that's relevant
+        chunk_num = 1
+        for chunk in reader:
+            with alive_bar(len(chunk), title=f"Iterating over data chunk {chunk_num}") as bar:
+                for index, row in chunk.iterrows():
+                    if any(code in row["Violations"] for code in drug_offences):
+                        yield row
+                bar()
+            chunk_num += 1
+    except KeyboardInterrupt:
+        return
+    except Exception as e:
+        print(e)
 
 # Test code below
 if __name__ == "__main__":
-    nb_crime_scrape()
+    output_dir, needed_files, existing_files = checkup_output(["35100178"])
+    # Open the CSV using a generator
+    print(list(data_generator()))
+    
