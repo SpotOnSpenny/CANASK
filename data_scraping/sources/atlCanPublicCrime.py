@@ -127,9 +127,9 @@ def data_generator(file: str, year: int):
             if row["REF_DATE"] == year:
                 first_year_row = index
                 break
-        print("Found the index of the first row with data from 2007")
+        print(f"Row {first_year_row} is the first row with data from {year}. Cleaining data from that row on...")
         # Instantiate the list of codes for drug related offences
-        drug_offences = ["401", "4140", "4120", "410", "4110", "4130", "420", "4240", "4340", "4440", "430", "4220", "4320", "440", "440", "4210", "4230", "4310", "4330"]
+        drug_offences = ["[401]", "[4140]", "[4120]", "[410]", "[4110]", "[4130]", "[420]", "[4240]", "[4340]", "[4440]", "[430]", "[4220]", "[4320]", "[440]", "[440]", "[4210]", "[4230]", "[4310]", "[4330]"]
         # Open the CSV (still in chunks), skipping to the first row with data from target year
         reader = pandas.read_csv(file, chunksize=10000, skiprows=range(1, first_year_row))
         # Iterate over each row, chunk by chunk and yield each row that's relevant
@@ -139,7 +139,7 @@ def data_generator(file: str, year: int):
                 for index, row in chunk.iterrows():
                     if any(code in row["Violations"] for code in drug_offences):
                         yield row
-                bar()
+                    bar()
             chunk_num += 1
     except KeyboardInterrupt:
         return
@@ -150,5 +150,5 @@ def data_generator(file: str, year: int):
 if __name__ == "__main__":
     output_dir, needed_files, existing_files = checkup_output(["35100178"])
     # Open the CSV using a generator
-    print(list(data_generator()))
+    print(list(data_generator("output/35100178.csv", 2007)))
     
