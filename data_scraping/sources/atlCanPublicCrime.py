@@ -55,60 +55,66 @@ def nb_crime_scrape():
     http = urllib3.PoolManager()
 
     # Pull the metadata to get the date of the last data point
-    # TODO Add error handling here for the API request
-    metadata = http.request("POST", "https://www150.statcan.gc.ca/t1/wds/rest/getCubeMetadata", body=json.dumps([{"productId": 35100178}]), headers={"Content-Type": "application/json"})
-    end_date = json.loads(metadata.data.decode("utf-8"))[0]["object"]["cubeEndDate"]
+    try:
+        metadata = http.request("POST", "https://www150.statcan.gc.ca/t1/wds/rest/getCubeMetadata", body=json.dumps([{"productId": 35100178}]), headers={"Content-Type": "application/json"})
+        end_date = json.loads(metadata.data.decode("utf-8"))[0]["object"]["cubeEndDate"].replace("-", "")
+    except:
+        print("Error pulling metadata from the Stat Can API. Exiting...")
+        return
 
     # Check the output directory for the data
-    output_dir, needed_files, existing_files = checkup_output(["35100178"])
+    output_dir, needed_files, existing_files = checkup_output(["atlCanPublicCrime"])
     # Check if the existing files are up to  date, exit if they are
     for file in existing_files:
-        if file.split("_")[0] == end_date and file.split("_")[1] == "35100178":
+        if file.split("_")[0] == end_date and "atlCanPublicCrime" in file.split("_")[1]:
             print("Data from Atlantic Canada is up to date! No need to pull it again.")
             return
     # Check existing files to see if there's a CSV that we need to delete
     for file in existing_files:
-        if file.split("_")[1] == "35100178":
+        if "atlCanPublicCrime" in file.split("_")[1]:
             existing_file = os.path.join(output_dir, file)
+            previous_year = int(file.split("_")[0][:4])
+            print(f"Found existing file {file} in the output directory. Appending data from {previous_year} onward...")
+            break
+        else:
+            print("No existing file found, generating data from 2007 onward...")
+            previous_year = 2007
+            existing_file = None
+
     # If the data is not up to date, pull the data
-    response = http.request("GET",  "https://www.statcan.gc.ca/t1/wds/rest/")#"https://www150.statcan.gc.ca/t1/wds/rest/getFullTableDownloadCSV/35100178/en")
-    response = json.loads(response.data.decode("utf-8"))
-    #TODO Add error handling here
-    # Download the zip file from the url in the response
-    with http.request('GET', response["object"], preload_content=False) as data_response, open(os.path.join(output_dir, "rawCSV.zip"), 'wb') as out_file:       
-        print("Downloading raw data csv zip file. This may take a while...")
-        shutil.copyfileobj(data_response, out_file)
+    try:
+        response = http.request("GET",  "https://www150.statcan.gc.ca/t1/wds/rest/getFullTableDownloadCSV/35100178/en")
+        response = json.loads(response.data.decode("utf-8"))
+        # Download the zip file from the url in the response
+        with http.request('GET', response["object"], preload_content=False) as data_response, open(os.path.join(output_dir, "rawCSV.zip"), 'wb') as out_file:       
+            print("Downloading raw data csv zip file. This may take a while...")
+            shutil.copyfileobj(data_response, out_file)
+    except:
+        print("Error downloading the raw data csv zip file. Exiting...")
+        return
     # Release the connection stream
     data_response.release_conn()
     # Unzip the raw csv, without extracting the metadata
     print("Extracting the raw data csv file from the downloaded zip file...")
     with zipfile.ZipFile(os.path.join(output_dir, "rawCSV.zip"), "r") as zip_object:
         zip_object.extract("35100178.csv", output_dir)
-    # Open the CSV  into a pandas dataframe
-    raw_data = pandas.read_csv(os.path.join(output_dir, "35100178.csv"))
+
     # Clean out data that is out of scope (date, and non-substance related data)
-    raw_data = raw_data.loc[int(raw_data["REF_DATE"]) >= 2007]
-    # Cleanup output and remove files no longer needed
-    
+    cleaned = [row for row in data_generator(os.path.join(output_dir, f"35100178.csv"), previous_year)]
+    cleaned_dataframe = pandas.DataFrame(cleaned)
+    # Write the cleaned data to a CSV, or append to the existing csv if it exists
+    if existing_file:
+        cleaned_dataframe.to_csv(existing_file, mode="a", header=False, index=False)
+        os.rename(existing_file, os.path.join(output_dir, f"{end_date}_atlCanPublicCrime.csv"))
+    else:
+        cleaned_dataframe.to_csv(os.path.join(output_dir, f"{end_date}_atlCanPublicCrime.csv"), index=False)
 
+    # Clean up the zip file and the raw csv
+    print("Cleaning up the raw data files...")
+    os.remove(os.path.join(output_dir, "rawCSV.zip"))
+    os.remove(os.path.join(output_dir, "35100178.csv"))
+    print("Finished extracting and cleaning the data from the New Brunswick Public Safety Crime Dashboard!")
 
-# I think the workflow will go something like this
-# 1. check for the output directory and needed files
-    # If one exists, then check the date
-# 2. Request from the API based on the date of existing data
-    # If the most recent call was today, tell them to screw off, exit the function
-    # If the most recent call was yesterday or beyond, request data since then
-    # If there is no existing data, request all data
-# 3. Unzip the CSV and load it into a pandas dataframe
-# 4. Do some data cleaning
-    # We want to seperate the large dataframe into smaller ones based on Area and Criminal Code
-    # We want to remove any rows that are not related to substance use
-        # We also may want to think about instead, just building a better query to the API to only get the data we want, instead of parsing through it
-        # Trouble is, at this stage we don't actually know what the data we want looks like which makes this difficult
-            # For instance, we may want more granular aggregate geographic data later on, beyond just province wide
-# 5. Save the data to the output directory under several different files based on geographic area
-    # ex. date_nsRatesFatalities.csv, date_peRatesFatalities.csv, date_nlRatesFatalities.csv, etc.
-    # Remember, this data source is for ALL the Atlantic provinces, so we should be able to get data for all of them from the single source
 
 # CSV Generator function to iterate/clean the data at the same time
 def data_generator(file: str, year: int):
@@ -148,7 +154,4 @@ def data_generator(file: str, year: int):
 
 # Test code below
 if __name__ == "__main__":
-    output_dir, needed_files, existing_files = checkup_output(["35100178"])
-    # Open the CSV using a generator
-    print(list(data_generator("output/35100178.csv", 2007)))
-    
+    nb_crime_scrape()
