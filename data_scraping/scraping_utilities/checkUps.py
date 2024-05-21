@@ -50,5 +50,5 @@ def checkup_output(needed_files: list):
 # Test code below
 if __name__ == "__main__":
     # Test the checkup_output function
-    output_dir, needed_files, existing_files = checkup_output(["35100178", "test.txt"])
+    output_dir, needed_files, existing_files = checkup_output(["skPubCentre", "test.txt"])
     print(existing_files)

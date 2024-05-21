@@ -3,3 +3,5 @@ pandas
 alive-progress
 sodapy
 urllib3
+tabula-py
+jpype1
