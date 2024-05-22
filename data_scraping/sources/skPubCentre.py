@@ -20,14 +20,13 @@ sys.path.append("data_scraping/scraping_utilities")
 from driver import start_driver
 from checkUps import checkup_output
 
-#TODO Fix these notes to be accurate
 #######################################################################################
 #                                       Notes:                                        #
 # This data source is quirky, and not like the other data sources. Instead of having  #
 # data exist in a table, or a chart, or extractable format, it instead is a report in #
 # PDF format. We can simply request the URL and download the PDF in order to get the  #
 # raw data, but we'll still need to parse the PDF in order to extrac the data into a  #
-# machine readable format like a CSV, as we have been for the other databases. PyPDF2 #
+# machine readable format like a CSV, as we have been for the other databases. PyPDF  #
 # seems to be the best library for this task, so this file will use that.             #
 #                                                                                     #
 # The data source page is https://publications.saskatchewan.ca/#/products/90505, and  #
@@ -38,25 +37,20 @@ from checkUps import checkup_output
 #                                                                                     #
 # Parsing the PDF will be somewhat interesting as well as the PDF is essentially just #
 # a bunch of tables with a hard to read structure. To do so, the script makes use of  #
-# the "Tabula" library which requires Java, as it's just a Python wrapper for a Java  #
-# library. Tabula extracts these tables, making use of a pre-defined template made in #
-# the Tabula app, and returns a list of dataframes. The dataframes are then iterated  #
-# over in order to make final formatting changes, and saved as an excel file with     #
-# different "sheets" for each of the tables in the report. While the other data       #
-# sources use CSV files, it makes more sense here to use an excel file, as there is a #
-# number of different tables containing different types of data from the same source. #
-#                                                                                     #
-#                              *** PLEASE NOTE ***                                    #
-# Since Tabula uses a template in order to extract the tables, it may become out of   #
-# date at some point, which would result in missed data. The script will check the    #
-# number of pages in the report against the expected number to ensure that we are     #
-# getting all the data, and then provide warnings if the template is out of date, but #
-# it will likely need to be updated manually every year, every time a new table is    #
-# added, or whichever comes first.                                                    # 
+# a pretty large match case statement which parses the doccument line by line and     #
+# searches for the titles of tables that we expect to see in the report. This means   #
+# that the script will always be able to find the tables, and won't have an issue as  #
+# new years/months are updated and added. However, the tradeoff here is that the      #
+# script will need to be updated with new titles and new ruels when new tables are    #
+# added. In order to watch for this, the script will first check how many pages are   #
+# in the report, to see if it matches what we expect to see. If there are more tables #
+# then there will be more pages, and the script will spit out a warning stating this. #
+# The script will also not delete the raw pdf so that there's an opportunity to check #
+# and see what data was missed if any, or otherwise update the scripts expected pages #
 #######################################################################################
 
 # Function to scrape the Saskatchewan Publication Centre coroners report
-def sk_pubcentre_scrape(driver):
+def sk_pubcentre_scrape(driver, expected_pages):
     # Check for files and output directory
     output_dir, needed_files, existing_files = checkup_output(["skPubCentre"])
     # Check if there's existing data
@@ -94,10 +88,11 @@ def sk_pubcentre_scrape(driver):
     else:
         print("A newer report has been published! Extracting data from the newest report...")
     # If we aren't up to date,check to see if anything new and spicy has been added to the report by checking the number of pages
-    if pages > 25:
-        print("The number of pages in the report has changed. The template may be out of date.")
+    dont_delete = False
+    if pages != expected_pages:
+        print("The number of pages in the report has changed but the scraper will only catch expected tables.")
         print("Running the extraction anyways, but be sure to check the raw data for missing data!")
-        print("The raw data will not be deleted from the output directory.")
+        print("The raw data will not be deleted from the output directory for follow up use.")
         dont_delete = True
     # Look for the table titles in the pages of the report
     titles =[
@@ -112,7 +107,7 @@ def sk_pubcentre_scrape(driver):
         "Benzodiazepines by Manner of Death, Sex and",
         "Confirmed Drug Toxicity Deaths by Place of Death",
         "Number of Confirmed Deaths Where Methamphetamine Toxicity was Part of the Cause of Death",
-        "Number of Confirmed Deaths Where Xylazine Toxicity was Part of the Cause of Death",
+        "Xylazine Toxicity",
     ]
     # Instantiate a list of data frames to hold the tables
     report_tables = []
@@ -127,13 +122,14 @@ def sk_pubcentre_scrape(driver):
     header = ""
     spaceless_titles = [title.lower().replace(" ", "") for title in titles]
     end_of_table = ["", " ", "  ", "   ", "/n"]
-    table_footnotes = ["Please note that this table", "This current table includes"]
+    table_footnotes = ["Please note", "This current table includes"]
     non_title_indicators = ["updated", "statistics", "shown"]
     title = ""
     previous_title = ""
     title_set = False
     ignore_next = False
     skip_until = 0
+    save_table = False
     # Iterate over the lines of the PDF until we find a title
     # Using spaceless titles and lines to account for weird spacing from PyPDF
     for line_index, line in enumerate(pdf_lines):
@@ -194,7 +190,8 @@ def sk_pubcentre_scrape(driver):
                     # If it's not the first data row and the year is not there, set the year as the most recent year
                     elif any(manner in line for manner in ["Accident", "Suicide", "Homicide", "Undetermined"]) and not table.empty and not line[0].isnumeric():
                         line = f"{year} {line}"
-                case title if spaceless_titles[4] in spaceless_title or spaceless_titles[6] in spaceless_title:  
+                case title if spaceless_titles[4] in spaceless_title or spaceless_titles[6] in spaceless_title:
+                    # Basic Cleaning  
                     line = line.strip().replace("non -s", "nonS")
                     while "  " in line: 
                         line = line.replace("  ", " ")
@@ -273,6 +270,8 @@ def sk_pubcentre_scrape(driver):
                     if line.startswith("Race"):
                         skip_line = True
                         ignore_next = True
+                    if line.startswith("2024") and not table.empty:
+                        skip_line = True
                     # If the line is a header
                     if line[0].isnumeric():
                         line = "MannerOfDeath Sex Race " + line
@@ -377,7 +376,6 @@ def sk_pubcentre_scrape(driver):
                     line = line.strip()
                     while "  " in line:
                         line = line.replace("  ", " ")
-                    print(line, datetime.datetime.now().year)
                     # If the line is leftover from the title then skip it and ignore the next empty line
                     if line.startswith("2016 –") and table.empty:
                         skip_line = True
@@ -393,11 +391,31 @@ def sk_pubcentre_scrape(driver):
                     # If the line is a row of non-data silly header formatting, just skip it
                     elif not line[0].isnumeric() and len(table) == 1:
                         skip_line = True
+                    # If the row date is the current year, it's the end of the table, and we need to insert a table end indicator line in the lines list
+                    elif line.startswith(str(datetime.datetime.now().year)):
+                        save_table = True
+                case title if spaceless_titles[11] in spaceless_title:
+                    # Basic cleaning
+                    line = line.strip()
+                    while "  " in line:
+                        line = line.replace("  ", " ")
+                    # Set the table title becasue it appears on multiple rows
+                    if not title_set:
+                        title = "Number of Confirmed Deaths Where Xylazine Toxicity was Part of the Cause of Death"
+                        title_set = True
+                        # Manually set the header
+                        header = "Year DeathsWhereXylazineToxicityWasSoleCause DeathsWhereCombinedToxicityWithXylazineWasCause Total"
+                        # Add the header to the table
+                        table = table._append(pandas.Series(header.split(" ")), ignore_index=True)
+                    if not line[0].isnumeric():
+                        skip_line = True
+                    if line.startswith(str(datetime.datetime.now().year)):
+                        save_table = True
             # Append the line to the table
             if not skip_line:
                 table = table._append(pandas.Series(line.split(" ")), ignore_index=True)
         # If we find the end of the table
-        elif (not searching) and (line in end_of_table) and (not ignore_next) and (skip_until == 0):
+        elif ((not searching) and (line in end_of_table) and (not ignore_next) and (skip_until == 0)) or save_table:
             # If the title is not the same as the last one (ie. a new table), then add the table to the list
             if previous_title.strip().replace(" ", "").replace("–", "-") != title.strip().replace(" ", "").replace("–", "-") :
                 # Add the title to the table so we know what data it is
@@ -414,28 +432,27 @@ def sk_pubcentre_scrape(driver):
             searching = True
             title_set = False
             previous_title = title
-            # For testing only
-            if len(report_tables) == 13:
-                print(table)
-                quit()
+            save_table = False
         elif ignore_next:
             ignore_next = False
             continue
         elif skip_until > 0:
-            print("checking...")
             if line_index == skip_until:
                 skip_until = 0
             continue
         else:
             continue
-    
 
     # Save the dataframes to an excel file
     print("Saving the data to an excel file...")
     with pandas.ExcelWriter(os.path.join(output_dir, f"{date_of_report}_skPubCentre.xlsx")) as writer:
         for index, table in enumerate(report_tables):
             table.to_excel(writer, sheet_name=f"Table {index + 1}", index=False)
-    # Cleanup the raw data file if we're not keeping it
+
+    # Cleanup the raw data file
+    if not dont_delete:
+        os.remove(raw_data_file)
+        print("The raw data has been deleted, and cleanup is complete!")
 
 
 
@@ -443,5 +460,5 @@ def sk_pubcentre_scrape(driver):
 # Test code below
 if __name__ == "__main__":
     driver = start_driver(headless=True)
-    sk_pubcentre_scrape(driver)
+    sk_pubcentre_scrape(driver, 25)
     driver.quit()
