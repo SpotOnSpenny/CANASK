@@ -2,3 +2,4 @@ output/*
 __pycache__/
 *.py[cod]
 /build
+hyperd.log

@@ -8,7 +8,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 
 # Internal Dependency Imports
-
+from checkUps import checkup_output
 
 #####################################################################################
 #                                      Notes:                                       #
@@ -36,7 +36,7 @@ from selenium.webdriver.chrome.options import Options
 #####################################################################################
 
 # Function to start the web driver
-def start_driver(headless=False):
+def start_driver(headless=False, download_dir=False):
     # Get the os type
     operating_system =  platform.system()
     # Conver the os to a filepath
@@ -51,6 +51,11 @@ def start_driver(headless=False):
     options = Options()
     if headless:
         options.add_argument("--headless=new")
+    # Add the download directory option if provided
+    if download_dir:
+        output_dir, needed_files, existing_files = checkup_output([])
+        prefs = {"download.default_directory": output_dir}
+        options.add_experimental_option("prefs", prefs)
     # Start the driver
     driver = webdriver.Chrome(service=service, options=options)
     # Return the driver
