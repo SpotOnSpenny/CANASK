@@ -23,6 +23,15 @@ from driver import start_driver
 
 #######################################################################################
 #                                       Notes:                                        #
+# Turns out, Tableau is not so bad! So long as the data can be downloaded in a tableau#
+# workbook, it can essentially just be saved as a zip and then extracted from there   #
+# in .hyper files, which contains the data points that we need. Luckily, the pantab   #
+# library can read these files and convert them into dataframes, which can then be    #
+# saved as CSV files. That's all that's happening here!                               #
+#                                                                                     #
+# Theoretically, this could be used for any tableau workbook as well, so if we run    #
+# into more of these then we'll be able to extend this function to handle those as    #
+# well.                                                                               #
 #######################################################################################
 
 # Function to pull the data from the Opioid Indicator Dashboard
