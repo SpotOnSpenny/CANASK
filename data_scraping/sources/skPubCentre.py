@@ -447,7 +447,7 @@ def sk_pubcentre_scrape(driver, expected_pages):
     print("Saving the data to an excel file...")
     with pandas.ExcelWriter(os.path.join(output_dir, f"{date_of_report}_skPubCentre.xlsx")) as writer:
         for index, table in enumerate(report_tables):
-            table.to_excel(writer, sheet_name=f"Table {index + 1}", index=False)
+            table.to_excel(writer, sheet_name=f"Table {index + 1}")
 
     # Cleanup the raw data file
     if not dont_delete:
