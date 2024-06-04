@@ -31,17 +31,17 @@ def pull_data(data_source: str):
         file = [file for file in os.listdir(output_dir) if data_source in file][0]
         match file.split(".")[1]:
             case "csv":
-                return [pandas.read_csv(os.path.join(output_dir, file))]
+                return {f"{data_source}": pandas.read_csv(os.path.join(output_dir, file))}
             case "xlsx":
-                # Some rules needed for specific excel files to ensure data is parsed correctly
-                if "bcCoronersReport" in file:
-                    dataframes = pandas.read_excel(os.path.join(output_dir, file), sheet_name=None).values()
-                    for dataframe in dataframes:
-                        print(dataframe.columns)
-                        name = list(filter(lambda value: True if "Unnamed" not in value and value != "NaN" else False, dataframe.columns))[0]
-                        dataframe.columns = dataframe.iloc[0]
-                        print(dataframe)
-                        quit()
+                sheets = {}
+                dataframes = pandas.read_excel(os.path.join(output_dir, file), sheet_name=None).values()
+                for dataframe in dataframes:
+                    name = list(filter(lambda value: True if "Unnamed" not in value and value != "NaN" else False, dataframe.columns))[0]
+                    dataframe.set_flags(allows_duplicate_labels=False)
+                    dataframe.columns = dataframe.iloc[0]
+                    dataframe.dropna(axis=0, inplace=True)
+                    dataframe = dataframe.drop(dataframe.columns[[0]], axis=1).reset_index(drop=True)
+                    sheets[name] = dataframe
                 return sheets
 
     else:
@@ -55,5 +55,7 @@ def index():
 
 # Test code below
 if __name__ == '__main__':
-    frames = pull_data("bcCoronersReport")
-    print (len(frames))
+    frames = pull_data("skPubCentre")
+    for key in frames.keys():
+        print(key)
+        print(frames[key].head())

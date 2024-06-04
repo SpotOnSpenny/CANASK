@@ -84,6 +84,7 @@ def sk_pubcentre_scrape(driver, expected_pages):
     # Check if the current data is already up to date
     if date_of_report == date_scraped:
         print("The data is already up to date.")
+        os.remove(raw_data_file)
         return
     else:
         print("A newer report has been published! Extracting data from the newest report...")
@@ -110,7 +111,8 @@ def sk_pubcentre_scrape(driver, expected_pages):
         "Xylazine Toxicity",
     ]
     # Instantiate a list of data frames to hold the tables
-    report_tables = []
+    report_tables = {}
+
     # Put each new line of the PDF into a list
     pages = [page.extract_text() for page in reader.pages]
     pdf_lines = []
@@ -418,16 +420,14 @@ def sk_pubcentre_scrape(driver, expected_pages):
         elif ((not searching) and (line in end_of_table) and (not ignore_next) and (skip_until == 0)) or save_table:
             # If the title is not the same as the last one (ie. a new table), then add the table to the list
             if previous_title.strip().replace(" ", "").replace("–", "-") != title.strip().replace(" ", "").replace("–", "-") :
-                # Add the title to the table so we know what data it is
-                table.style.set_caption(title)
                 # add the table to the list of tables
-                report_tables.append(table)
+                report_tables[title.replace(" ", "").replace("–", "-")] = table
             # If the titles do match, and the table is the place of death breakdown, then we need to actually remove the first two rows as headers
             elif previous_title.strip().replace(" ", "").replace("–", "-") == title.strip().replace(" ", "").replace("–", "-") and (spaceless_titles[9] and "breakdown" in spaceless_title):
-                report_tables[-1] = pandas.concat([report_tables[-1], table.iloc[2:]], ignore_index=0)
+                report_tables[title.replace(" ", "").replace("–", "-")] = pandas.concat([report_tables[title.replace(" ", "").replace("–", "-")], table.iloc[2:]], ignore_index=True)
             # If the titles do match, then instead concatinate the new table and the last table in the list
             else:
-                report_tables[-1] = pandas.concat([report_tables[-1], table.iloc[1:]], ignore_index=0)
+                report_tables[title.replace(" ", " ").replace("–", "-")] = pandas.concat([report_tables[title.replace(" ", "").replace("–", "-")], table.iloc[1:]], ignore_index=True)
             # Reset the searching flag
             searching = True
             title_set = False
@@ -443,10 +443,24 @@ def sk_pubcentre_scrape(driver, expected_pages):
         else:
             continue
 
+    # Create the multiindex header for each table
+    for title, table in report_tables.items():
+        if title != "SuspectedDrugToxicityDeaths":
+            cols = table.iloc[0]
+            table.drop(0, inplace=True)
+            table.reset_index(drop=True, inplace=True)
+            table.columns = cols
+            table.columns.name = None
+            print(table.columns)
+            print(table.columns)
+        else:
+            table.columns = ["Year", "Suspected Deaths"]
+        report_tables[title].columns = pandas.MultiIndex.from_product([[title], table.columns])
+
     # Save the dataframes to an excel file
     print("Saving the data to an excel file...")
     with pandas.ExcelWriter(os.path.join(output_dir, f"{date_of_report}_skPubCentre.xlsx")) as writer:
-        for index, table in enumerate(report_tables):
+        for index, table in enumerate(report_tables.values()):
             table.to_excel(writer, sheet_name=f"Table {index + 1}")
 
     # Cleanup the raw data file
