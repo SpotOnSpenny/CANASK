@@ -33,10 +33,19 @@ def pull_data(data_source: str):
             case "csv":
                 return [pandas.read_csv(os.path.join(output_dir, file))]
             case "xlsx":
-                return [pandas.read_excel(os.path.join(output_dir, file))] #TODO adjust return for multiple sheets
+                # Some rules needed for specific excel files to ensure data is parsed correctly
+                if "bcCoronersReport" in file:
+                    dataframes = pandas.read_excel(os.path.join(output_dir, file), sheet_name=None).values()
+                    for dataframe in dataframes:
+                        print(dataframe.columns)
+                        name = list(filter(lambda value: True if "Unnamed" not in value and value != "NaN" else False, dataframe.columns))[0]
+                        dataframe.columns = dataframe.iloc[0]
+                        print(dataframe)
+                        quit()
+                return sheets
+
     else:
         raise FileNotFoundError(f"Data source {data_source} not found in the output directory!")
-
 
 ##################################### ROUTES ###########################################
 @main_blueprint.route("/")
@@ -46,4 +55,5 @@ def index():
 
 # Test code below
 if __name__ == '__main__':
-    print(pull_data("bcCoronersReport"))
+    frames = pull_data("bcCoronersReport")
+    print (len(frames))
