@@ -43,9 +43,17 @@ def pull_data(data_source: str):
                     dataframe = dataframe.drop(dataframe.columns[[0]], axis=1).reset_index(drop=True)
                     sheets[name] = dataframe
                 return sheets
-
     else:
         raise FileNotFoundError(f"Data source {data_source} not found in the output directory!")
+
+# Helper function to pull the data from the provided source into a dataframe
+def filter_data(data: dict, find_these: list):
+    dataframes = []
+    for key in data.keys():
+        if any(find_this == key.split(",")[0].lower().replace(" ", "") for find_this in find_these):
+            dataframes.append(data[key])
+    return dataframes
+
 
 ##################################### ROUTES ###########################################
 @main_blueprint.route("/")
@@ -55,7 +63,6 @@ def index():
 
 # Test code below
 if __name__ == '__main__':
-    frames = pull_data("skPubCentre")
-    for key in frames.keys():
-        print(key)
-        print(frames[key].head())
+    all_frames = pull_data("bcCoronersReport")
+    needed_frames = filter_data(all_frames, ["unregulateddrugdeathsbymonth", "unregulateddrugdeathsbydrugtyperelevanttodeath"])
+    print(needed_frames)
