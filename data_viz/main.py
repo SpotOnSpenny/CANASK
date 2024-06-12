@@ -6,7 +6,7 @@ from flask import Blueprint, render_template
 import pandas
 
 # Internal Dependency Imports
-
+from generateVisuals import pull_data, filter_data
 
 #######################################################################################
 #                                        Notes:                                       #
@@ -23,46 +23,14 @@ import pandas
 # Define the blueprint for the main application
 main_blueprint = Blueprint("main", __name__)
 
-#################################### UTILITIES #########################################
-# Helper function to pull data from the specified excel/csv file
-def pull_data(data_source: str):
-    output_dir = os.path.join(os.path.abspath(os.path.dirname(os.path.dirname(__file__))), "output")
-    if any(data_source in file for file in os.listdir(output_dir)):
-        file = [file for file in os.listdir(output_dir) if data_source in file][0]
-        match file.split(".")[1]:
-            case "csv":
-                return {f"{data_source}": pandas.read_csv(os.path.join(output_dir, file))}
-            case "xlsx":
-                sheets = {}
-                dataframes = pandas.read_excel(os.path.join(output_dir, file), sheet_name=None).values()
-                for dataframe in dataframes:
-                    name = list(filter(lambda value: True if "Unnamed" not in value and value != "NaN" else False, dataframe.columns))[0]
-                    dataframe.set_flags(allows_duplicate_labels=False)
-                    dataframe.columns = dataframe.iloc[0]
-                    dataframe.dropna(axis=0, inplace=True)
-                    dataframe = dataframe.drop(dataframe.columns[[0]], axis=1).reset_index(drop=True)
-                    sheets[name] = dataframe
-                return sheets
-    else:
-        raise FileNotFoundError(f"Data source {data_source} not found in the output directory!")
-
-# Helper function to pull the data from the provided source into a dataframe
-def filter_data(data: dict, find_these: list):
-    dataframes = []
-    for key in data.keys():
-        if any(find_this == key.split(",")[0].lower().replace(" ", "") for find_this in find_these):
-            dataframes.append(data[key])
-    return dataframes
-
-
 ##################################### ROUTES ###########################################
 @main_blueprint.route("/")
 def index():
     
     return render_template("index.html")
 
-# Test code below
+################################# Test Code Below ######################################
 if __name__ == '__main__':
-    all_frames = pull_data("bcCoronersReport")
-    needed_frames = filter_data(all_frames, ["unregulateddrugdeathsbymonth", "unregulateddrugdeathsbydrugtyperelevanttodeath"])
+    all_frames = pull_data("skPubCentre")
+    needed_frames = filter_data(all_frames, ["BreakdownofOpioidDrugsIdentifiedinConfirmedDrugToxicityDeathsbyMannerofDeath,2016-2024", "BreakdownofBenzodiazepineDrugsIdentifiedinConfirmedDrugToxicityDeathsbyMannerofDeath,2024"])
     print(needed_frames)
