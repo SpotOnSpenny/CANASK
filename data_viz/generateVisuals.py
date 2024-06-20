@@ -65,7 +65,6 @@ def drug_type_visual(data: dict):
                     sask_clean[year][key] = int(row[key])
                 elif key != "Year" and key != "MannerOfDeath" and key in sask_clean[year].keys() and row[key].isnumeric():
                     sask_clean[year][key] += int(row[key])
-    print(sask_clean)
 
     # Clean the data to get the aggregate values we need (BC Coroners Report Specific)
     bc_raw = filter_data(data, ["Unregulated Drug Deaths by Month, 2014-2024", "Unregulated Drug Deaths by Drug Types Relevant to Death"])
@@ -80,35 +79,62 @@ def drug_type_visual(data: dict):
             for index, row in enumerate(item):
                 bc_clean[name][drugs[index]] = (int(bc_raw[0].at[12, u"{0}\xa0".format(name)]) * (float(row.replace("%", "")) / 100)).__floor__()
 
-    # Generate the visual with Plotly
-    drugs = [item for sublist in [list(key.keys()) for key in list(bc_clean.values())] for item in sublist]
+    # Create traces for BC
+    bc_line_x = [key for key in bc_totals.keys() if bc_clean.get(key, False)]
+    bc_line_y = [bc_totals[year] for year in bc_line_x]
+    bc_drugs = [item for sublist in [list(key.keys()) for key in list(bc_clean.values())] for item in sublist]
     bc_axies = {
         "years": [year for year in bc_clean.keys()],
-        "drugs": sorted(list(set(drugs)))
+        "drugs": sorted(list(set(bc_drugs)))
     }
-    traces = {}
+    bc_drug_traces = {}
     for drug in bc_axies["drugs"]:
-        traces[drug] = plotly.graph_objects.Bar(
+        bc_drug_traces[drug] = plotly.graph_objects.Bar(
             x=bc_axies["years"],
             y=[bc_clean[year][drug] for year in bc_axies["years"]],
             name=drug if drug != "Meth/amph" else "Meth and Amphetamines",
         )
-    fig = plotly.graph_objects.Figure(data=list(traces.values()))
-    bc_line_x = [key for key in bc_totals.keys() if bc_clean.get(key, False)]
-    sask_line_x = [key for key in sask_clean["Total"].keys()]
-    fig.add_trace(plotly.graph_objects.Scatter(
+    bc_drug_traces["BC Totals"] = plotly.graph_objects.Scatter(
         x=bc_line_x,
-        y=[bc_totals[year] for year in bc_line_x],
-        name="Total Deaths",
-        marker=dict(color="gray"),
-    ))
-    fig.update_layout(
-        title="Number of Drug Toxicity Deaths by Drug Type and Year",
-        xaxis_title="Year",
-        yaxis_title="Number of Deaths",
-        showlegend=True
+        y=bc_line_y,
+        name="BC Total Deaths",
+        marker={"color": "gray"}
     )
-    #fig.show()
+    #fig = plotly.graph_objects.Figure(data=list(bc_drug_traces.values())) # Uncomment this line to see the BC data in testing
+
+    # Create traces for SK
+    sask_line_x = [key for key in sask_clean["Total"].keys()]
+    sask_line_y = [sask_clean["Total"][year] for year in sask_line_x]
+    sask_drugs = [drug for year in sask_clean if str(year).isnumeric() for drug in sask_clean[year]]
+    sask_axies = {
+        "years": [year for year in sask_clean.keys() if str(year).isnumeric()],
+        "drugs": sorted(list(set(sask_drugs)))
+    }
+    sask_drug_traces = {}
+    for drug in sask_axies["drugs"]:
+        sask_drug_traces[drug] = plotly.graph_objects.Bar(
+            x=sask_axies["years"],
+            y=[sask_clean[year].get(drug, None) for year in sask_axies["years"]],
+            name=drug
+        )
+    sask_drug_traces["SK Totals"] = plotly.graph_objects.Scatter(
+        x=sask_line_x,
+        y=sask_line_y,
+        name="SK Total Deaths",
+        marker={"color": "gray"}
+    )
+    fig = plotly.graph_objects.Figure(data=list(sask_drug_traces.values())) # Uncomment this line to see the BC data in testing
+    print(sask_clean["2022"])
+    # Create traces for combined Canada Wide Data
+
+    # Generate the visual and show it
+    # fig.update_layout(
+    #     title="Number of Drug Toxicity Deaths by Drug Type and Year",
+    #     xaxis_title="Year",
+    #     yaxis_title="Number of Deaths",
+    #     showlegend=True
+    # )
+    # fig.show()
 
 
 # Test code below

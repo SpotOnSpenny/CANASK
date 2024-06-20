@@ -423,7 +423,7 @@ def sk_pubcentre_scrape(driver, expected_pages):
                 # add the table to the list of tables
                 report_tables[title.replace(" ", "").replace("–", "-")] = table
             # If the titles do match, and the table is the place of death breakdown, then we need to actually remove the first two rows as headers
-            elif previous_title.strip().replace(" ", "").replace("–", "-") == title.strip().replace(" ", "").replace("–", "-") and (spaceless_titles[9] and "breakdown" in spaceless_title):
+            elif previous_title.strip().replace(" ", "").replace("–", "-") == title.strip().replace(" ", "").replace("–", "-") and (spaceless_titles[9] and "breakdown" in spaceless_title) and ("byplaceofdeath" in spaceless_title):
                 report_tables[title.replace(" ", "").replace("–", "-")] = pandas.concat([report_tables[title.replace(" ", "").replace("–", "-")], table.iloc[2:]], ignore_index=True)
             # If the titles do match, then instead concatinate the new table and the last table in the list
             else:

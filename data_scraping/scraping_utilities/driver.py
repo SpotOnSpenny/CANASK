@@ -40,7 +40,7 @@ def start_driver(headless=False, download_dir=False):
     # Get the os type
     operating_system =  platform.system()
     # Conver the os to a filepath
-    chromedriver_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), f"chromedriver-{operating_system.lower()}")
+    chromedriver_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), f"chromedriver_{operating_system.lower()}")
     # Check to ensure support, quit if unsupported
     if not os.path.exists(chromedriver_path):
         print(f"Sorry! {operating_system} is not a supported operating system. Please raise an issue on the github page to request support.")
