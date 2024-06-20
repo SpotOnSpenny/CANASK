@@ -427,7 +427,7 @@ def sk_pubcentre_scrape(driver, expected_pages):
                 report_tables[title.replace(" ", "").replace("–", "-")] = pandas.concat([report_tables[title.replace(" ", "").replace("–", "-")], table.iloc[2:]], ignore_index=True)
             # If the titles do match, then instead concatinate the new table and the last table in the list
             else:
-                report_tables[title.replace(" ", " ").replace("–", "-")] = pandas.concat([report_tables[title.replace(" ", "").replace("–", "-")], table.iloc[1:]], ignore_index=True)
+                report_tables[title.replace(" ", "").replace("–", "-")] = pandas.concat([report_tables[title.replace(" ", "").replace("–", "-")], table.iloc[1:]], ignore_index=True)
             # Reset the searching flag
             searching = True
             title_set = False
@@ -451,8 +451,6 @@ def sk_pubcentre_scrape(driver, expected_pages):
             table.reset_index(drop=True, inplace=True)
             table.columns = cols
             table.columns.name = None
-            print(table.columns)
-            print(table.columns)
         else:
             table.columns = ["Year", "Suspected Deaths"]
         report_tables[title].columns = pandas.MultiIndex.from_product([[title], table.columns])
