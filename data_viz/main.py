@@ -6,7 +6,7 @@ from flask import Blueprint, render_template
 import pandas
 
 # Internal Dependency Imports
-from generateVisuals import pull_data, filter_data
+from .generateVisuals import pull_data, filter_data
 
 #######################################################################################
 #                                        Notes:                                       #
@@ -27,8 +27,11 @@ main_blueprint = Blueprint("main", __name__)
 @main_blueprint.route("/")
 def index():
     
-    return render_template("index.html")
+    return render_template("index.jinja")
 
+@main_blueprint.route("/htmx-test")
+def htmx_test():
+    return render_template("div_swap.jinja")
 ################################# Test Code Below ######################################
 if __name__ == '__main__':
     all_frames = pull_data("skPubCentre")

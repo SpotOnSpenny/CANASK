@@ -33,9 +33,9 @@ assets.register(
 )
 
 assets.register(
-    "main_js",
+    "js_all",
     Bundle(
-        # Add any JS Files here as they are created
+        "js/htmx.min.js",
         filters="jsmin",
         output="assets/main.js"
     )
