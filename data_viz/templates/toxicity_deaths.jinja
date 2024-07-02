@@ -1,0 +1,31 @@
+<div class="m-3 d-flex flex-column">
+    <div id="buttons" class="d-flex m-auto justify-content-center w-100 flex-wrap">
+        <button hx-get="/toxicity-deaths" hx-trigger="click" hx-target="#content-div" hx-swap="innerHTML"
+            class="btn btn-primary m-1">British Colombia</button>
+        <button hx-get="/toxicity-deaths" hx-trigger="click" hx-target="#content-div" hx-swap="outerHTML"
+            class="btn btn-primary disabled m-1">Alberta</button>
+        <button hx-get="/toxicity-deaths" hx-trigger="click" hx-target="#content-div" hx-swap="afterend"
+            class="btn btn-primary m-1">Saskatchewan</button>
+        <button hx-get="/toxicity-deaths" hx-trigger="click" hx-target="#content-div" hx-swap="afterend"
+            class="btn btn-primary disabled m-1">Manitoba</button>
+        <button hx-get="/toxicity-deaths" hx-trigger="click" hx-target="#content-div" hx-swap="afterend"
+            class="btn btn-primary disabled m-1">Ontario</button>
+        <button hx-get="/toxicity-deaths" hx-trigger="click" hx-target="#content-div" hx-swap="afterend"
+            class="btn btn-primary disabled m-1">Quebec</button>
+        <button hx-get="/toxicity-deaths" hx-trigger="click" hx-target="#content-div" hx-swap="afterend"
+            class="btn btn-primary disabled m-1">Newfound
+            Land</button>
+        <button hx-get="/toxicity-deaths" hx-trigger="click" hx-target="#content-div" hx-swap="afterend"
+            class="btn btn-primary disabled m-1">New
+            Brunswick</button>
+        <button hx-get="/toxicity-deaths" hx-trigger="click" hx-target="#content-div" hx-swap="afterend"
+            class="btn btn-primary disabled m-1">PEI</button>
+        <button hx-get="/toxicity-deaths" hx-trigger="click" hx-target="#content-div" hx-swap="afterend"
+            class="btn btn-primary disabled m-1">Canada</button>
+    </div>
+    <div>
+        <p class="text-center">Data is unavailable for disabled options. If you are aware of a source that would provide
+            this data for a province that is currently unavailable please reach out to us at email@email.com.</p>
+    </div>
+    {{ visual }}
+</div>

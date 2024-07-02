@@ -6,7 +6,7 @@ from flask import Blueprint, render_template
 import pandas
 
 # Internal Dependency Imports
-from .generateVisuals import pull_data, filter_data
+from .generateVisuals import pull_data, filter_data, drug_type_visual
 
 #######################################################################################
 #                                        Notes:                                       #
@@ -26,12 +26,17 @@ main_blueprint = Blueprint("main", __name__)
 ##################################### ROUTES ###########################################
 @main_blueprint.route("/")
 def index():
-    
     return render_template("index.jinja")
 
-@main_blueprint.route("/htmx-test")
-def htmx_test():
-    return render_template("div_swap.jinja")
+@main_blueprint.route("/introduction")
+def introduction():
+    return render_template("introduction.jinja")
+
+@main_blueprint.route("/toxicity-deaths")
+def toxicity_deaths():
+    all_frames = pull_data(["skPubCentre", "bcCoronersReport"])
+    figure = drug_type_visual(all_frames)
+    return render_template("toxicity_deaths.jinja", visual=figure)
 ################################# Test Code Below ######################################
 if __name__ == '__main__':
     all_frames = pull_data("skPubCentre")

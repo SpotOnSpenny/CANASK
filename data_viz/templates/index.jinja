@@ -13,23 +13,29 @@
 </head>
 
 <body>
-    <header>
-        <!-- place navbar here -->
-    </header>
-    <main>
-        <div>
-            <p>Buttons</p>
-            <button class="btn btn-primary" hx-get="/htmx-test" hx-target="#div-1" hx-swap="outerHTML">Change Div
-                1</button>
-            <button class="btn btn-primary" hx-get="/htmx-test">Change Div 2</button>
+    <div id="page-container" class="d-flex flex-row">
+        <div id="sidebar-nav" class="d-flex flex-column flex-shrink-0 p-3 text-white bg-dark"
+            style="width: 250px; height: 100%;">
+            <p hx-get="/introduction" hx-trigger="click" hx-target="#content-div" hx-swap="innerHTML"
+                class="d-flex mb-3 mb-md-0 me-md-auto text-white text-decoration-none htmx-element">
+                Canadian Drug Toxicity Surveillance
+            </p>
+            <hr>
+            <ul class="nav nav-pills flex-column mb-auto">
+                <li class="nav-item">
+                    <p hx-get="/toxicity-deaths" hx-trigger="click" hx-target="#content-div" hx-swap="innerHTML"
+                        class="nav-link text-white htmx-element" aria-current="page">
+                        Total Toxicity Deaths
+                    </p>
+                </li>
+            </ul>
         </div>
-        <div id="div-1">
-            <p>Div 1</p>
+        <div id="content-div" class="flex-column container">
+            <!-- Content within this div will get swapped out with HTMX on click of nav buttons -->
+            <!-- To begin, it will have a sort of "about us" page with some instructions and content -->
+            test text
         </div>
-        <div>
-            <p>Div 2</p>
-        </div>
-    </main>
+    </div>
     <footer>
         <!-- place footer here -->
     </footer>
@@ -42,9 +48,12 @@
         integrity="sha384-BBtl+eGJRgqQAUMxJ7pMwbEyER4l1g+O15P+16Ep7Q9Q+zqX6gSbd85u4mG4QzX+"
         crossorigin="anonymous"></script>
 
-    <!-- HTMX Script -->
+    <!-- import js and css -->
     {% assets "js_all" %}
     <script type="text/javascript" src="{{ ASSET_URL }}"></script>
+    {% endassets %}
+    {% assets "css_all" %}
+    <link rel="stylesheet" href="{{ ASSET_URL }}">
     {% endassets %}
 </body>
 

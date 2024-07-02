@@ -24,9 +24,9 @@ except Exception as e:
 # Register and bundle the static CSS and JS assets
 assets = Environment(app)
 assets.register(
-    "main_css",
+    "css_all",
     Bundle(
-        # Add any CSS Files here as they are created
+        "css/master_sheet.css",
         filters="cssmin",
         output="assets/main.css"
     )

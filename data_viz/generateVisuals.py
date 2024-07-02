@@ -109,7 +109,7 @@ def drug_type_visual(data: dict):
         name="BC Total Deaths",
         marker={"color": "gray"}
     )
-    fig = plotly.graph_objects.Figure(data=list(bc_drug_traces.values())) # Uncomment this line to see the BC data in testing
+    #fig = plotly.graph_objects.Figure(data=list(bc_drug_traces.values())) # Uncomment this line to see the BC data in testing
 
     # Create traces for SK
     sask_line_x = [key for key in sask_clean["Total"].keys()]
@@ -140,6 +140,7 @@ def drug_type_visual(data: dict):
         y=[bc_totals[year] for year in can_line_x],
         hovertemplate="BC %{x} Total: %{y}<extra></extra>",
         hoverinfo="name+x",
+        name="BC Total",
         mode="lines",
         stackgroup="one"
     )
@@ -160,7 +161,8 @@ def drug_type_visual(data: dict):
         yaxis_title="Number of Deaths",
         showlegend=True
     )
-    fig.show()
+    figure = fig.to_html()
+    return(figure)
 
 
 # Test code below
