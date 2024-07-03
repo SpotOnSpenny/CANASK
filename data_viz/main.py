@@ -34,9 +34,7 @@ def introduction():
 
 @main_blueprint.route("/toxicity-deaths")
 def toxicity_deaths():
-    all_frames = pull_data(["skPubCentre", "bcCoronersReport"])
-    figure = drug_type_visual(all_frames)
-    return render_template("toxicity_deaths.jinja", visual=figure)
+    return render_template("toxicity_deaths.jinja")
 ################################# Test Code Below ######################################
 if __name__ == '__main__':
     all_frames = pull_data("skPubCentre")

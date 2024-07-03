@@ -1,5 +1,6 @@
 # Python Standard Library Dependencies
 import os
+import json
 
 # External Dependency Imports
 import pandas
@@ -134,35 +135,12 @@ def drug_type_visual(data: dict):
     )
     # fig = plotly.graph_objects.Figure(data=list(sask_drug_traces.values())) # Uncomment this line to see the BC data in testin
     # Create traces for combined Canada Wide Data
-    can_line_x = [year for year in bc_line_x if year in sask_clean["Total"].keys()]
-    can_total_bc = plotly.graph_objects.Scatter(
-        x=can_line_x,
-        y=[bc_totals[year] for year in can_line_x],
-        hovertemplate="BC %{x} Total: %{y}<extra></extra>",
-        hoverinfo="name+x",
-        name="BC Total",
-        mode="lines",
-        stackgroup="one"
-    )
-    can_total_sk = plotly.graph_objects.Scatter(
-        x=can_line_x,
-        y=[sask_clean["Total"][year] for year in can_line_x],
-        name="Saskatchewan Total",
-        hovertemplate="Saskatchewan %{x} Total: %{y}<extra></extra>",
-        mode="lines",
-        stackgroup="one"
-    )
-    fig = plotly.graph_objects.Figure(data=[can_total_bc, can_total_sk]) # Uncomment this line to see the Canada Wide data in testing
-
-    # Generate the visual and show it
-    fig.update_layout(
-        title="Number of Drug Toxicity Deaths by Drug Type and Year",
-        xaxis_title="Year",
-        yaxis_title="Number of Deaths",
-        showlegend=True
-    )
-    figure = fig.to_html()
-    return(figure)
+    graph_data = {"total_deaths": {}}
+    graph_data["total_deaths"]["can_line_x"] = [year for year in bc_line_x if year in sask_clean["Total"].keys()]
+    graph_data["total_deaths"]["bc_line_y"] = [bc_totals[year] for year in graph_data["total_deaths"]["can_line_x"]]
+    graph_data["total_deaths"]["sk_line_y"] = [sask_clean["Total"][year] for year in graph_data["total_deaths"]["can_line_x"]]
+    with open("static/js/visualization_data.json", "w") as file:
+        json.dump(graph_data, file)
 
 
 # Test code below

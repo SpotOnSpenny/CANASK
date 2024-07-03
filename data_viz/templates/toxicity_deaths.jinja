@@ -1,31 +1,115 @@
 <div class="m-3 d-flex flex-column">
     <div id="buttons" class="d-flex m-auto justify-content-center w-100 flex-wrap">
-        <button hx-get="/toxicity-deaths" hx-trigger="click" hx-target="#content-div" hx-swap="innerHTML"
-            class="btn btn-primary m-1">British Colombia</button>
-        <button hx-get="/toxicity-deaths" hx-trigger="click" hx-target="#content-div" hx-swap="outerHTML"
-            class="btn btn-primary disabled m-1">Alberta</button>
-        <button hx-get="/toxicity-deaths" hx-trigger="click" hx-target="#content-div" hx-swap="afterend"
-            class="btn btn-primary m-1">Saskatchewan</button>
-        <button hx-get="/toxicity-deaths" hx-trigger="click" hx-target="#content-div" hx-swap="afterend"
-            class="btn btn-primary disabled m-1">Manitoba</button>
-        <button hx-get="/toxicity-deaths" hx-trigger="click" hx-target="#content-div" hx-swap="afterend"
-            class="btn btn-primary disabled m-1">Ontario</button>
-        <button hx-get="/toxicity-deaths" hx-trigger="click" hx-target="#content-div" hx-swap="afterend"
-            class="btn btn-primary disabled m-1">Quebec</button>
-        <button hx-get="/toxicity-deaths" hx-trigger="click" hx-target="#content-div" hx-swap="afterend"
-            class="btn btn-primary disabled m-1">Newfound
-            Land</button>
-        <button hx-get="/toxicity-deaths" hx-trigger="click" hx-target="#content-div" hx-swap="afterend"
-            class="btn btn-primary disabled m-1">New
-            Brunswick</button>
-        <button hx-get="/toxicity-deaths" hx-trigger="click" hx-target="#content-div" hx-swap="afterend"
-            class="btn btn-primary disabled m-1">PEI</button>
-        <button hx-get="/toxicity-deaths" hx-trigger="click" hx-target="#content-div" hx-swap="afterend"
-            class="btn btn-primary disabled m-1">Canada</button>
+        <button class="btn btn-primary m-1" status="active"
+            onclick="updateTraces(this, this.getAttribute('status'), this.innerText)">British
+            Columbia</button>
+        <button class="btn btn-primary disabled m-1" status="disabled">Alberta</button>
+        <button class="btn btn-primary m-1" status="inactive">Saskatchewan</button>
+        <button class="btn btn-primary disabled m-1" status="disabled">Manitoba</button>
+        <button class="btn btn-primary disabled m-1" status="disabled">Ontario</button>
+        <button class="btn btn-primary disabled m-1" status="disabled">Quebec</button>
+        <button class="btn btn-primary disabled m-1" status="disabled">Newfound Land</button>
+        <button class="btn btn-primary disabled m-1" status="disabled">New Brunswick</button>
+        <button class="btn btn-primary disabled m-1" status="disabled">PEI</button>
+        <button class="btn btn-primary m-1" status="active">Canada</button>
     </div>
     <div>
         <p class="text-center">Data is unavailable for disabled options. If you are aware of a source that would provide
             this data for a province that is currently unavailable please reach out to us at email@email.com.</p>
     </div>
-    {{ visual }}
+    <div id="toxicity-deaths-vis">
+        <!-- Toxicity Deaths visual will be rendered in this div using plotly.js-->
+    </div>
 </div>
+
+<script type="text/javascript">
+    //initial setup
+    data_promise = fetch("static/js/visualization_data.json")
+        .then(response => data = response.json())
+        .then(data => {
+            visDiv = document.getElementById('toxicity-deaths-vis');
+            let skTrace = {
+                x: data.total_deaths.can_line_x,
+                y: data.total_deaths.sk_line_y,
+                type: 'scatter',
+                name: 'Saskatchewan',
+                stackgroup: 'one',
+                animate: true
+            }
+            let bcTrace = {
+                x: data.total_deaths.can_line_x,
+                y: data.total_deaths.bc_line_y,
+                type: 'scatter',
+                name: 'British Columbia',
+                stackgroup: 'one',
+                animate: true
+            }
+            let plots = [skTrace, bcTrace]
+            let vis = Plotly.react(visDiv, plots)
+            return {
+                vis: vis,
+                plots: plots,
+                visDiv: visDiv
+            }
+        })
+
+    // on click button to add/remove traces
+    function updateTraces(button, status, region) {
+        data_promise.then(({ vis, plots, visDiv }) => {
+            let index = plots.findIndex(object => {
+                return object.name === region;
+            })
+            if (status == 'inactive') {
+                //button.getAttribute("status") = 'active'
+                Plotly.addTraces(visDiv, plots[index])
+            } else if (status == "active") {
+                button.setAttribute("status", "inactive")
+                peak = 0
+                for (let index = 0; index < plots[0].x.length; index++) {
+                    current = 0
+                    console.log(current)
+                    for (let plot = 0; plot < plots.length; plot++) {
+                        if (plots[plot].name != region) {
+                            current += plots[plot].y[index]
+                        }
+                    }
+                    console.log(current)
+                    if (current > peak) {
+                        peak = current
+                    }
+                }
+                peak = Math.ceil(peak / 100) * 100
+                Plotly.animate(visDiv,
+                    [{
+                        data: [{ y: [0, 0, 0, 0, 0, 0, 0, 0], showlegend: false, line: { color: 'rgba(0,0,0,0)' }, hoverinfo: "skip" }],
+                        layout: {},
+                        traces: [index],
+                    }], {
+                    transition: {
+                        duration: 200,
+                        easing: 'cubic-in-out'
+                    },
+                    frame: {
+                        duration: 500
+                    }
+                })
+                Plotly.animate(visDiv,
+                    [{
+                        layout: { yaxis: { range: [0, peak] } },
+                        traces: [index],
+                    }], {
+                    transition: {
+                        duration: 200,
+                        easing: 'cubic-in-out'
+                    },
+                    frame: {
+                        duration: 500
+                    }
+                })
+
+
+                console.log("removed")
+            }
+        })
+    }
+</script>

@@ -36,6 +36,9 @@ assets.register(
     "js_all",
     Bundle(
         "js/htmx.min.js",
+        "js/plotly-2.32.0.min.js",
+        "js/main.js",
+        "js/jquery-3.7.1.min.js",
         filters="jsmin",
         output="assets/main.js"
     )
