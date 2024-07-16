@@ -1,10 +1,9 @@
 <div class="m-3 d-flex flex-column">
     <div id="buttons" class="d-flex m-auto justify-content-center w-100 flex-wrap">
-        <button class="btn btn-primary m-1" status="active"
-            onclick="updateTraces(this, this.getAttribute('status'), this.innerText)">British
+        <button class="btn btn-primary m-1" status="active" onclick="updateTraces(this)">British
             Columbia</button>
         <button class="btn btn-primary disabled m-1" status="disabled">Alberta</button>
-        <button class="btn btn-primary m-1" status="inactive">Saskatchewan</button>
+        <button class="btn btn-primary m-1" status="active" onclick="updateTraces(this)">Saskatchewan</button>
         <button class="btn btn-primary disabled m-1" status="disabled">Manitoba</button>
         <button class="btn btn-primary disabled m-1" status="disabled">Ontario</button>
         <button class="btn btn-primary disabled m-1" status="disabled">Quebec</button>
@@ -34,7 +33,8 @@
                 type: 'scatter',
                 name: 'Saskatchewan',
                 stackgroup: 'one',
-                animate: true
+                animate: true,
+                marker: { color: 'rgba(255, 0, 0, 0.5)' }
             }
             let bcTrace = {
                 x: data.total_deaths.can_line_x,
@@ -42,43 +42,145 @@
                 type: 'scatter',
                 name: 'British Columbia',
                 stackgroup: 'one',
-                animate: true
+                animate: true,
+                marker: { color: 'rgba(0, 0, 255, 0.5)' }
             }
-            let plots = [skTrace, bcTrace]
-            let vis = Plotly.react(visDiv, plots)
+            totals = []
+            for (let i = 0; i < data.total_deaths.can_line_x.length; i++) {
+                totals.push(data.total_deaths.bc_line_y[i] + data.total_deaths.sk_line_y[i])
+            }
+            let canTrace = {
+                x: [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023],
+                y: totals,
+                type: 'scatter',
+                stackgroup: 'two',
+                name: 'Total of Selected',
+                animate: true,
+                marker: { color: 'rgba(0, 255, 0, 0.5)' },
+                fill: "none"
+            }
+            let plots = [skTrace, bcTrace, canTrace]
+            let colourCode = {
+                'British Columbia': 'rgba(0, 0, 255, 0.5)',
+                'Saskatchewan': 'rgba(255, 0, 0, 0.5)',
+                'Canada': 'rgba(0, 255, 0, 0.5)'
+            }
+            let provinceMappings = {
+                'British Columbia': 'bc_line_y',
+                'Saskatchewan': 'sk_line_y',
+                'Canada': 'can_line_y'
+            }
+            let vis = Plotly.newPlot(visDiv, plots, layout = {
+                yaxis: { fixedrange: true },
+                xaxis: { fixedrange: true },
+                hovermode: "x unified"
+            })
             return {
                 vis: vis,
                 plots: plots,
-                visDiv: visDiv
+                visDiv: visDiv,
+                raw_data: data,
+                colourCode: colourCode,
+                provinceMappings: provinceMappings
             }
         })
 
     // on click button to add/remove traces
-    function updateTraces(button, status, region) {
-        data_promise.then(({ vis, plots, visDiv }) => {
+    function updateTraces(button) {
+        data_promise.then(({ vis, plots, visDiv, raw_data, colourCode, provinceMappings }) => {
+            let status = button.getAttribute("status")
+            let region = button.innerText
             let index = plots.findIndex(object => {
                 return object.name === region;
             })
+            let totalIndex = plots.findIndex(object => {
+                return object.name === "Total of Selected";
+            })
             if (status == 'inactive') {
-                //button.getAttribute("status") = 'active'
-                Plotly.addTraces(visDiv, plots[index])
-            } else if (status == "active") {
-                button.setAttribute("status", "inactive")
+                button.setAttribute("status", "active")
+                // Find the new peak of the data including the added trace
+                valuesToAdd = raw_data.total_deaths[provinceMappings[region]]
                 peak = 0
+                let active = document.querySelectorAll(`button[status="active"]`)
+                active = Array.from(active).map(button => button.innerText)
+                let total = []
                 for (let index = 0; index < plots[0].x.length; index++) {
                     current = 0
-                    console.log(current)
                     for (let plot = 0; plot < plots.length; plot++) {
-                        if (plots[plot].name != region) {
+                        if (active.includes(plots[plot].name)) {
                             current += plots[plot].y[index]
                         }
                     }
-                    console.log(current)
+                    current += valuesToAdd[index]
+                    total.push(current)
                     if (current > peak) {
                         peak = current
                     }
                 }
                 peak = Math.ceil(peak / 100) * 100
+                // Animate the zoom out of the y axis
+                Plotly.animate(visDiv,
+                    [{
+                        layout: { yaxis: { range: [0, peak] } },
+                        traces: [index],
+                    }], {
+                    transition: {
+                        duration: 200,
+                        easing: 'cubic-in-out'
+                    },
+                    frame: {
+                        duration: 500
+                    }
+                })
+                // Animate the movement of the total bar
+                Plotly.animate(visDiv,
+                    [{
+                        data: [{ y: total, line: { color: colourCode.Totals } }],
+                        layout: {},
+                        traces: [totalIndex],
+                    }], {
+                    transition: {
+                        duration: 500,
+                        easing: 'cubic-in-out'
+                    },
+                    frame: {
+                        duration: 500
+                    }
+                })
+                // Animate the reveal of the trace
+                Plotly.animate(visDiv,
+                    [{
+                        data: [{ y: valuesToAdd, showlegend: true, line: { color: colourCode[region] }, hoverinfo: "show" }],
+                        layout: {},
+                        traces: [index],
+                    }], {
+                    transition: {
+                        duration: 500,
+                        easing: 'cubic-in-out'
+                    },
+                    frame: {
+                        duration: 500
+                    }
+                })
+            } else if (status == "active") {
+                button.setAttribute("status", "inactive")
+                // Find the peak of data that will be displayed
+                peak = 0
+                totals = []
+                for (let index = 0; index < plots[0].x.length; index++) {
+                    current = 0
+                    for (let plot = 0; plot < plots.length; plot++) {
+                        if (plots[plot].name != region && plots[plot].name != 'Total of Selected') {
+                            current += plots[plot].y[index]
+                        }
+                    }
+                    totals.push(current)
+                    if (current > peak) {
+                        peak = current
+                    }
+                }
+                peak = Math.ceil(peak / 100) * 100
+                // Remove the trace by setting y values to 0 and hiding it
                 Plotly.animate(visDiv,
                     [{
                         data: [{ y: [0, 0, 0, 0, 0, 0, 0, 0], showlegend: false, line: { color: 'rgba(0,0,0,0)' }, hoverinfo: "skip" }],
@@ -93,6 +195,22 @@
                         duration: 500
                     }
                 })
+                // Animate updating the total bar
+                Plotly.animate(visDiv,
+                    [{
+                        data: [{ y: totals, showlegend: true, line: { color: colourCode['Canada'] }, hoverinfo: "show" }],
+                        layout: {},
+                        traces: [totalIndex],
+                    }], {
+                    transition: {
+                        duration: 200,
+                        easing: 'cubic-in-out'
+                    },
+                    frame: {
+                        duration: 500
+                    }
+                })
+                // Animate the zooming in of axis on remaining data
                 Plotly.animate(visDiv,
                     [{
                         layout: { yaxis: { range: [0, peak] } },
@@ -106,9 +224,6 @@
                         duration: 500
                     }
                 })
-
-
-                console.log("removed")
             }
         })
     }
