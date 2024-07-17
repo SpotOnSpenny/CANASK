@@ -22,3 +22,21 @@ html{
 #buttons{
     max-width: 80%;
 }
+
+/* HTMX Transition Code */
+.fade-me-out.htmx-swapping {
+    opacity: 0;
+    transform: translateX(100px);
+    transition: opacity 1s, transform 1s;
+    }
+
+.fade-me-in.htmx-added{
+    opacity: 0;
+    transform: translateX(-100px);
+}
+
+.fade-me-in{
+    opacity: 1;
+    transform: translateX(0px);
+    transition: opacity 1s, transform 1s;
+}

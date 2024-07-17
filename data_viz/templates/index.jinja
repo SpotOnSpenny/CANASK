@@ -16,21 +16,22 @@
     <div id="page-container" class="d-flex flex-row">
         <div id="sidebar-nav" class="d-flex flex-column flex-shrink-0 p-3 text-white bg-dark"
             style="width: 250px; height: 100%;">
-            <p hx-get="/introduction" hx-trigger="click" hx-target="#content-div" hx-swap="innerHTML"
+            <p hx-get="/introduction" hx-trigger="click" hx-target="#content-div" hx-swap="innerHTML swap:1s settle:1s"
                 class="d-flex mb-3 mb-md-0 me-md-auto text-white text-decoration-none htmx-element">
                 Canadian Drug Toxicity Surveillance
             </p>
             <hr>
             <ul class="nav nav-pills flex-column mb-auto">
                 <li class="nav-item">
-                    <p hx-get="/toxicity-deaths" hx-trigger="click" hx-target="#content-div" hx-swap="innerHTML"
-                        class="nav-link text-white htmx-element" aria-current="page">
+                    <p hx-get="/toxicity-deaths" hx-trigger="click" hx-target="#content-div"
+                        hx-swap="innerHTML swap:1s settle:1s" class="nav-link text-white htmx-element"
+                        aria-current="page">
                         Total Toxicity Deaths
                     </p>
                 </li>
             </ul>
         </div>
-        <div id="content-div" class="flex-column container">
+        <div id="content-div" class="flex-column container fade-me-out fade-me-in blue">
             <!-- Content within this div will get swapped out with HTMX on click of nav buttons -->
             <!-- To begin, it will have a sort of "about us" page with some instructions and content -->
             test text
