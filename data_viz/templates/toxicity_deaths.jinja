@@ -231,7 +231,7 @@
                 name: 'Saskatchewan',
                 stackgroup: 'one',
                 animate: true,
-                marker: { color: 'rgba(255, 0, 0, 0.5)' }
+                marker: { color: 'rgba(7, 106, 33, 1)' }
             }
             let bcTrace = {
                 x: data.total_deaths.can_line_x,
@@ -240,7 +240,7 @@
                 name: 'British Columbia',
                 stackgroup: 'one',
                 animate: true,
-                marker: { color: 'rgba(0, 0, 255, 0.5)' }
+                marker: { color: 'rgba(0, 71, 187, 1)' }
             }
             let canTrace = {
                 x: [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023],
@@ -249,14 +249,14 @@
                 stackgroup: 'two',
                 name: 'Total of Selected',
                 animate: true,
-                marker: { color: 'rgba(0, 255, 0, 0.5)' },
+                marker: { color: 'rgba(206, 17, 38, 1)' },
                 fill: "none"
             }
             let plots = [skTrace, bcTrace, canTrace]
             let colourCode = {
-                'British Columbia': 'rgba(0, 0, 255, 0.5)',
-                'Saskatchewan': 'rgba(255, 0, 0, 0.5)',
-                'Canada': 'rgba(0, 255, 0, 0.5)'
+                'British Columbia': 'rgba(0, 71, 187, 1)',
+                'Saskatchewan': 'rgba(7, 106, 33, 1)',
+                'Canada': 'rgba(206, 17, 38, 1)'
             }
 
             // Add the created elements to the page
