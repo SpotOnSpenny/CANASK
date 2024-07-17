@@ -1,23 +1,57 @@
-<div class="m-3 d-flex flex-column">
-    <div id="buttons" class="d-flex m-auto justify-content-center w-100 flex-wrap">
-        <button class="btn btn-primary m-1" status="active" onclick="updateTraces(this)">British
-            Columbia</button>
-        <button class="btn btn-primary disabled m-1" status="disabled">Alberta</button>
-        <button class="btn btn-primary m-1" status="active" onclick="updateTraces(this)">Saskatchewan</button>
-        <button class="btn btn-primary disabled m-1" status="disabled">Manitoba</button>
-        <button class="btn btn-primary disabled m-1" status="disabled">Ontario</button>
-        <button class="btn btn-primary disabled m-1" status="disabled">Quebec</button>
-        <button class="btn btn-primary disabled m-1" status="disabled">Newfound Land</button>
-        <button class="btn btn-primary disabled m-1" status="disabled">New Brunswick</button>
-        <button class="btn btn-primary disabled m-1" status="disabled">PEI</button>
-        <button class="btn btn-primary m-1" status="active">Canada</button>
+<div class="mx-3 my-0 d-flex h-100 flex-column">
+    <div class="notice">
+        <div class="card shadow-sm bg-warning">
+            <p class="text-center py-1 px-2 m-0">
+                Data is unavailable for disabled options. If you are aware of a source that would provide this data for
+                a province that is currently unavailable please reach out to us at email@email.com.
+            </p>
+        </div>
     </div>
-    <div>
-        <p class="text-center">Data is unavailable for disabled options. If you are aware of a source that would provide
-            this data for a province that is currently unavailable please reach out to us at email@email.com.</p>
-    </div>
-    <div id="toxicity-deaths-vis">
-        <!-- Toxicity Deaths visual will be rendered in this div using plotly.js-->
+    <div class="container layout-container">
+        <div class="row flex-row justify-content-center align-items-center d-flex g-5 h-75">
+            <div class="col-9 h-100">
+                <div class="card viz-card">
+                    <div class="card-body text-center">
+                        <div id="toxicity-deaths-vis">
+                            <div id="toxicity-deaths-vis" class="spinner-border" role="status"></div>
+                            <!-- Toxicity Deaths visual will be rendered in this div using plotly.js-->
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-3 h-100">
+                <div class="card">
+                    <div class="card-body">
+                        <h4 class="card-title text-center">Controls</h4>
+                        <div id="buttons" class="d-flex m-auto justify-content-center flex-wrap">
+                            <button class="btn btn-primary m-1" status="active" onclick="updateTraces(this)">British
+                                Columbia</button>
+                            <button class="btn btn-primary disabled m-1" status="disabled">Alberta</button>
+                            <button class="btn btn-primary m-1" status="active"
+                                onclick="updateTraces(this)">Saskatchewan</button>
+                            <button class="btn btn-primary disabled m-1" status="disabled">Manitoba</button>
+                            <button class="btn btn-primary disabled m-1" status="disabled">Ontario</button>
+                            <button class="btn btn-primary disabled m-1" status="disabled">Quebec</button>
+                            <button class="btn btn-primary disabled m-1" status="disabled">Newfound Land</button>
+                            <button class="btn btn-primary disabled m-1" status="disabled">New Brunswick</button>
+                            <button class="btn btn-primary disabled m-1" status="disabled">PEI</button>
+                            <button class="btn btn-primary m-1" status="active">Canada</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="row justify-content-center align-items-center h-25 g-2">
+            <div class="col">
+                <div class="card">
+                    <div class="card-body">
+                        <h4 class="card-title">Drug Toxicity Deaths in Canada by Province</h4>
+                        <p class="card-text">Text</p>
+                    </div>
+                </div>
+
+            </div>
+        </div>
     </div>
 </div>
 
@@ -70,7 +104,8 @@
                 'Saskatchewan': 'sk_line_y',
                 'Canada': 'can_line_y'
             }
-            let vis = Plotly.newPlot(visDiv, plots, layout = {
+            visDiv.innerHTML = ""
+            let vis = Plotly.react(visDiv, plots, layout = {
                 yaxis: { fixedrange: true },
                 xaxis: { fixedrange: true },
                 hovermode: "x unified"

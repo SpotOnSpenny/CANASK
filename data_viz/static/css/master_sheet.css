@@ -15,14 +15,33 @@ html{
 }
 
 #content-div{
-    max-height: 100vh;
+    max-height: 100%;
     overflow-y: scroll;
 }
 
-#buttons{
-    max-width: 80%;
+.layout-container{
+    height: 90%;
 }
 
+.notice{
+    height: 10%;
+    width: 85%;
+    margin: 0 auto;
+    padding-top: 10px;
+    padding-bottom: 10px;
+}
+
+.viz-card{
+    min-height: 90%;
+}
+
+.control-card{
+    min-height: 75%;
+}
+
+.data-card{
+    min-height: 25%;
+}
 /* HTMX Transition Code */
 .fade-me-out.htmx-swapping {
     opacity: 0;
