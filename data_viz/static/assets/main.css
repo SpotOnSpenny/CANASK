@@ -1,1 +1,43 @@
-.htmx-element:hover{cursor:pointer}body{height:100%}#page-container{height:100%}html{height:100%}#content-div{max-height:100%;overflow-y:scroll}.layout-container{height:90%}.notice{height:10%;width:85%;margin:0 auto;padding-top:10px;padding-bottom:10px}.viz-card{min-height:90%}.control-card{min-height:75%}.data-card{min-height:25%}.fade-me-out.htmx-swapping{opacity:0;transform:translateX(100px);transition:opacity 1s,transform 1s}.fade-me-in.htmx-added{opacity:0;transform:translateX(-100px)}.fade-me-in{opacity:1;transform:translateX(0px);transition:opacity 1s,transform 1s}
+.htmx-element:hover {
+  cursor: pointer;
+}
+body {
+  height: 100%;
+}
+#page-container {
+  height: 100%;
+}
+html {
+  height: 100%;
+}
+#content-div {
+  max-height: 100%;
+  overflow-y: scroll;
+}
+.data-row {
+  height: 65%;
+}
+.fade-me-out.htmx-swapping {
+  opacity: 0;
+  transform: translateX(100px);
+  transition: opacity 1s, transform 1s;
+}
+.fade-me-in.htmx-added {
+  opacity: 0;
+  transform: translateX(-100px);
+}
+.fade-me-in {
+  opacity: 1;
+  transform: translateX(0px);
+  transition: opacity 1s, transform 1s;
+}
+
+.warning-svg {
+  width: 25vw;
+  height: auto;
+}
+
+.logos {
+  height: auto;
+  width: 100%;
+}

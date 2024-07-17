@@ -1,65 +1,228 @@
-<div class="mx-3 my-0 d-flex h-100 flex-column">
-    <div class="notice">
-        <div class="card shadow-sm bg-warning">
-            <p class="text-center py-1 px-2 m-0">
-                Data is unavailable for disabled options. If you are aware of a source that would provide this data for
-                a province that is currently unavailable please reach out to us at email@email.com.
-            </p>
+<div class="container h-100 gy-2 layout-container">
+    <div class="row text-center py-1 justify-content-center align-items-center notice-row">
+        <div class="col-10">
+            <div class="card">
+                <div class="card-body bg-warning shadow-sm">
+                    <p class="text-center py-1 px-2 m-0">
+                        Data is unavailable for disabled options. If you are aware of a source that would provide this
+                        data for a province that is currently unavailable please reach out to us at email@email.com.
+                    </p>
+                </div>
+            </div>
         </div>
     </div>
-    <div class="container layout-container">
-        <div class="row flex-row justify-content-center align-items-center d-flex g-5 h-75">
-            <div class="col-9 h-100">
-                <div class="card viz-card">
-                    <div class="card-body text-center">
-                        <div id="toxicity-deaths-vis">
-                            <div id="toxicity-deaths-vis" class="spinner-border" role="status"></div>
-                            <!-- Toxicity Deaths visual will be rendered in this div using plotly.js-->
-                        </div>
+    <div class="row data-row py-1 justify-content-center align-items-center g-2">
+        <div class="col-9 h-100">
+            <div class="card h-100">
+                <div class="card-body text-center h-100 d-flex align-items-center justify-content-center" id="viz-card">
+                    <div id="toxicity-deaths-vis">
+                        <div id="toxicity-deaths-vis" class="spinner-border" role="status"></div>
+                        <!-- Toxicity Deaths visual will be rendered in this div using plotly.js-->
                     </div>
                 </div>
             </div>
-            <div class="col-3 h-100">
-                <div class="card">
-                    <div class="card-body">
-                        <h4 class="card-title text-center">Controls</h4>
-                        <div id="buttons" class="d-flex m-auto justify-content-center flex-wrap">
-                            <button class="btn btn-primary m-1" status="active" onclick="updateTraces(this)">British
-                                Columbia</button>
-                            <button class="btn btn-primary disabled m-1" status="disabled">Alberta</button>
-                            <button class="btn btn-primary m-1" status="active"
-                                onclick="updateTraces(this)">Saskatchewan</button>
-                            <button class="btn btn-primary disabled m-1" status="disabled">Manitoba</button>
-                            <button class="btn btn-primary disabled m-1" status="disabled">Ontario</button>
-                            <button class="btn btn-primary disabled m-1" status="disabled">Quebec</button>
-                            <button class="btn btn-primary disabled m-1" status="disabled">Newfound Land</button>
-                            <button class="btn btn-primary disabled m-1" status="disabled">New Brunswick</button>
-                            <button class="btn btn-primary disabled m-1" status="disabled">PEI</button>
-                            <button class="btn btn-primary m-1" status="active">Canada</button>
+        </div>
+        <div class="col-3 h-100 overflowy-scroll">
+            <div class="card h-100">
+                <div class="card-body h-100">
+                    <h4 class="card-title text-center">Chart Options</h4>
+                    <hr />
+                    <div id="buttons" class="d-flex m-auto justify-content-center flex-wrap">
+                        <div class="container">
+                            <div class="row">
+                                <h5>Chart Type</h5>
+                            </div>
+                            <div class="row justify-content-center align-items-center g-2">
+                                <div class="col">
+                                    <select class="form-select" onchange="changeChartType(this)">
+                                        <option value="1" selected>Stacked Area Chart</option>
+                                        <option value="2">Percent of Total</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="row pt-4">
+                                <h5>Provinces</h5>
+                            </div>
+                            <div class="row justify-content-center align-items-center g-2">
+                                <div class="col">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="bc-check"
+                                            province="British Columbia" status="active" onclick="updateTraces(this)"
+                                            checked />
+                                        <label class="form-check-label" for="bc-check">
+                                            B.C.
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row justify-content-center align-items-center g-2">
+                                <div class="col">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="ab-check" province="Alberta"
+                                            status="disabled" onclick="updateTraces(this)" disabled />
+                                        <label class="form-check-label" for="ab-check">
+                                            Alberta
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row justify-content-center align-items-center g-2">
+                                <div class="col">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="sk-check"
+                                            province="Saskatchewan" status="active" onclick="updateTraces(this)"
+                                            checked />
+                                        <label class="form-check-label" for="sk-check">
+                                            Saskatchewan
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row justify-content-center align-items-center g-2">
+                                <div class="col">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="mb-check"
+                                            province="Manitoba" status="disabled" onclick="updateTraces(this)"
+                                            disabled />
+                                        <label class="form-check-label" for="mb-check">
+                                            Manitoba
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row justify-content-center align-items-center g-2">
+                                <div class="col">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="on-check" province="Ontario"
+                                            status="disabled" onclick="updateTraces(this)" disabled />
+                                        <label class="form-check-label" for="on-check">
+                                            Ontario
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row justify-content-center align-items-center g-2">
+                                <div class="col">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="qc-check" province="Quebec"
+                                            status="disabled" onclick="updateTraces(this)" disabled />
+                                        <label class="form-check-label" for="qc-check">
+                                            Quebec
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row justify-content-center align-items-center g-2">
+                                <div class="col">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="NL-check"
+                                            province="Newfoundland" status="disabled" onclick="updateTraces(this)"
+                                            disabled />
+                                        <label class="form-check-label" for="NL-check">
+                                            Newfoundland
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row justify-content-center align-items-center g-2">
+                                <div class="col">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="nb-check"
+                                            province="New Brunswick" status="disabled" onclick="updateTraces(this)"
+                                            disabled />
+                                        <label class="form-check-label" for="nb-check">
+                                            New Brunswick
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row justify-content-center align-items-center g-2">
+                                <div class="col">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="ns-check"
+                                            province="Nova Scotia" status="disabled" onclick="updateTraces(this)"
+                                            disabled />
+                                        <label class="form-check-label" for="ns-check">
+                                            Nova Scotia
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row justify-content-center align-items-center g-2">
+                                <div class="col">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="pei-check" province="PEI"
+                                            status="disabled" onclick="updateTraces(this)" disabled />
+                                        <label class="form-check-label" for="pei-check">
+                                            P.E.I.
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
-        <div class="row justify-content-center align-items-center h-25 g-2">
-            <div class="col">
-                <div class="card">
-                    <div class="card-body">
-                        <h4 class="card-title">Drug Toxicity Deaths in Canada by Province</h4>
-                        <p class="card-text">Text</p>
+    </div>
+    <div class="row py-2 justify-content-center align-items-center g-2">
+        <div class="col">
+            <div class="card">
+                <div class="card-body">
+                    <h4 class="card-title">Canadian Drug Toxicity Deaths Each Year by Province</h4>
+                    <div id="data-table" class="text-center">
+                        <div id="toxicity-deaths-vis" class="spinner-border" role="status"></div>
                     </div>
                 </div>
-
             </div>
         </div>
     </div>
 </div>
+
 
 <script type="text/javascript">
     //initial setup
     data_promise = fetch("static/js/visualization_data.json")
         .then(response => data = response.json())
         .then(data => {
+            let provinceMappings = {
+                'British Columbia': 'bc_line_y',
+                'Saskatchewan': 'sk_line_y',
+                'Canada': 'can_line_y'
+            }
+            totals = []
+            for (let i = 0; i < data.total_deaths.can_line_x.length; i++) {
+                totals.push(data.total_deaths.bc_line_y[i] + data.total_deaths.sk_line_y[i])
+            }
+            // Create the initial table of values
+            let cols = ["Province"].concat(data.total_deaths.can_line_x);
+            let rows = Object.keys(provinceMappings).filter(province => province !== 'Canada');
+            rows = rows.concat(["Total"])
+            let table = document.createElement("table");
+            table.setAttribute("class", "table table-striped table-bordered table-hover");
+            let tr = table.insertRow(-1);
+            cols.forEach(headerText => {
+                let th = document.createElement("th"); // Create a new header cell
+                th.innerText = headerText; // Set the text of the header cell
+                tr.appendChild(th); // Add the header cell to the row
+            });
+            rows.forEach(province => {
+                let tr = table.insertRow(-1);
+                let cell = tr.insertCell(-1);
+                cell.innerText = province;
+                data.total_deaths.can_line_x.forEach(year => {
+                    let cell = tr.insertCell(-1);
+                    if (province === 'Total') {
+                        cell.innerText = totals[data.total_deaths.can_line_x.indexOf(year)];
+                    }
+                    else {
+                        cell.innerText = data.total_deaths[provinceMappings[province]][data.total_deaths.can_line_x.indexOf(year)];
+                    }
+                });
+            });
+            let tableDiv = document.getElementById('data-table');
+
+            // Create the initial visual
             visDiv = document.getElementById('toxicity-deaths-vis');
             let skTrace = {
                 x: data.total_deaths.can_line_x,
@@ -79,10 +242,6 @@
                 animate: true,
                 marker: { color: 'rgba(0, 0, 255, 0.5)' }
             }
-            totals = []
-            for (let i = 0; i < data.total_deaths.can_line_x.length; i++) {
-                totals.push(data.total_deaths.bc_line_y[i] + data.total_deaths.sk_line_y[i])
-            }
             let canTrace = {
                 x: [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023],
                 y: totals,
@@ -99,16 +258,21 @@
                 'Saskatchewan': 'rgba(255, 0, 0, 0.5)',
                 'Canada': 'rgba(0, 255, 0, 0.5)'
             }
-            let provinceMappings = {
-                'British Columbia': 'bc_line_y',
-                'Saskatchewan': 'sk_line_y',
-                'Canada': 'can_line_y'
-            }
-            visDiv.innerHTML = ""
+
+            // Add the created elements to the page
+            visDiv.innerHTML = "";
+            tableDiv.innerHTML = "";
+            tableDiv.appendChild(table);
             let vis = Plotly.react(visDiv, plots, layout = {
-                yaxis: { fixedrange: true },
-                xaxis: { fixedrange: true },
-                hovermode: "x unified"
+                yaxis: { fixedrange: true, title: "Deaths Resulting from Drug Toxicity" },
+                xaxis: { fixedrange: true, title: "Year" },
+                hovermode: "x unified",
+                autosize: false,
+                width: $("#viz-card").width(),
+                height: $("#viz-card").height(),
+                title: "Canadian Drug Toxicity Deaths Each Year by Province",
+            }, config = {
+                displaylogo: false
             })
             return {
                 vis: vis,
@@ -124,7 +288,7 @@
     function updateTraces(button) {
         data_promise.then(({ vis, plots, visDiv, raw_data, colourCode, provinceMappings }) => {
             let status = button.getAttribute("status")
-            let region = button.innerText
+            let region = button.getAttribute("province")
             let index = plots.findIndex(object => {
                 return object.name === region;
             })
@@ -136,8 +300,8 @@
                 // Find the new peak of the data including the added trace
                 valuesToAdd = raw_data.total_deaths[provinceMappings[region]]
                 peak = 0
-                let active = document.querySelectorAll(`button[status="active"]`)
-                active = Array.from(active).map(button => button.innerText)
+                let active = document.querySelectorAll(`input[status="active"]`)
+                active = Array.from(active).map(button => button.getAttribute("province"))
                 let total = []
                 for (let index = 0; index < plots[0].x.length; index++) {
                     current = 0
@@ -258,6 +422,57 @@
                     frame: {
                         duration: 500
                     }
+                })
+            }
+        })
+    }
+
+    // On change function to switch between chart types
+    function changeChartType(selector) {
+        data_promise.then(({ vis, plots, visDiv, raw_data, colourCode, provinceMappings }) => {
+            if (selector.value == "2") {
+                let active = document.querySelectorAll(`input[status="active"]`)
+                active = Array.from(active).map(button => button.getAttribute("province"))
+                let plotsToAdd = []
+                for (let plot of plots) {
+                    if (active.includes(plot.name) && plot.name != "Total of Selected") {
+                        plotsToAdd.push(plot)
+                    }
+                }
+                plotsToAdd[0].groupnorm = "percent";
+                Plotly.react(visDiv, plotsToAdd, layout = {
+                    yaxis: { fixedrange: true, title: "Percent of Deaths Resulting from Drug Toxicity in Selected Provinces" },
+                    xaxis: { fixedrange: true, title: "Year" },
+                    hovermode: "x unified",
+                    autosize: false,
+                    width: $("#viz-card").width(),
+                    height: $("#viz-card").height(),
+                    title: "Canadian Drug Toxicity Deaths Each Year by Province",
+                }, config = {
+                    displaylogo: false
+                })
+            } else if (selector.value == "1") {
+                let active = document.querySelectorAll(`input[status="active"]`)
+                active = Array.from(active).map(button => button.getAttribute("province"))
+                let plotsToAdd = []
+                for (let plot of plots) {
+                    if (active.includes(plot.name) || plot.name === "Total of Selected") {
+                        plotsToAdd.push(plot)
+                    }
+                    if (plot.groupnorm != undefined) {
+                        delete plot.groupnorm
+                    }
+                }
+                Plotly.react(visDiv, plotsToAdd, layout = {
+                    yaxis: { fixedrange: true, title: "Deaths Resulting from Drug Toxicity" },
+                    xaxis: { fixedrange: true, title: "Year" },
+                    hovermode: "x unified",
+                    autosize: false,
+                    width: $("#viz-card").width(),
+                    height: $("#viz-card").height(),
+                    title: "Canadian Drug Toxicity Deaths Each Year by Province",
+                }, config = {
+                    displaylogo: false
                 })
             }
         })

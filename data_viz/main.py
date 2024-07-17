@@ -35,6 +35,10 @@ def introduction():
 @main_blueprint.route("/toxicity-deaths")
 def toxicity_deaths():
     return render_template("toxicity_deaths.jinja")
+
+@main_blueprint.route("/no-data")
+def no_data():
+    return render_template("no_data.jinja")
 ################################# Test Code Below ######################################
 if __name__ == '__main__':
     all_frames = pull_data("skPubCentre")

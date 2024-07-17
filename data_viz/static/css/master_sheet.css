@@ -19,29 +19,10 @@ html{
     overflow-y: scroll;
 }
 
-.layout-container{
-    height: 90%;
+.data-row{
+    height: 65%;
 }
 
-.notice{
-    height: 10%;
-    width: 85%;
-    margin: 0 auto;
-    padding-top: 10px;
-    padding-bottom: 10px;
-}
-
-.viz-card{
-    min-height: 90%;
-}
-
-.control-card{
-    min-height: 75%;
-}
-
-.data-card{
-    min-height: 25%;
-}
 /* HTMX Transition Code */
 .fade-me-out.htmx-swapping {
     opacity: 0;

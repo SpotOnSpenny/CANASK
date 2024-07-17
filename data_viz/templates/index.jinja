@@ -29,12 +29,88 @@
                         Total Toxicity Deaths
                     </p>
                 </li>
+                <li class="nav-item">
+                    <p hx-get="/no-data" hx-trigger="click" hx-target="#content-div"
+                        hx-swap="innerHTML swap:1s settle:1s" class="nav-link text-white htmx-element"
+                        aria-current="page">
+                        Toxicity Deaths by Type of Drug
+                    </p>
+                </li>
+                <li class="nav-item">
+                    <p hx-get="/no-data" hx-trigger="click" hx-target="#content-div"
+                        hx-swap="innerHTML swap:1s settle:1s" class="nav-link text-white htmx-element"
+                        aria-current="page">
+                        Toxicity Deaths by Demographics
+                    </p>
+                </li>
+                <li class="nav-item">
+                    <p hx-get="/toxicity-deaths" hx-trigger="click" hx-target="#content-div"
+                        hx-swap="innerHTML swap:1s settle:1s" class="nav-link text-white htmx-element"
+                        aria-current="page">
+                        Toxicity Deaths by Region
+                    </p>
+                </li>
+                <li class="nav-item">
+                    <p hx-get="/no-data" hx-trigger="click" hx-target="#content-div"
+                        hx-swap="innerHTML swap:1s settle:1s" class="nav-link text-white htmx-element"
+                        aria-current="page">
+                        Drug Supply by Region
+                    </p>
+                </li>
+                <li class="nav-item">
+                    <p hx-get="/no-data" hx-trigger="click" hx-target="#content-div"
+                        hx-swap="innerHTML swap:1s settle:1s" class="nav-link text-white htmx-element"
+                        aria-current="page">
+                        Hospitalizations Related to Drug Toxicity
+                    </p>
+                </li>
+                <li class="nav-item">
+                    <p hx-get="/no-data" hx-trigger="click" hx-target="#content-div"
+                        hx-swap="innerHTML swap:1s settle:1s" class="nav-link text-white htmx-element"
+                        aria-current="page">
+                        Naloxone Distribution and Usage
+                    </p>
+                </li>
             </ul>
         </div>
         <div id="content-div" class="flex-column container fade-me-out fade-me-in blue">
             <!-- Content within this div will get swapped out with HTMX on click of nav buttons -->
             <!-- To begin, it will have a sort of "about us" page with some instructions and content -->
-            test text
+            <div class="p-5 w-100 h-100 d-flex justify-content-center align-items-center">
+                <div class="card">
+                    <div class="card-body text-center">
+                        <h4 class="card-title">Welcome to the Canadian Drug Toxicity Surveillance System</h4>
+                        <p class="card-text">The aim of this application is to provide a comprehensive overview of
+                            up-to-date
+                            statistics related to the Canadian drug crisis in a single application tailored to the
+                            unique needs of
+                            the different stakeholders who require it. In doing so, we hope to enable those who use
+                            drugs,
+                            physicians, and policy makers to
+                            make informed decisions using the most current data and meaningful trends regarding the
+                            Opioid overdose
+                            epidemic within Canada in its current state.</p>
+                        <br />
+                        <p class="card-text">Please use the navigation bar on the left to explore the different sections
+                            of the tool
+                            that may be of interest to you.</p>
+
+                        <div class="container">
+                            <div class="row justify-content-center align-items-center g-2">
+                                <div class="col">
+                                    <img src="/static/assets/images/CHI.jpeg" class="img-fluid rounded-top logos"
+                                        alt="University of Calgary Centre for Health Informatics Logo" />
+                                </div>
+                                <div class="col">
+                                    <img src="/static/assets/images/UCalgary-horizontal-logo_2.webp"
+                                        class="img-fluid rounded-top logos" alt="University of Calgary" />
+                                </div>
+                                <div class="col">Other logos...</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
     <footer>
