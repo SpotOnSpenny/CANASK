@@ -39,6 +39,10 @@ def toxicity_deaths():
 @main_blueprint.route("/no-data")
 def no_data():
     return render_template("no_data.jinja")
+
+@main_blueprint.route("/province/british-columbia")
+def bc():
+    return render_template("provincial_bc.jinja")
 ################################# Test Code Below ######################################
 if __name__ == '__main__':
     all_frames = pull_data("skPubCentre")

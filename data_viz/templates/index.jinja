@@ -15,63 +15,58 @@
 <body>
     <div id="page-container" class="d-flex flex-row">
         <div id="sidebar-nav" class="d-flex flex-column flex-shrink-0 p-3 text-white bg-dark"
-            style="width: 250px; height: 100%;">
+            style="width: 250px; height: 100vh;">
             <p hx-get="/introduction" hx-trigger="click" hx-target="#content-div" hx-swap="innerHTML swap:1s settle:1s"
                 class="d-flex mb-3 mb-md-0 me-md-auto text-white text-decoration-none htmx-element">
                 Canadian Drug Toxicity Surveillance
             </p>
             <hr>
-            <ul class="nav nav-pills flex-column mb-auto">
-                <li class="nav-item">
-                    <p hx-get="/toxicity-deaths" hx-trigger="click" hx-target="#content-div"
-                        hx-swap="innerHTML swap:1s settle:1s" class="nav-link text-white htmx-element"
-                        aria-current="page">
-                        Total Toxicity Deaths
-                    </p>
-                </li>
-                <li class="nav-item">
-                    <p hx-get="/no-data" hx-trigger="click" hx-target="#content-div"
-                        hx-swap="innerHTML swap:1s settle:1s" class="nav-link text-white htmx-element"
-                        aria-current="page">
-                        Toxicity Deaths by Type of Drug
-                    </p>
-                </li>
-                <li class="nav-item">
-                    <p hx-get="/no-data" hx-trigger="click" hx-target="#content-div"
-                        hx-swap="innerHTML swap:1s settle:1s" class="nav-link text-white htmx-element"
-                        aria-current="page">
-                        Toxicity Deaths by Demographics
-                    </p>
-                </li>
-                <li class="nav-item">
-                    <p hx-get="/toxicity-deaths" hx-trigger="click" hx-target="#content-div"
-                        hx-swap="innerHTML swap:1s settle:1s" class="nav-link text-white htmx-element"
-                        aria-current="page">
-                        Toxicity Deaths by Region
-                    </p>
-                </li>
-                <li class="nav-item">
-                    <p hx-get="/no-data" hx-trigger="click" hx-target="#content-div"
-                        hx-swap="innerHTML swap:1s settle:1s" class="nav-link text-white htmx-element"
-                        aria-current="page">
-                        Drug Supply by Region
-                    </p>
-                </li>
-                <li class="nav-item">
-                    <p hx-get="/no-data" hx-trigger="click" hx-target="#content-div"
-                        hx-swap="innerHTML swap:1s settle:1s" class="nav-link text-white htmx-element"
-                        aria-current="page">
-                        Hospitalizations Related to Drug Toxicity
-                    </p>
-                </li>
-                <li class="nav-item">
-                    <p hx-get="/no-data" hx-trigger="click" hx-target="#content-div"
-                        hx-swap="innerHTML swap:1s settle:1s" class="nav-link text-white htmx-element"
-                        aria-current="page">
-                        Naloxone Distribution and Usage
-                    </p>
-                </li>
-            </ul>
+            <div class="accordion accordion-flush bg-success" id="accordionFlushMenu">
+                <div class="accordion-item bg-dark text-light">
+                    <h2 class="accordion-header" id="flush-headingOne">
+                        <button class="accordion-button bg-dark text-light collapsed" type="button"
+                            data-bs-toggle="collapse" data-bs-target="#flush-collapseOne" aria-expanded="true"
+                            aria-controls="flush-collapseOne">
+                            National Trends
+                        </button>
+                    </h2>
+                    <div id="flush-collapseOne" class="accordion-collapse collapse" aria-labelledby="flush-headingOne"
+                        data-bs-parent="#accordionFlushMenu">
+                        <div class="accordion-body bg-transparent">
+                            <p hx-get="/toxicity-deaths" hx-trigger="click" hx-target="#content-div"
+                                hx-swap="innerHTML swap:1s settle:1s"
+                                class="nav-link text-white htmx-element accordion-" aria-current="page">
+                                Total Toxicity Deaths
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                <div class="accordion-item bg-dark text-light">
+                    <h2 class="accordion-header" id="flush-headingOne">
+                        <button class="accordion-button bg-dark text-light collapsed" type="button"
+                            data-bs-toggle="collapse" data-bs-target="#flush-collapseProvinces" aria-expanded="true"
+                            aria-controls="flush-collapseProvinces">
+                            Provincial Trends
+                        </button>
+                    </h2>
+                    <div id="flush-collapseProvinces" class="accordion-collapse collapse"
+                        aria-labelledby="flush-headingOne" data-bs-parent="#accordionFlushMenu">
+                        <div class="accordion-body bg-transparent">
+                            <p hx-get="/province/british-columbia" hx-trigger="click" hx-target="#content-div"
+                                hx-swap="innerHTML swap:1s settle:1s"
+                                class="nav-link text-white htmx-element accordion-" aria-current="page">
+                                British Columbia
+                            </p>
+                            <p hx-get="/no-data" hx-trigger="click" hx-target="#content-div"
+                                hx-swap="innerHTML swap:1s settle:1s"
+                                class="nav-link text-white htmx-element accordion-" aria-current="page">
+                                Saskatchewan
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
         </div>
         <div id="content-div" class="flex-column container fade-me-out fade-me-in blue">
             <!-- Content within this div will get swapped out with HTMX on click of nav buttons -->
