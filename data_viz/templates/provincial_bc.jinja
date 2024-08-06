@@ -1,21 +1,20 @@
-<div class="container pt-2">
-    <div class="row justify-content-center align-items-center g-2">
-        <div class="col-8">
-            <div class="card">
-                <div class="card-body">
-                    <h4 class="card-title">Visuals</h4>
+<div class="container h-100 pt-2 gy-2">
+    <div class="row justify-content-center align-items-center mb-2 g-2 menu-row">
+        <div class="col-8 h-100">
+            <div class="card h-100">
+                <div class="card-body h-100">
+                    <h4 class="card-title">Visualization Categories</h4>
                     <nav class="nav nav-pills flex-row">
-                        <a class="nav-link active" href="#" aria-current="page">Active link</a>
+                        <a class="nav-link active" href="#" aria-current="page">Drug Supply</a>
                         <a class="nav-link" href="#">Link</a>
                         <a class="nav-link disabled" href="#">Disabled link</a>
                     </nav>
-
                 </div>
             </div>
         </div>
-        <div class="col-4">
-            <div class="card">
-                <div class="card-body">
+        <div class="col-4 h-100">
+            <div class="card h-100 pass-card">
+                <div class="card-body h-100">
                     <div class="text-center">
                         <h5 class="pass-title card-title">P.A.S.S. Score</h5>
                         <p class="pass-score">60</p>
@@ -38,4 +37,170 @@
             </div>
         </div>
     </div>
+    <div class="row data-row py-1 g-2">
+        <div class="col-9 h-100">
+            <div class="card h-100">
+                <div class="card-body text-center h-100 d-flex align-items-center justify-content-center" id="viz-card">
+                    <div id="bc-vis-div">
+                        <div class="spinner-border" role="status"></div>
+                        <!-- Toxicity Deaths visual will be rendered in this div using plotly.js-->
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-3 h-100 overflowy-scroll">
+            <div class="card h-100">
+                <div class="card-body h-100">
+                    <h4 class="card-title text-center">Chart Options</h4>
+                    <hr />
+                    <div id="buttons" class="d-flex m-auto justify-content-center flex-wrap">
+                        <div class="container">
+                            <div class="row">
+                                <h5 class="fs-6">Drug Supply Data to Display in Chart</h5>
+                            </div>
+                            <div class="row justify-content-center align-items-center g-2">
+                                <div class="col">
+                                    <select class="form-select" onchange="changeChartType()">
+                                        <option value="1" selected>Drugs by Category</option>
+                                        <option value="2">Samples Containing Benzodiazepines or Fentanyl</option>
+                                        <option value="3">Opioids by Type</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="row py-2 justify-content-center align-items-center g-2">
+        <div class="col">
+            <div class="card">
+                <div class="card-body">
+                    <h4 class="card-title">Canadian Drug Toxicity Deaths Each Year by Province</h4>
+                    <div id="data-table" class="text-center">
+                        <div id="toxicity-deaths-vis" class="spinner-border" role="status"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
+
+<script type="text/javascript">
+    //Load the data json for the page
+    data_promise = fetch("static/js/bc_vis.json")
+        .then(response => data = response.json())
+        .then(data => {
+            createCategoryChart(data);
+            return data;
+        })
+
+    // Function to change the chart type
+    function changeChartType() {
+        console.log("Changing chart type");
+        let select = document.querySelector("select");
+        let value = select.value;
+        console.log(value);
+        data_promise.then(data => {
+            if (value == 1) {
+                createCategoryChart(data, false);
+            } else if (value == 2) {
+                createFentBenzChart(data);
+            } else if (value == 3) {
+                createOpioidTypeChart(data);
+            }
+        });
+    }
+
+    function createCategoryChart(data, first_run = true) {
+        let visDiv = document.getElementById("bc-vis-div");
+        let data_obj = data["bc_drugs_by_category"]
+        let traces = [];
+        for (const [key, value] of Object.entries(data_obj)) {
+            let trace = {
+                x: data_obj[key]["x"],
+                y: data_obj[key]["y"],
+                type: 'scatter',
+                mode: 'lines',
+                name: key
+            };
+            traces.push(trace);
+        }
+        if (first_run) {
+            visDiv.innerHTML = "";
+        }
+        let vis = Plotly.react(visDiv, traces, layout = {
+            yaxis: { fixedrange: true, title: "Percent of Samples Belonging to Category of Drug" },
+            xaxis: { fixedrange: true, title: "Year" },
+            hovermode: "x unified",
+            autosize: false,
+            width: $("#viz-card").width(),
+            height: $("#viz-card").height(),
+            title: "Makeup of British Columbia Drug Supply by Category and Year <br> as per Voluntary Drug Testing Results",
+        }, config = {
+            displaylogo: false
+        });
+    }
+
+    function createFentBenzChart(data) {
+        let visDiv = document.getElementById("bc-vis-div");
+        let fent_data = data["bc_percent_fentanyl"];
+        console.log(fent_data)
+        let benz_data = data["bc_percent_benzo"];
+        console.log(benz_data)
+        let fent_trace = {
+            x: fent_data["x"],
+            y: fent_data["y"],
+            type: 'scatter',
+            mode: 'lines',
+            name: "Fentanyl"
+        };
+        let benz_trace = {
+            x: benz_data["x"],
+            y: benz_data["y"],
+            type: 'scatter',
+            mode: 'lines',
+            name: "Benzodiazepines"
+        };
+        traces = [fent_trace, benz_trace];
+        let vis = Plotly.react(visDiv, traces, layout = {
+            yaxis: { fixedrange: true, title: "Percent of Samples Containing Drug" },
+            xaxis: { fixedrange: true, title: "Year" },
+            hovermode: "x unified",
+            autosize: false,
+            width: $("#viz-card").width(),
+            height: $("#viz-card").height(),
+            title: "Percent of Voluntarily Provided Samples Containing Fentanyl or <br> Benzodiazepines in British Columbia by Year",
+        }, config = {
+            displaylogo: false
+        });
+    }
+
+    function createOpioidTypeChart(data) {
+        let visDiv = document.getElementById("bc-vis-div");
+        let data_obj = data["bc_opioids_by_type"]
+        let traces = [];
+        for (const [key, value] of Object.entries(data_obj)) {
+            let trace = {
+                x: data_obj[key]["x"],
+                y: data_obj[key]["y"],
+                type: 'scatter',
+                mode: 'lines',
+                name: key
+            };
+            traces.push(trace);
+        }
+        let vis = Plotly.react(visDiv, traces, layout = {
+            yaxis: { fixedrange: true, title: "Percent of Samples Belonging to Category of Drug" },
+            xaxis: { fixedrange: true, title: "Year" },
+            hovermode: "x unified",
+            autosize: false,
+            width: $("#viz-card").width(),
+            height: $("#viz-card").height(),
+            title: "Types of Opioids in the British Columbia Drug Supply by Year <br> as per Voluntary Drug Testing Results",
+        }, config = {
+            displaylogo: false
+        });
+    }
+</script>

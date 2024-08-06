@@ -1,6 +1,7 @@
 # Python Standard Library Dependencies
 import os
 import json
+import datetime
 
 # External Dependency Imports
 import pandas
@@ -142,8 +143,78 @@ def drug_type_visual(data: dict):
     with open("static/js/visualization_data.json", "w") as file:
         json.dump(graph_data, file)
 
+def bc_visual_data():
+    data = pull_data(["bcCoronersReport", "bcDrugSense"])
+    graph_data = {}
+    bc_drug_sense = filter_data(data, ["bcDrugSense"])[0]
+
+    # Seperate data into years
+    data_by_year = {}
+    starting_year = 2018
+    current_year = datetime.datetime.now().year
+    range_years = range(starting_year, current_year + 1)
+    for year in range_years:
+        data_by_year[str(year)] = bc_drug_sense.loc[bc_drug_sense["Visit Date"].str.contains(str(year))]
+
+    # Pull data related to the number of drugs that contained fentanyl from the BC Drug Sense data
+    percent_fentanyl_data = {
+        "x": [],
+        "y": []
+    }
+    for year, data in data_by_year.items():
+        fentanyl_pos = data.loc[data["Fentanyl Strip"] == "Pos"]
+        percent_fentanyl = (len(fentanyl_pos) / len(data)) * 100
+        percent_fentanyl_data["x"].append(year)
+        percent_fentanyl_data["y"].append(percent_fentanyl)
+    graph_data["bc_percent_fentanyl"] = percent_fentanyl_data
+
+    # Pull the data related to the number of drugs that contained benzos from the BC Drug Sense data
+    percent_benzo_data = {
+        "x": [],
+        "y": []
+    }
+    for year, data in data_by_year.items():
+        benzo_pos = data.loc[data["Benzo Strip"] == "Pos"]
+        percent_benzo = (len(benzo_pos) / len(data)) * 100
+        percent_benzo_data["x"].append(year)
+        percent_benzo_data["y"].append(percent_benzo)
+    graph_data["bc_percent_benzo"] = percent_benzo_data
+
+    # Pull the data related to category of drugs from the BC Drug Sense data as percentage of visits
+    drugs_by_category = {}
+    drug_categories = bc_drug_sense["Category"].unique()
+    for category in drug_categories:
+        drugs_by_category[category] = {
+                "x": [],
+                "y": []
+            }
+        for year, data in data_by_year.items():
+            category_data = data.loc[data["Category"] == category]
+            drugs_by_category[category]["x"].append(year)
+            drugs_by_category[category]["y"].append(len(category_data)/len(data) * 100)
+    graph_data["bc_drugs_by_category"] = drugs_by_category
+
+
+    # Pull data related to Spectrometer results to stratify drugs by type
+    opioids_by_type = {}
+    categories = ["codeine", "fentanyl", "heroin", "hydrocodone", "hydromorphone", "methadone", "morphine", "oxycodone", "buprenorphine"]
+    for opioid in categories:
+        opioids_by_type[opioid] = {
+            "x": [],
+            "y": []
+        }
+        for year, data in data_by_year.items():
+            opioid_data = data.loc[data["Category"] == "Opioid"].fillna("No Data")
+            type_data = opioid_data.loc[opioid_data["Spectrometer"].str.contains(opioid, case=False)]
+            print(len(type_data), opioid, year)
+            opioids_by_type[opioid]["x"].append(year)
+            opioids_by_type[opioid]["y"].append(len(type_data)/len(opioid_data) * 100)
+    graph_data["bc_opioids_by_type"] = opioids_by_type
+    
+    with open("static/js/bc_vis.json", "w") as file:
+        json.dump(graph_data, file)
+
 
 # Test code below
 if __name__ == '__main__':
-    all_frames = pull_data(["skPubCentre", "bcCoronersReport"])
-    drug_type_visual(all_frames)
+    bc_visual_data()

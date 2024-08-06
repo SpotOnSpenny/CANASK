@@ -64,3 +64,24 @@ html {
   font-size: 1rem;
   font-weight: bolder;
 }
+
+.menu-row {
+  height: 15%;
+}
+
+.pass-card:hover {
+  cursor: pointer;
+  animation: zoom-in-out 1s infinite;
+}
+
+@keyframes zoom-in-out {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.04);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
