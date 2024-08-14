@@ -303,7 +303,7 @@ def sask_visual_data():
                 drug_dict[row["Year"]][drug] += int(row[drug])
     for drug in drugs:
         drug_deaths[drug] = [drug_dict[year][drug] for year in years]
-        sk_raw_data[drug] = [drug_dict[year][drug] for year in years]
+        sk_raw_data[f"Deaths Resulting From {drug}"] = [drug_dict[year][drug] for year in years]
         sk_raw_data[f"Percent of Deaths Resulting From {drug}"] = [round(((int(drug_dict[year][drug]) / int(total_deaths[index])) * 100), 2) for index, year in enumerate(years)]
     graph_data = {
         "years": years,
