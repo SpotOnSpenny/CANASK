@@ -43,6 +43,10 @@ def no_data():
 @main_blueprint.route("/province/british-columbia")
 def bc():
     return render_template("provincial_bc.jinja")
+
+@main_blueprint.route("/province/saskatchewan")
+def sk():
+    return render_template("provincial_sask.jinja")
 ################################# Test Code Below ######################################
 if __name__ == '__main__':
     all_frames = pull_data("skPubCentre")

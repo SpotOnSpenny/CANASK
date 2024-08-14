@@ -1,0 +1,188 @@
+<div class="container h-100 pt-2 gy-2">
+    <div class="row justify-content-center align-items-center mb-2 g-2 menu-row">
+        <div class="col-8 h-100">
+            <div class="card h-100">
+                <div class="card-body d-flex flex-column justify-content-center text-center h-100">
+                    <h4 class="card-title">Visualization Categories</h4>
+                    <nav class="nav nav-pills flex-row justify-content-center">
+                        <li class="nav-item dropdown">
+                            <a href="" role="button" data-bs-toggle="dropdown" id="drugSupplyDropdown"
+                                class="nav-link dropdown-toggle disabled">Drug Supply</a>
+                        </li>
+                        <li class="nav-item dropdown">
+                            <a class="nav-link dropdown-toggle fs-6 p-2 active" href="" role="button"
+                                data-bs-toggle="dropdown" id="deathsDropdown">Deaths and Demographics</a>
+                            <ul class="dropdown-menu">
+                                <li>
+                                    <a class="dropdown-item" onclick="changeChart(this, 'deathsDropdown')"
+                                        id="deaths-by-drug" aria-current="page">Drug Toxicity Deaths by Type of
+                                        Drug</a>
+                                </li>
+                            </ul>
+                        </li>
+                        <a class="nav-link disabled fs-6 p-2" href="#">Naloxone</a>
+                        <a class="nav-link disabled fs-6 p-2" href="#">Safe Consumption and Drug Checking Sites</a>
+                        <a class="nav-link disabled fs-6 p-2" href="#">Miscellaneous</a>
+                    </nav>
+                </div>
+            </div>
+        </div>
+        <div class="col-4 h-100">
+            <div class="card h-100 pass-card">
+                <div class="card-body h-100">
+                    <div class="h-100 text-center d-flex justify-content-center flex-column">
+                        <h5 class="pass-title card-title">P.A.S.S. Score</h5>
+                        <p class="pass-score">44%</p>
+                        <div class="d-block w-100">
+                            <div class="progress">
+                                <div class="progress-bar bg-warning" role="progressbar" style="width:44%;"
+                                    aria-valuenow="44" aria-valuemin="0" aria-valuemax="100"></div>
+                            </div>
+                        </div>
+                        <div class="flex align-items-center">
+                            <p class="card-text d-flex justify-content-center align-items-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="pe-2" width="20" height="20"
+                                    fill="currentColor" class="bi bi-info-circle-fill" viewBox="0 0 16 16">
+                                    <path
+                                        d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16m.93-9.412-1 4.705c-.07.34.029.533.304.533.194 0 .487-.07.686-.246l-.088.416c-.287.346-.92.598-1.465.598-.703 0-1.002-.422-.808-1.319l.738-3.468c.064-.293.006-.399-.287-.47l-.451-.081.082-.381 2.29-.287zM8 5.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2" />
+                                </svg>
+                                Click to learn more about P.A.S.S.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="row data-row py-1 g-2">
+        <div class="col-9 h-100">
+            <div class="card h-100">
+                <div class="card-body text-center h-100 d-flex align-items-center justify-content-center" id="viz-card">
+                    <div id="sk-vis-div">
+                        <div class="spinner-border" role="status"></div>
+                        <!-- Toxicity Deaths visual will be rendered in this div using plotly.js-->
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-3 h-100">
+            <div class="card h-100 overflow-y-scroll">
+                <div class="card-body h-100">
+                    <div class="about-data-div h-100">
+                        <div class="data-spinner-div h-100 d-flex align-items-center justify-content-center">
+                            <div id="toxicity-deaths-vis" class="spinner-border" role="status"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="row py-2 justify-content-center align-items-center g-2">
+        <div class="col">
+            <div class="card pe-3">
+                <div class="card-body overflow-x-scroll">
+                    <h4 class="card-title" id="table-title"></h4>
+                    <div id="data-table" class="text-center">
+                        <div id="toxicity-deaths-vis" class="spinner-border" role="status"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script type="text/javascript">
+    //Load the data json for the page
+    data_promise = fetch("static/js/sask_vis.json")
+        .then(response => data = response.json())
+        .then(data => {
+            createCategoryChart(data);
+            return data;
+        })
+
+    // Function to change the chart type
+    function changeChart(buttonElement, parentID) {
+        Array.from(document.querySelectorAll(".active")).forEach((element) => {
+            element.classList.remove("active");
+        });
+        switch (buttonElement.id) {
+            case ("fent-and-benzos"):
+                data_promise.then(data => createFentBenzChart(data));
+                break;
+        }
+        buttonElement.classList.add("active");
+        if (parentID != null) {
+            document.getElementById(parentID).classList.add("active");
+        }
+    }
+
+    // Funciton to create the chart depicting type of opioid death
+    function createCategoryChart(data) {
+        let raw_obj = data["raw_data"];
+        let vis_div = document.getElementById("sk-vis-div");
+        let years = data["years"];
+        let total_deaths = data["total_deaths"];
+        let deaths_by_drug = data["drug_deaths"];
+        let percents_by_drugs = data["drug_percents"];
+        let aboutDataDiv = document.querySelector(".about-data-div");
+        traces = [];
+        let total_trace = {
+            x: years,
+            y: total_deaths,
+            type: 'Scatter',
+            mode: 'lines',
+            name: 'Total Drug Toxicity Deaths',
+        };
+        traces.push(total_trace);
+        for (let drug in deaths_by_drug) {
+            let drug_trace = {
+                x: years,
+                y: deaths_by_drug[drug],
+                type: 'bar',
+                name: drug
+            };
+            traces.push(drug_trace);
+        }
+        let layout = {
+            yaxis: { fixedrange: true, title: "Number of Drug Toxicity Deaths" },
+            xaxis: { fixedrange: true, title: "Year" },
+            hovermode: "x unified",
+            autosize: false,
+            width: $("#viz-card").width(),
+            height: $("#viz-card").height(),
+            title: "Saskatchewan Drug Toxicity Deaths by Type of Drug",
+        };
+        console.log(traces)
+        vis_div.innerHTML = "";
+        let vis = Plotly.react(vis_div, traces, layout);
+
+        // Create the table and add in tabular data
+        let table_div = document.getElementById("data-table");
+        let table = document.createElement("table");
+        let table_title = document.getElementById("table-title");
+        table.setAttribute("class", "mb-0 table table-striped table-bordered table-hover");
+        let cols = [""].concat(years);
+        let tr = table.insertRow(-1);
+        cols.forEach(headerText => {
+            let th = document.createElement("th"); // Create a new header cell
+            th.innerText = headerText; // Set the text of the header cell
+            tr.appendChild(th); // Add the header cell to the row
+        });
+        table_div.innerHTML = "";
+        table_div.appendChild(table);
+        table_title.innerText = "Saskatchewan Drug Toxicity Deaths by Type of Drug";
+        aboutDataDiv.innerHTML = skcs_html;
+        for (const [key, value] of Object.entries(raw_obj)) {
+            if (key != "years") {
+                let tr = table.insertRow(-1);
+                tr.setAttribute("class", "align-middle");
+                let tabCell = tr.insertCell(-1);
+                tabCell.innerText = key;
+                value.forEach(element => {
+                    let tabCell = tr.insertCell(-1);
+                    tabCell.innerText = element;
+                });
+            }
+        }
+    }
+</script>

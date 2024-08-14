@@ -12,7 +12,7 @@
         integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous" />
 </head>
 
-<body>
+<body class="overflow-x-hidden">
     <div id="page-container" class="d-flex flex-row">
         <div id="sidebar-nav" class="d-flex flex-column flex-shrink-0 p-3 text-white bg-dark"
             style="width: 250px; height: 100vh;">
@@ -58,6 +58,11 @@
                                 British Columbia
                             </p>
                             <p hx-get="/no-data" hx-trigger="click" hx-target="#content-div"
+                                hx-swap="innerHTML swap:1s settle:1s"
+                                class="nav-link text-white htmx-element accordion-" aria-current="page">
+                                Alberta
+                            </p>
+                            <p hx-get="/province/saskatchewan" hx-trigger="click" hx-target="#content-div"
                                 hx-swap="innerHTML swap:1s settle:1s"
                                 class="nav-link text-white htmx-element accordion-" aria-current="page">
                                 Saskatchewan

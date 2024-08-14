@@ -27,7 +27,17 @@
                                 </li>
                             </ul>
                         </li>
-                        <a class="nav-link fs-6 p-2" href="#">Deaths and Demographics</a>
+                        <li class="nav-item dropdown">
+                            <a class="nav-link dropdown-toggle fs-6 p-2" href="" role="button" data-bs-toggle="dropdown"
+                                id="deathsDropdown">Deaths and Demographics</a>
+                            <ul class="dropdown-menu">
+                                <li>
+                                    <a class="dropdown-item" onclick="changeChart(this, 'deathsDropdown')"
+                                        id="deaths-by-drug" aria-current="page">Drug Toxicity Deaths by Type of
+                                        Drug</a>
+                                </li>
+                            </ul>
+                        </li>
                         <a class="nav-link disabled fs-6 p-2" href="#">Naloxone</a>
                         <a class="nav-link disabled fs-6 p-2" href="#">Safe Consumption and Drug Checking Sites</a>
                         <a class="nav-link disabled fs-6 p-2" href="#">Miscellaneous</a>
@@ -40,11 +50,11 @@
                 <div class="card-body h-100">
                     <div class="h-100 text-center d-flex justify-content-center flex-column">
                         <h5 class="pass-title card-title">P.A.S.S. Score</h5>
-                        <p class="pass-score">60%</p>
+                        <p class="pass-score">50%</p>
                         <div class="d-block w-100">
                             <div class="progress">
-                                <div class="progress-bar bg-warning" role="progressbar" style="width: 60%;"
-                                    aria-valuenow="60" aria-valuemin="0" aria-valuemax="100"></div>
+                                <div class="progress-bar bg-warning" role="progressbar" style="width: 50%;"
+                                    aria-valuenow="50" aria-valuemin="0" aria-valuemax="100"></div>
                             </div>
                         </div>
                         <div class="flex align-items-center">
@@ -122,6 +132,9 @@
                 break;
             case ("drugs-by-category"):
                 data_promise.then(data => createCategoryChart(data, first_run = false));
+                break;
+            case ("deaths-by-drug"):
+                data_promise.then(data => createDeathDrugChart(data));
                 break;
         }
         buttonElement.classList.add("active");
@@ -295,6 +308,71 @@
         table_div.appendChild(table);
         table_title.innerText = "Types of Opioids in the British Columbia Drug Supply by Year";
         aboutDataDiv.innerHTML = bccsu_html;
+        for (const [key, value] of Object.entries(raw_obj)) {
+            if (key != "years") {
+                let tr = table.insertRow(-1);
+                tr.setAttribute("class", "align-middle");
+                let tabCell = tr.insertCell(-1);
+                tabCell.innerText = key;
+                value.forEach(element => {
+                    let tabCell = tr.insertCell(-1);
+                    tabCell.innerText = element;
+                });
+            }
+        }
+    }
+
+    function createDeathDrugChart(data) {
+        let visDiv = document.getElementById("bc-vis-div");
+        let aboutDataDiv = document.getElementsByClassName("about-data-div")[0];
+        let deaths_obj = data["bc_total_deaths"];
+        let drugs_obj = data["bc_deaths_by_drug"];
+        let traces = [];
+        let deaths_trace = {
+            x: deaths_obj["years"],
+            y: deaths_obj["total_deaths"],
+            type: 'scatter',
+            mode: 'lines',
+            name: "Total Drug Toxicity Deaths"
+        };
+        traces.push(deaths_trace);
+        for (const [key, value] of Object.entries(drugs_obj)) {
+            let trace = {
+                x: deaths_obj["years"],
+                y: drugs_obj[key]["deaths"],
+                type: 'bar',
+                name: key
+            };
+            traces.push(trace);
+        }
+        let vis = Plotly.react(visDiv, traces, layout = {
+            yaxis: { fixedrange: true, title: "Number of Deaths" },
+            xaxis: { fixedrange: true, title: "Year" },
+            hovermode: "x unified",
+            autosize: false,
+            width: $("#viz-card").width(),
+            height: $("#viz-card").height(),
+            title: "Drug Toxicity Deaths in British Columbia by Year and Drug Causing Death",
+        }, config = {
+            displaylogo: false
+        });
+        // Replace the tabular section with table data for this vis
+        raw_obj = data["bc_raw_deaths_by_drug"]
+        let table_title = document.getElementById("table-title");
+        let table_div = document.getElementById("data-table");
+        table_div.innerHTML = "";
+        let table = document.createElement("table");
+        table.setAttribute("class", "mb-0 table table-striped table-bordered table-hover");
+        let cols = [""].concat(deaths_obj["years"]);
+        let tr = table.insertRow(-1);
+        cols.forEach(headerText => {
+            let th = document.createElement("th"); // Create a new header cell
+            th.innerText = headerText; // Set the text of the header cell
+            tr.appendChild(th); // Add the header cell to the row
+        });
+        table_div.appendChild(table);
+        table_title.innerText = "Drug Toxicity Deaths in British Columbia by Year and Drug Causing Death";
+        aboutDataDiv.innerHTML = bccs_html;
         for (const [key, value] of Object.entries(raw_obj)) {
             if (key != "years") {
                 let tr = table.insertRow(-1);

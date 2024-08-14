@@ -147,6 +147,7 @@ def bc_visual_data():
     data = pull_data(["bcCoronersReport", "bcDrugSense"])
     graph_data = {}
     bc_drug_sense = filter_data(data, ["bcDrugSense"])[0]
+    bc_coroners = filter_data(data, ["Unregulated Drug Deaths byDrug Types Relevant to Death", "Unregulated Drug Deaths by Month, 2014-2024"])
 
     # Seperate data into years
     data_by_year = {}
@@ -220,7 +221,6 @@ def bc_visual_data():
     graph_data["bc_drugs_by_category"] = drugs_by_category
     graph_data["bc_raw_drug_category"] = drug_catagory_raw
 
-
     # Pull data related to Spectrometer results to stratify drugs by type
     opioids_by_type = {}
     opioid_type_raw = {
@@ -244,11 +244,80 @@ def bc_visual_data():
             opioid_type_raw[f"Percent of Samples {opioid}"].append(round((len(type_data)/len(opioid_data) * 100), 2))
     graph_data["bc_opioids_by_type"] = opioids_by_type
     graph_data["bc_raw_opioid_type"] = opioid_type_raw
+
+    # Handle the data for visuals from the BC Coroners Report
+    total_deaths = {
+        "years": [],
+        "total_deaths": []
+    }
+    deaths_by_drug_raw = {}
+    for year in bc_coroners[0].columns[1:]:
+        if year in bc_coroners[1].columns:
+            total_deaths["years"].append(str(year).replace(u"\xa0", ""))
+            total_deaths["total_deaths"].append(int(bc_coroners[0].loc[12, year]))
+    deaths_by_drug = {}
+    drugs = bc_coroners[1].iloc[:, 0].values
+    drug_deaths_df = bc_coroners[1]
+    for drug in drugs:
+        deaths_by_drug[drug] = {
+            "deaths": [],
+            "percent": []
+        }
+        deaths_by_drug_raw[f"Deaths Caused by {drug}"] = []
+        deaths_by_drug_raw[f"Percent of Drug Toxicity Deaths Caused by {drug}"] = []
+        this_drug = drug_deaths_df.loc[drug_deaths_df.iloc[:, 0] == drug]
+        for index, value in enumerate(this_drug.values[0][1:]):
+            deaths_by_drug[drug]["deaths"].append(round((float("{:#.2f}".format(float(value.replace("%", ""))))/100) * total_deaths["total_deaths"][index]))
+            deaths_by_drug[drug]["percent"].append(float("{:#.2f}".format(float(value.replace("%", "")))))
+            deaths_by_drug_raw[f"Deaths Caused by {drug}"].append(round((float("{:#.2f}".format(float(value.replace("%", ""))))/100) * total_deaths["total_deaths"][index]))
+            deaths_by_drug_raw[f"Percent of Drug Toxicity Deaths Caused by {drug}"].append("{:#.2f}".format(float(value.replace("%", ""))))
+
+    graph_data["bc_total_deaths"] = total_deaths
+    graph_data["bc_deaths_by_drug"] = deaths_by_drug
+    graph_data["bc_raw_deaths_by_drug"] = deaths_by_drug_raw
+    print(deaths_by_drug_raw)
     
     with open("static/js/bc_vis.json", "w") as file:
         json.dump(graph_data, file)
 
+def sask_visual_data():
+    data = pull_data(["skPubCentre"])
+    sk_data = filter_data(data, ["ConfirmedDrugToxicityDeathsbyMannerofDeath,2016-2024", "Breakdown of Opioid Drugs Identified in Confirmed Drug Toxicity Deaths by Manner of Death, 2016 - 2024", "Breakdown of Benzodiazepine Drugs Identified in Confirmed Drug Toxicity Deaths by Manner of Death, 2024"])
+    death_df = sk_data[0]
+    drug_df = sk_data[1]
+    # Clean the data to get the aggregate values we need
+    drug_deaths = {}
+    drug_percents = {}
+    sk_raw_data = {}
+    years = [year for year in sk_data[0].columns if year != "Year"]
+    total_deaths = [deaths for deaths in death_df.loc[death_df["Year"]=="Total"].values[0] if deaths != "Total"]
+    drugs = ["Codeine", "Fentanyl", "Heroin", "Hydrocodone", "Hydromorphone", "Methadone", "Morphine", "Oxycodone", "Buprenorphine"]
+    drug_dict = {}
+    for index, row in drug_df.iterrows():
+        if row["Year"] not in drug_dict.keys():
+            drug_dict[row["Year"]] = {}
+        for drug in drugs:
+            if drug not in drug_dict[row["Year"]].keys():
+                drug_dict[row["Year"]][drug] = 0
+            if row[drug].isnumeric():
+                drug_dict[row["Year"]][drug] += int(row[drug])
+    for drug in drugs:
+        drug_deaths[drug] = [drug_dict[year][drug] for year in years]
+        sk_raw_data[drug] = [drug_dict[year][drug] for year in years]
+        sk_raw_data[f"Percent of Deaths Resulting From {drug}"] = [round(((int(drug_dict[year][drug]) / int(total_deaths[index])) * 100), 2) for index, year in enumerate(years)]
+    graph_data = {
+        "years": years,
+        "total_deaths": total_deaths,
+        "drug_deaths": drug_deaths,
+        "raw_data": sk_raw_data
+    }
+
+    with open("static/js/sask_vis.json", "w") as file:
+        json.dump(graph_data, file)
+
+
+
 
 # Test code below
 if __name__ == '__main__':
-    bc_visual_data()
+    sask_visual_data()
