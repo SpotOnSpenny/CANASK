@@ -66,7 +66,7 @@ html {
 }
 
 .menu-row {
-  height: 15%;
+  height: 20%;
 }
 
 .pass-card:hover {
@@ -84,4 +84,15 @@ html {
   100% {
     transform: scale(1);
   }
+}
+
+.about-viz-text {
+  font-size: 0.85rem;
+}
+
+.center-vert-content {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
 }

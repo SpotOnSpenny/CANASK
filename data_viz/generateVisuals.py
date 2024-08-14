@@ -157,15 +157,27 @@ def bc_visual_data():
         data_by_year[str(year)] = bc_drug_sense.loc[bc_drug_sense["Visit Date"].str.contains(str(year))]
 
     # Pull data related to the number of drugs that contained fentanyl from the BC Drug Sense data
+    fent_benz_raw = {
+        "years": [],
+        "Total Samples": [],
+        "Fentanyl Pos. Samples": [],
+        "Percent Fentanyl Pos.": [],
+        "Benzodiazepine Pos. Samples": [],
+        "Percent Benzodiazepine Pos.": []
+    }
     percent_fentanyl_data = {
         "x": [],
-        "y": []
+        "y": [],
     }
     for year, data in data_by_year.items():
         fentanyl_pos = data.loc[data["Fentanyl Strip"] == "Pos"]
-        percent_fentanyl = (len(fentanyl_pos) / len(data)) * 100
+        percent_fentanyl = round(((len(fentanyl_pos) / len(data)) * 100), 2)
         percent_fentanyl_data["x"].append(year)
         percent_fentanyl_data["y"].append(percent_fentanyl)
+        fent_benz_raw["years"].append(year)
+        fent_benz_raw["Total Samples"].append(len(data))
+        fent_benz_raw["Fentanyl Pos. Samples"].append(len(fentanyl_pos))
+        fent_benz_raw["Percent Fentanyl Pos."].append(percent_fentanyl)
     graph_data["bc_percent_fentanyl"] = percent_fentanyl_data
 
     # Pull the data related to the number of drugs that contained benzos from the BC Drug Sense data
@@ -175,12 +187,19 @@ def bc_visual_data():
     }
     for year, data in data_by_year.items():
         benzo_pos = data.loc[data["Benzo Strip"] == "Pos"]
-        percent_benzo = (len(benzo_pos) / len(data)) * 100
+        percent_benzo = round(((len(benzo_pos) / len(data)) * 100), 2)
         percent_benzo_data["x"].append(year)
         percent_benzo_data["y"].append(percent_benzo)
+        fent_benz_raw["Benzodiazepine Pos. Samples"].append(len(benzo_pos))
+        fent_benz_raw["Percent Benzodiazepine Pos."].append(percent_benzo)
+    graph_data["bc_raw_fent_benz"] = fent_benz_raw
     graph_data["bc_percent_benzo"] = percent_benzo_data
 
     # Pull the data related to category of drugs from the BC Drug Sense data as percentage of visits
+    drug_catagory_raw = {
+        "years": list(data_by_year.keys()),
+        "Total Samples": [len(data) for data in data_by_year.values()],
+    }
     drugs_by_category = {}
     drug_categories = bc_drug_sense["Category"].unique()
     for category in drug_categories:
@@ -191,25 +210,40 @@ def bc_visual_data():
         for year, data in data_by_year.items():
             category_data = data.loc[data["Category"] == category]
             drugs_by_category[category]["x"].append(year)
-            drugs_by_category[category]["y"].append(len(category_data)/len(data) * 100)
+            drugs_by_category[category]["y"].append(round((len(category_data)/len(data) * 100), 2))
+            if category not in drug_catagory_raw.keys():
+                drug_catagory_raw[category] = []
+            drug_catagory_raw[category].append(len(category_data))
+            if f"Percent of Samples {category}" not in drug_catagory_raw.keys():
+                drug_catagory_raw[f"Percent of Samples {category}"] = []
+            drug_catagory_raw[f"Percent of Samples {category}"].append(round((len(category_data)/len(data) * 100), 2))
     graph_data["bc_drugs_by_category"] = drugs_by_category
+    graph_data["bc_raw_drug_category"] = drug_catagory_raw
 
 
     # Pull data related to Spectrometer results to stratify drugs by type
     opioids_by_type = {}
-    categories = ["codeine", "fentanyl", "heroin", "hydrocodone", "hydromorphone", "methadone", "morphine", "oxycodone", "buprenorphine"]
+    opioid_type_raw = {
+        "years": list(data_by_year.keys()),
+        "Total Opioid Samples": [len(data.loc[data["Category"] == "Opioid"]) for data in data_by_year.values()],
+    }
+    categories = ["Codeine", "Fentanyl", "Heroin", "Hydrocodone", "Hydromorphone", "Methadone", "Morphine", "Oxycodone", "Buprenorphine"]
     for opioid in categories:
         opioids_by_type[opioid] = {
             "x": [],
             "y": []
         }
+        opioid_type_raw[opioid] = []
+        opioid_type_raw[f"Percent of Samples {opioid}"] = []
         for year, data in data_by_year.items():
             opioid_data = data.loc[data["Category"] == "Opioid"].fillna("No Data")
             type_data = opioid_data.loc[opioid_data["Spectrometer"].str.contains(opioid, case=False)]
-            print(len(type_data), opioid, year)
             opioids_by_type[opioid]["x"].append(year)
-            opioids_by_type[opioid]["y"].append(len(type_data)/len(opioid_data) * 100)
+            opioids_by_type[opioid]["y"].append(round((len(type_data)/len(opioid_data) * 100), 2))
+            opioid_type_raw[opioid].append(len(type_data))
+            opioid_type_raw[f"Percent of Samples {opioid}"].append(round((len(type_data)/len(opioid_data) * 100), 2))
     graph_data["bc_opioids_by_type"] = opioids_by_type
+    graph_data["bc_raw_opioid_type"] = opioid_type_raw
     
     with open("static/js/bc_vis.json", "w") as file:
         json.dump(graph_data, file)
