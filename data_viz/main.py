@@ -2,7 +2,7 @@
 import os
 
 # External Dependency Imports
-from flask import Blueprint, render_template
+from flask import Blueprint, render_template, redirect, url_for, request
 import pandas
 
 # Internal Dependency Imports
@@ -24,29 +24,52 @@ from .generateVisuals import pull_data, filter_data, drug_type_visual
 main_blueprint = Blueprint("main", __name__)
 
 ##################################### ROUTES ###########################################
+# Routes for main index page
 @main_blueprint.route("/")
 def index():
     return render_template("index.jinja")
 
-@main_blueprint.route("/introduction")
-def introduction():
-    return render_template("introduction.jinja")
+@main_blueprint.route("/introduction", defaults={"htmx_flag": None})
+@main_blueprint.route("/introduction/<htmx_flag>")
+def introduction(htmx_flag):
+    if not htmx_flag:
+        return redirect(url_for("main.index"))
+    else:
+        return render_template("introduction.jinja")
 
-@main_blueprint.route("/toxicity-deaths")
-def toxicity_deaths():
-    return render_template("toxicity_deaths.jinja")
+# Routes for National Trends
+@main_blueprint.route("/toxicity-deaths", defaults={"htmx_flag": None})
+@main_blueprint.route("/toxicity-deaths/<htmx_flag>")
+def toxicity_deaths(htmx_flag):
+    if not htmx_flag:
+        return render_template("index.jinja", dash_template="toxicity_deaths.jinja")
+    else:
+        return render_template("toxicity_deaths.jinja")
 
-@main_blueprint.route("/no-data")
-def no_data():
-    return render_template("no_data.jinja")
+# Routes for Provincial Dashboards
+@main_blueprint.route("/province/british-columbia", defaults={"htmx_flag": None})
+@main_blueprint.route("/province/british-columbia/<htmx_flag>")
+def bc(htmx_flag):
+    if not htmx_flag:
+        return render_template("index.jinja", dash_template="provincial_bc.jinja")
+    else:
+        return render_template("provincial_bc.jinja")
 
-@main_blueprint.route("/province/british-columbia")
-def bc():
-    return render_template("provincial_bc.jinja")
-
-@main_blueprint.route("/province/saskatchewan")
-def sk():
-    return render_template("provincial_sask.jinja")
+@main_blueprint.route("/province/saskatchewan" , defaults={"htmx_flag": None})
+@main_blueprint.route("/province/saskatchewan/<htmx_flag>")
+def sk(htmx_flag):
+    if not htmx_flag:
+        return render_template("index.jinja", dash_template="provincial_sask.jinja")
+    else:
+        return render_template("provincial_sask.jinja")
+    
+@main_blueprint.route("/province/alberta", defaults={"htmx_flag": None})
+@main_blueprint.route("/province/alberta/<htmx_flag>")
+def ab(htmx_flag):
+    if not htmx_flag:
+        return render_template("index.jinja", dash_template="no_data.jinja")
+    else:
+        return render_template("no_data.jinja")
 ################################# Test Code Below ######################################
 if __name__ == '__main__':
     all_frames = pull_data("skPubCentre")

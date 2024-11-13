@@ -107,283 +107,282 @@
             </div>
         </div>
     </div>
-</div>
+    <script type="text/javascript">
+        //Load the data json for the page
+        data_promise = fetch("/static/js/bc_vis.json")
+            .then(response => data = response.json())
+            .then(data => {
+                createCategoryChart(data);
+                return data;
+            })
 
-<script type="text/javascript">
-    //Load the data json for the page
-    data_promise = fetch("static/js/bc_vis.json")
-        .then(response => data = response.json())
-        .then(data => {
-            createCategoryChart(data);
-            return data;
-        })
-
-    // Function to change the chart type
-    function changeChart(buttonElement, parentID) {
-        Array.from(document.querySelectorAll(".active")).forEach((element) => {
-            element.classList.remove("active");
-        });
-        switch (buttonElement.id) {
-            case ("fent-and-benzos"):
-                data_promise.then(data => createFentBenzChart(data));
-                break;
-            case ("types-of-opioids"):
-                data_promise.then(data => createOpioidTypeChart(data));
-                break;
-            case ("drugs-by-category"):
-                data_promise.then(data => createCategoryChart(data, first_run = false));
-                break;
-            case ("deaths-by-drug"):
-                data_promise.then(data => createDeathDrugChart(data));
-                break;
+        // Function to change the chart type
+        function changeChart(buttonElement, parentID) {
+            Array.from(document.querySelectorAll(".active")).forEach((element) => {
+                element.classList.remove("active");
+            });
+            switch (buttonElement.id) {
+                case ("fent-and-benzos"):
+                    data_promise.then(data => createFentBenzChart(data));
+                    break;
+                case ("types-of-opioids"):
+                    data_promise.then(data => createOpioidTypeChart(data));
+                    break;
+                case ("drugs-by-category"):
+                    data_promise.then(data => createCategoryChart(data, first_run = false));
+                    break;
+                case ("deaths-by-drug"):
+                    data_promise.then(data => createDeathDrugChart(data));
+                    break;
+            }
+            buttonElement.classList.add("active");
+            if (parentID != null) {
+                document.getElementById(parentID).classList.add("active");
+            }
         }
-        buttonElement.classList.add("active");
-        if (parentID != null) {
-            document.getElementById(parentID).classList.add("active");
-        }
-    }
 
-    function createCategoryChart(data, first_run = true) {
-        let visDiv = document.getElementById("bc-vis-div");
-        let data_obj = data["bc_drugs_by_category"]
-        let aboutDataDiv = document.getElementsByClassName("about-data-div")[0];
-        let traces = [];
-        for (const [key, value] of Object.entries(data_obj)) {
-            let trace = {
-                x: data_obj[key]["x"],
-                y: data_obj[key]["y"],
+        function createCategoryChart(data, first_run = true) {
+            let visDiv = document.getElementById("bc-vis-div");
+            let data_obj = data["bc_drugs_by_category"]
+            let aboutDataDiv = document.getElementsByClassName("about-data-div")[0];
+            let traces = [];
+            for (const [key, value] of Object.entries(data_obj)) {
+                let trace = {
+                    x: data_obj[key]["x"],
+                    y: data_obj[key]["y"],
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: key
+                };
+                traces.push(trace);
+            }
+            if (first_run) {
+                visDiv.innerHTML = "";
+            }
+            let vis = Plotly.react(visDiv, traces, layout = {
+                yaxis: { fixedrange: true, title: "Percent of Samples Belonging to Category of Drug" },
+                xaxis: { fixedrange: true, title: "Year" },
+                hovermode: "x unified",
+                autosize: false,
+                width: $("#viz-card").width(),
+                height: $("#viz-card").height(),
+                title: "Makeup of British Columbia Drug Supply by Category and Year",
+            }, config = {
+                displaylogo: false
+            });
+            // Replace the tabular section with table data for this vis
+            raw_obj = data["bc_raw_drug_category"]
+            let table_div = document.getElementById("data-table");
+            let table = document.createElement("table");
+            let table_title = document.getElementById("table-title");
+            table.setAttribute("class", "mb-0 table table-striped table-bordered table-hover");
+            let cols = [""].concat(raw_obj["years"]);
+            let tr = table.insertRow(-1);
+            cols.forEach(headerText => {
+                let th = document.createElement("th"); // Create a new header cell
+                th.innerText = headerText; // Set the text of the header cell
+                tr.appendChild(th); // Add the header cell to the row
+            });
+            table_div.innerHTML = "";
+            table_div.appendChild(table);
+            table_title.innerText = "Makeup of British Columbia Drug Supply by Category and Year";
+            aboutDataDiv.innerHTML = bccsu_html;
+            for (const [key, value] of Object.entries(raw_obj)) {
+                if (key != "years") {
+                    let tr = table.insertRow(-1);
+                    tr.setAttribute("class", "align-middle");
+                    let tabCell = tr.insertCell(-1);
+                    tabCell.innerText = key;
+                    value.forEach(element => {
+                        let tabCell = tr.insertCell(-1);
+                        tabCell.innerText = element;
+                    });
+                }
+            }
+        }
+
+        function createFentBenzChart(data) {
+            let visDiv = document.getElementById("bc-vis-div");
+            let fent_data = data["bc_percent_fentanyl"];
+            let benz_data = data["bc_percent_benzo"];
+            let fent_trace = {
+                x: fent_data["x"],
+                y: fent_data["y"],
                 type: 'scatter',
                 mode: 'lines',
-                name: key
+                name: "Fentanyl"
             };
-            traces.push(trace);
-        }
-        if (first_run) {
-            visDiv.innerHTML = "";
-        }
-        let vis = Plotly.react(visDiv, traces, layout = {
-            yaxis: { fixedrange: true, title: "Percent of Samples Belonging to Category of Drug" },
-            xaxis: { fixedrange: true, title: "Year" },
-            hovermode: "x unified",
-            autosize: false,
-            width: $("#viz-card").width(),
-            height: $("#viz-card").height(),
-            title: "Makeup of British Columbia Drug Supply by Category and Year",
-        }, config = {
-            displaylogo: false
-        });
-        // Replace the tabular section with table data for this vis
-        raw_obj = data["bc_raw_drug_category"]
-        let table_div = document.getElementById("data-table");
-        let table = document.createElement("table");
-        let table_title = document.getElementById("table-title");
-        table.setAttribute("class", "mb-0 table table-striped table-bordered table-hover");
-        let cols = [""].concat(raw_obj["years"]);
-        let tr = table.insertRow(-1);
-        cols.forEach(headerText => {
-            let th = document.createElement("th"); // Create a new header cell
-            th.innerText = headerText; // Set the text of the header cell
-            tr.appendChild(th); // Add the header cell to the row
-        });
-        table_div.innerHTML = "";
-        table_div.appendChild(table);
-        table_title.innerText = "Makeup of British Columbia Drug Supply by Category and Year";
-        aboutDataDiv.innerHTML = bccsu_html;
-        for (const [key, value] of Object.entries(raw_obj)) {
-            if (key != "years") {
-                let tr = table.insertRow(-1);
-                tr.setAttribute("class", "align-middle");
-                let tabCell = tr.insertCell(-1);
-                tabCell.innerText = key;
-                value.forEach(element => {
-                    let tabCell = tr.insertCell(-1);
-                    tabCell.innerText = element;
-                });
-            }
-        }
-    }
-
-    function createFentBenzChart(data) {
-        let visDiv = document.getElementById("bc-vis-div");
-        let fent_data = data["bc_percent_fentanyl"];
-        let benz_data = data["bc_percent_benzo"];
-        let fent_trace = {
-            x: fent_data["x"],
-            y: fent_data["y"],
-            type: 'scatter',
-            mode: 'lines',
-            name: "Fentanyl"
-        };
-        let benz_trace = {
-            x: benz_data["x"],
-            y: benz_data["y"],
-            type: 'scatter',
-            mode: 'lines',
-            name: "Benzodiazepines"
-        };
-        traces = [fent_trace, benz_trace];
-        let vis = Plotly.react(visDiv, traces, layout = {
-            yaxis: { fixedrange: true, title: "Percent of Samples Containing Drug" },
-            xaxis: { fixedrange: true, title: "Year" },
-            hovermode: "x unified",
-            autosize: false,
-            width: $("#viz-card").width(),
-            height: $("#viz-card").height(),
-            title: "Percent of Voluntarily Provided Samples Containing Fentanyl or <br> Benzodiazepines in British Columbia by Year",
-        }, config = {
-            displaylogo: false
-        });
-        // Replace the tabular section with table data for this vis
-        raw_obj = data["bc_raw_fent_benz"]
-        let table_title = document.getElementById("table-title");
-        let table_div = document.getElementById("data-table");
-        let aboutDataDiv = document.getElementsByClassName("about-data-div")[0];
-        table_div.innerHTML = "";
-        let table = document.createElement("table");
-        table.setAttribute("class", "mb-0 table table-striped table-bordered table-hover");
-        let cols = [""].concat(raw_obj["years"]);
-        let tr = table.insertRow(-1);
-        cols.forEach(headerText => {
-            let th = document.createElement("th"); // Create a new header cell
-            th.innerText = headerText; // Set the text of the header cell
-            tr.appendChild(th); // Add the header cell to the row
-        });
-        table_div.appendChild(table);
-        table_title.innerText = "Samples Containing Fentanyl or Benzodiazepines in British Columbia";
-        aboutDataDiv.innerHTML = bccsu_html;
-        for (const [key, value] of Object.entries(raw_obj)) {
-            if (key != "years") {
-                let tr = table.insertRow(-1);
-                tr.setAttribute("class", "align-middle");
-                let tabCell = tr.insertCell(-1);
-                tabCell.innerText = key;
-                value.forEach(element => {
-                    let tabCell = tr.insertCell(-1);
-                    tabCell.innerText = element;
-                });
-            }
-        }
-    }
-
-    function createOpioidTypeChart(data) {
-        let visDiv = document.getElementById("bc-vis-div");
-        let aboutDataDiv = document.getElementsByClassName("about-data-div")[0];
-        let data_obj = data["bc_opioids_by_type"]
-        let traces = [];
-        for (const [key, value] of Object.entries(data_obj)) {
-            let trace = {
-                x: data_obj[key]["x"],
-                y: data_obj[key]["y"],
+            let benz_trace = {
+                x: benz_data["x"],
+                y: benz_data["y"],
                 type: 'scatter',
                 mode: 'lines',
-                name: key
+                name: "Benzodiazepines"
             };
-            traces.push(trace);
-        }
-        let vis = Plotly.react(visDiv, traces, layout = {
-            yaxis: { fixedrange: true, title: "Percent of Samples Belonging to Category of Drug" },
-            xaxis: { fixedrange: true, title: "Year" },
-            hovermode: "x unified",
-            autosize: false,
-            width: $("#viz-card").width(),
-            height: $("#viz-card").height(),
-            title: "Types of Opioids in the British Columbia Drug Supply by Year <br> as per Voluntary Drug Testing Results",
-        }, config = {
-            displaylogo: false
-        });
-        // Replace the tabular section with table data for this vis
-        raw_obj = data["bc_raw_opioid_type"]
-        let table_title = document.getElementById("table-title");
-        let table_div = document.getElementById("data-table");
-        table_div.innerHTML = "";
-        let table = document.createElement("table");
-        table.setAttribute("class", "mb-0 table table-striped table-bordered table-hover");
-        let cols = [""].concat(raw_obj["years"]);
-        let tr = table.insertRow(-1);
-        cols.forEach(headerText => {
-            let th = document.createElement("th"); // Create a new header cell
-            th.innerText = headerText; // Set the text of the header cell
-            tr.appendChild(th); // Add the header cell to the row
-        });
-        table_div.appendChild(table);
-        table_title.innerText = "Types of Opioids in the British Columbia Drug Supply by Year";
-        aboutDataDiv.innerHTML = bccsu_html;
-        for (const [key, value] of Object.entries(raw_obj)) {
-            if (key != "years") {
-                let tr = table.insertRow(-1);
-                tr.setAttribute("class", "align-middle");
-                let tabCell = tr.insertCell(-1);
-                tabCell.innerText = key;
-                value.forEach(element => {
+            traces = [fent_trace, benz_trace];
+            let vis = Plotly.react(visDiv, traces, layout = {
+                yaxis: { fixedrange: true, title: "Percent of Samples Containing Drug" },
+                xaxis: { fixedrange: true, title: "Year" },
+                hovermode: "x unified",
+                autosize: false,
+                width: $("#viz-card").width(),
+                height: $("#viz-card").height(),
+                title: "Percent of Voluntarily Provided Samples Containing Fentanyl or <br> Benzodiazepines in British Columbia by Year",
+            }, config = {
+                displaylogo: false
+            });
+            // Replace the tabular section with table data for this vis
+            raw_obj = data["bc_raw_fent_benz"]
+            let table_title = document.getElementById("table-title");
+            let table_div = document.getElementById("data-table");
+            let aboutDataDiv = document.getElementsByClassName("about-data-div")[0];
+            table_div.innerHTML = "";
+            let table = document.createElement("table");
+            table.setAttribute("class", "mb-0 table table-striped table-bordered table-hover");
+            let cols = [""].concat(raw_obj["years"]);
+            let tr = table.insertRow(-1);
+            cols.forEach(headerText => {
+                let th = document.createElement("th"); // Create a new header cell
+                th.innerText = headerText; // Set the text of the header cell
+                tr.appendChild(th); // Add the header cell to the row
+            });
+            table_div.appendChild(table);
+            table_title.innerText = "Samples Containing Fentanyl or Benzodiazepines in British Columbia";
+            aboutDataDiv.innerHTML = bccsu_html;
+            for (const [key, value] of Object.entries(raw_obj)) {
+                if (key != "years") {
+                    let tr = table.insertRow(-1);
+                    tr.setAttribute("class", "align-middle");
                     let tabCell = tr.insertCell(-1);
-                    tabCell.innerText = element;
-                });
+                    tabCell.innerText = key;
+                    value.forEach(element => {
+                        let tabCell = tr.insertCell(-1);
+                        tabCell.innerText = element;
+                    });
+                }
             }
         }
-    }
 
-    function createDeathDrugChart(data) {
-        let visDiv = document.getElementById("bc-vis-div");
-        let aboutDataDiv = document.getElementsByClassName("about-data-div")[0];
-        let deaths_obj = data["bc_total_deaths"];
-        let drugs_obj = data["bc_deaths_by_drug"];
-        let traces = [];
-        let deaths_trace = {
-            x: deaths_obj["years"],
-            y: deaths_obj["total_deaths"],
-            type: 'scatter',
-            mode: 'lines',
-            name: "Total Drug Toxicity Deaths"
-        };
-        traces.push(deaths_trace);
-        for (const [key, value] of Object.entries(drugs_obj)) {
-            let trace = {
+        function createOpioidTypeChart(data) {
+            let visDiv = document.getElementById("bc-vis-div");
+            let aboutDataDiv = document.getElementsByClassName("about-data-div")[0];
+            let data_obj = data["bc_opioids_by_type"]
+            let traces = [];
+            for (const [key, value] of Object.entries(data_obj)) {
+                let trace = {
+                    x: data_obj[key]["x"],
+                    y: data_obj[key]["y"],
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: key
+                };
+                traces.push(trace);
+            }
+            let vis = Plotly.react(visDiv, traces, layout = {
+                yaxis: { fixedrange: true, title: "Percent of Samples Belonging to Category of Drug" },
+                xaxis: { fixedrange: true, title: "Year" },
+                hovermode: "x unified",
+                autosize: false,
+                width: $("#viz-card").width(),
+                height: $("#viz-card").height(),
+                title: "Types of Opioids in the British Columbia Drug Supply by Year <br> as per Voluntary Drug Testing Results",
+            }, config = {
+                displaylogo: false
+            });
+            // Replace the tabular section with table data for this vis
+            raw_obj = data["bc_raw_opioid_type"]
+            let table_title = document.getElementById("table-title");
+            let table_div = document.getElementById("data-table");
+            table_div.innerHTML = "";
+            let table = document.createElement("table");
+            table.setAttribute("class", "mb-0 table table-striped table-bordered table-hover");
+            let cols = [""].concat(raw_obj["years"]);
+            let tr = table.insertRow(-1);
+            cols.forEach(headerText => {
+                let th = document.createElement("th"); // Create a new header cell
+                th.innerText = headerText; // Set the text of the header cell
+                tr.appendChild(th); // Add the header cell to the row
+            });
+            table_div.appendChild(table);
+            table_title.innerText = "Types of Opioids in the British Columbia Drug Supply by Year";
+            aboutDataDiv.innerHTML = bccsu_html;
+            for (const [key, value] of Object.entries(raw_obj)) {
+                if (key != "years") {
+                    let tr = table.insertRow(-1);
+                    tr.setAttribute("class", "align-middle");
+                    let tabCell = tr.insertCell(-1);
+                    tabCell.innerText = key;
+                    value.forEach(element => {
+                        let tabCell = tr.insertCell(-1);
+                        tabCell.innerText = element;
+                    });
+                }
+            }
+        }
+
+        function createDeathDrugChart(data) {
+            let visDiv = document.getElementById("bc-vis-div");
+            let aboutDataDiv = document.getElementsByClassName("about-data-div")[0];
+            let deaths_obj = data["bc_total_deaths"];
+            let drugs_obj = data["bc_deaths_by_drug"];
+            let traces = [];
+            let deaths_trace = {
                 x: deaths_obj["years"],
-                y: drugs_obj[key]["deaths"],
-                type: 'bar',
-                name: key
+                y: deaths_obj["total_deaths"],
+                type: 'scatter',
+                mode: 'lines',
+                name: "Total Drug Toxicity Deaths"
             };
-            traces.push(trace);
-        }
-        let vis = Plotly.react(visDiv, traces, layout = {
-            yaxis: { fixedrange: true, title: "Number of Deaths" },
-            xaxis: { fixedrange: true, title: "Year" },
-            hovermode: "x unified",
-            autosize: false,
-            width: $("#viz-card").width(),
-            height: $("#viz-card").height(),
-            title: "Drug Toxicity Deaths in British Columbia by Year and Drug Causing Death",
-        }, config = {
-            displaylogo: false
-        });
-        // Replace the tabular section with table data for this vis
-        raw_obj = data["bc_raw_deaths_by_drug"]
-        let table_title = document.getElementById("table-title");
-        let table_div = document.getElementById("data-table");
-        table_div.innerHTML = "";
-        let table = document.createElement("table");
-        table.setAttribute("class", "mb-0 table table-striped table-bordered table-hover");
-        let cols = [""].concat(deaths_obj["years"]);
-        let tr = table.insertRow(-1);
-        cols.forEach(headerText => {
-            let th = document.createElement("th"); // Create a new header cell
-            th.innerText = headerText; // Set the text of the header cell
-            tr.appendChild(th); // Add the header cell to the row
-        });
-        table_div.appendChild(table);
-        table_title.innerText = "Drug Toxicity Deaths in British Columbia by Year and Drug Causing Death";
-        aboutDataDiv.innerHTML = bccs_html;
-        for (const [key, value] of Object.entries(raw_obj)) {
-            if (key != "years") {
-                let tr = table.insertRow(-1);
-                tr.setAttribute("class", "align-middle");
-                let tabCell = tr.insertCell(-1);
-                tabCell.innerText = key;
-                value.forEach(element => {
+            traces.push(deaths_trace);
+            for (const [key, value] of Object.entries(drugs_obj)) {
+                let trace = {
+                    x: deaths_obj["years"],
+                    y: drugs_obj[key]["deaths"],
+                    type: 'bar',
+                    name: key
+                };
+                traces.push(trace);
+            }
+            let vis = Plotly.react(visDiv, traces, layout = {
+                yaxis: { fixedrange: true, title: "Number of Deaths" },
+                xaxis: { fixedrange: true, title: "Year" },
+                hovermode: "x unified",
+                autosize: false,
+                width: $("#viz-card").width(),
+                height: $("#viz-card").height(),
+                title: "Drug Toxicity Deaths in British Columbia by Year and Drug Causing Death",
+            }, config = {
+                displaylogo: false
+            });
+            // Replace the tabular section with table data for this vis
+            raw_obj = data["bc_raw_deaths_by_drug"]
+            let table_title = document.getElementById("table-title");
+            let table_div = document.getElementById("data-table");
+            table_div.innerHTML = "";
+            let table = document.createElement("table");
+            table.setAttribute("class", "mb-0 table table-striped table-bordered table-hover");
+            let cols = [""].concat(deaths_obj["years"]);
+            let tr = table.insertRow(-1);
+            cols.forEach(headerText => {
+                let th = document.createElement("th"); // Create a new header cell
+                th.innerText = headerText; // Set the text of the header cell
+                tr.appendChild(th); // Add the header cell to the row
+            });
+            table_div.appendChild(table);
+            table_title.innerText = "Drug Toxicity Deaths in British Columbia by Year and Drug Causing Death";
+            aboutDataDiv.innerHTML = bccs_html;
+            for (const [key, value] of Object.entries(raw_obj)) {
+                if (key != "years") {
+                    let tr = table.insertRow(-1);
+                    tr.setAttribute("class", "align-middle");
                     let tabCell = tr.insertCell(-1);
-                    tabCell.innerText = element;
-                });
+                    tabCell.innerText = key;
+                    value.forEach(element => {
+                        let tabCell = tr.insertCell(-1);
+                        tabCell.innerText = element;
+                    });
+                }
             }
         }
-    }
-</script>
+    </script>
+</div>
