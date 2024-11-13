@@ -8,5 +8,5 @@ flask
 Flask-Assets
 plotly
 gunicorn
+Flask-Assets
 python-dotenv
-jsmin
