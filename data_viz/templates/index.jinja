@@ -2,7 +2,7 @@
 <html lang="en">
 
 <head>
-    <title>Illicit Substance Dash | Mockup</title>
+    <title>Illicit Substance Dash | Internal Use</title>
     <!-- Required meta tags -->
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
@@ -74,6 +74,16 @@
 
         </div>
         <div id="content-div" class="flex-column container fade-me-out fade-me-in blue">
+            <!-- If we don't have a province var, then we just render the intro template here -->
+            {% if province=="british-columbia" %}
+            {% include 'provincial_bc.jinja' %}
+            {% elif province=="saskatchewan" %}
+            {% include 'provincial_sask.jinja' %}
+            {% elif province=="alberta" %}
+            {% include 'no_data.jinja' %}
+            {% else %}
+            {% include 'introduction.jinja' %}
+            {% endif %}
             <!-- Content within this div will get swapped out with HTMX on click of nav buttons -->
             <!-- To begin, it will have a sort of "about us" page with some instructions and content -->
             {% if dash_template %}
