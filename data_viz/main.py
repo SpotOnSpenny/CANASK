@@ -40,9 +40,14 @@ def toxicity_deaths():
 def no_data():
     return render_template("no_data.jinja")
 
-@main_blueprint.route("/province/british-columbia")
-def bc():
-    return render_template("provincial_bc.jinja")
+@main_blueprint.route("/province/british-columbia", defaults={"src": None})
+@main_blueprint.route("/province/british-columbia/<src>")
+def bc(src):
+    print(src)
+    if src == "htmx":
+        return render_template("provincial_bc.jinja")
+    else:
+        return render_template("index.jinja", province="british-columbia")
 
 @main_blueprint.route("/province/saskatchewan")
 def sk():

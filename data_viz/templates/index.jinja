@@ -52,8 +52,8 @@
                     <div id="flush-collapseProvinces" class="accordion-collapse collapse"
                         aria-labelledby="flush-headingOne" data-bs-parent="#accordionFlushMenu">
                         <div class="accordion-body bg-transparent">
-                            <p hx-get="/province/british-columbia" hx-trigger="click" hx-target="#content-div"
-                                hx-swap="innerHTML swap:1s settle:1s"
+                            <p hx-get="/province/british-columbia/htmx" hx-trigger="click" hx-target="#content-div"
+                                hx-swap="innerHTML swap:1s settle:1s" hx-replace-url="/province/british-columbia"
                                 class="nav-link text-white htmx-element accordion-" aria-current="page">
                                 British Columbia
                             </p>
@@ -74,43 +74,17 @@
 
         </div>
         <div id="content-div" class="flex-column container fade-me-out fade-me-in blue">
+            <!-- If we don't have a province var, then we just render the intro template here -->
+            {% if province=="british-columbia" %}
+            {% include 'provincial_bc.jinja' %}
+            {% elif province=="saskatchewan" %}
+            {% include 'provincial_sask.jinja' %}
+            {% elif province=="alberta" %}
+            {% include 'no_data.jinja' %}
+            {% else %}
+            {% include 'introduction.jinja' %}
+            {% endif %}
             <!-- Content within this div will get swapped out with HTMX on click of nav buttons -->
-            <!-- To begin, it will have a sort of "about us" page with some instructions and content -->
-            <div class="p-5 w-100 h-100 d-flex justify-content-center align-items-center">
-                <div class="card">
-                    <div class="card-body text-center">
-                        <h4 class="card-title">Welcome to the Canadian Drug Toxicity Surveillance System</h4>
-                        <p class="card-text">The aim of this application is to provide a comprehensive overview of
-                            up-to-date
-                            statistics related to the Canadian drug crisis in a single application tailored to the
-                            unique needs of
-                            the different stakeholders who require it. In doing so, we hope to enable those who use
-                            drugs,
-                            physicians, and policy makers to
-                            make informed decisions using the most current data and meaningful trends regarding the
-                            opioid overdose
-                            epidemic within Canada in its current state.</p>
-                        <br />
-                        <p class="card-text">Please use the navigation bar on the left to explore the different sections
-                            of the tool
-                            that may be of interest to you.</p>
-
-                        <div class="container">
-                            <div class="row justify-content-center align-items-center g-2">
-                                <div class="col">
-                                    <img src="/static/assets/images/CHI.jpeg" class="img-fluid rounded-top logos"
-                                        alt="University of Calgary Centre for Health Informatics Logo" />
-                                </div>
-                                <div class="col">
-                                    <img src="/static/assets/images/UCalgary-horizontal-logo_2.webp"
-                                        class="img-fluid rounded-top logos" alt="University of Calgary" />
-                                </div>
-                                <div class="col">Other logos...</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
         </div>
     </div>
     <footer>
