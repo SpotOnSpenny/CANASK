@@ -1,0 +1,19 @@
+<div class="p-5 w-100 h-100 d-flex justify-content-center align-items-center">
+    <div class="card">
+        <div class="card-body text-center">
+            <div class="not-found-title-container">
+                <img src="/static/assets/images/unlink.svg" class="img-fluid rounded-top logos" alt="404 Not Found" />
+                <h4 class="card-title">Error 404</h4>
+            </div>
+            <p class="card-text">Sorry! We couldn't find the page you're looking for. It might have been removed, had
+                its name changed,
+                or is temporarily unavailable. You can return to the home page, or you click any menu links to be
+                directed to a dashboard
+                page.
+            </p>
+            <a hx-get="/introduction/htmx" hx-trigger="click" hx-target="#content-div"
+                hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/" class="btn btn-primary">Return to Home
+            </a>
+        </div>
+    </div>
+</div>

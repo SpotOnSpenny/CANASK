@@ -2,7 +2,7 @@
 
 
 # External Dependency Imports
-from flask import Flask
+from flask import Flask, redirect
 from flask_assets import Environment, Bundle
 
 # Internal Dependency Imports
@@ -46,6 +46,11 @@ assets.register(
 
 # Register the blueprints for the application
 app.register_blueprint(main_blueprint)
+
+# Error handling for 404 errors
+@app.errorhandler(404)
+def page_not_found(e):
+    return redirect("/not-found")
 
 # Test code below
 if __name__ == '__main__':

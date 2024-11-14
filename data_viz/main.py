@@ -70,6 +70,12 @@ def ab(htmx_flag):
         return render_template("index.jinja", dash_template="no_data.jinja")
     else:
         return render_template("no_data.jinja")
+    
+# Routes for Error Pages
+@main_blueprint.route("/not-found")
+def page_not_found():
+    return render_template("index.jinja", dash_template="404.jinja"), 404
+
 ################################# Test Code Below ######################################
 if __name__ == '__main__':
     all_frames = pull_data("skPubCentre")

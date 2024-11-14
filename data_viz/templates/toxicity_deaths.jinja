@@ -1,6 +1,6 @@
-<div class="container h-100 gy-2 layout-container">
+<div class="container h-100 mobile-height-adjust gy-2 layout-container">
     <div class="row text-center py-1 justify-content-center align-items-center notice-row">
-        <div class="col-10">
+        <div class="col-md-10">
             <div class="card">
                 <div class="card-body bg-warning shadow-sm">
                     <p class="text-center py-1 px-2 m-0">
@@ -12,7 +12,7 @@
         </div>
     </div>
     <div class="row data-row py-1 justify-content-center align-items-center g-2">
-        <div class="col-9 h-100">
+        <div class="col-md-9 h-100">
             <div class="card h-100">
                 <div class="card-body text-center h-100 d-flex align-items-center justify-content-center" id="viz-card">
                     <div id="toxicity-deaths-vis">
@@ -22,7 +22,7 @@
                 </div>
             </div>
         </div>
-        <div class="col-3 h-100 overflowy-scroll">
+        <div class="col-md-3 h-100 overflowy-scroll">
             <div class="card h-100">
                 <div class="card-body h-100">
                     <h4 class="card-title text-center">Chart Options</h4>
@@ -47,7 +47,7 @@
                                 <div class="col">
                                     <div class="form-check form-switch">
                                         <input class="form-check-input" type="checkbox" id="bc-check"
-                                            province="British Columbia" status="active" onclick="updateTraces(this)"
+                                            province="British Columbia" status="active" onclick="updateTracesTox(this)"
                                             checked />
                                         <label class="form-check-label" for="bc-check">
                                             B.C.
@@ -59,7 +59,7 @@
                                 <div class="col">
                                     <div class="form-check form-switch">
                                         <input class="form-check-input" type="checkbox" id="ab-check" province="Alberta"
-                                            status="disabled" onclick="updateTraces(this)" disabled />
+                                            status="disabled" onclick="updateTracesTox(this)" disabled />
                                         <label class="form-check-label" for="ab-check">
                                             Alberta
                                         </label>
@@ -70,7 +70,7 @@
                                 <div class="col">
                                     <div class="form-check form-switch">
                                         <input class="form-check-input" type="checkbox" id="sk-check"
-                                            province="Saskatchewan" status="active" onclick="updateTraces(this)"
+                                            province="Saskatchewan" status="active" onclick="updateTracesTox(this)"
                                             checked />
                                         <label class="form-check-label" for="sk-check">
                                             Saskatchewan
@@ -82,7 +82,7 @@
                                 <div class="col">
                                     <div class="form-check form-switch">
                                         <input class="form-check-input" type="checkbox" id="mb-check"
-                                            province="Manitoba" status="disabled" onclick="updateTraces(this)"
+                                            province="Manitoba" status="disabled" onclick="updateTracesTox(this)"
                                             disabled />
                                         <label class="form-check-label" for="mb-check">
                                             Manitoba
@@ -94,7 +94,7 @@
                                 <div class="col">
                                     <div class="form-check form-switch">
                                         <input class="form-check-input" type="checkbox" id="on-check" province="Ontario"
-                                            status="disabled" onclick="updateTraces(this)" disabled />
+                                            status="disabled" onclick="updateTracesTox(this)" disabled />
                                         <label class="form-check-label" for="on-check">
                                             Ontario
                                         </label>
@@ -105,7 +105,7 @@
                                 <div class="col">
                                     <div class="form-check form-switch">
                                         <input class="form-check-input" type="checkbox" id="qc-check" province="Quebec"
-                                            status="disabled" onclick="updateTraces(this)" disabled />
+                                            status="disabled" onclick="updateTracesTox(this)" disabled />
                                         <label class="form-check-label" for="qc-check">
                                             Quebec
                                         </label>
@@ -116,7 +116,7 @@
                                 <div class="col">
                                     <div class="form-check form-switch">
                                         <input class="form-check-input" type="checkbox" id="NL-check"
-                                            province="Newfoundland" status="disabled" onclick="updateTraces(this)"
+                                            province="Newfoundland" status="disabled" onclick="updateTracesTox(this)"
                                             disabled />
                                         <label class="form-check-label" for="NL-check">
                                             Newfoundland
@@ -128,7 +128,7 @@
                                 <div class="col">
                                     <div class="form-check form-switch">
                                         <input class="form-check-input" type="checkbox" id="nb-check"
-                                            province="New Brunswick" status="disabled" onclick="updateTraces(this)"
+                                            province="New Brunswick" status="disabled" onclick="updateTracesTox(this)"
                                             disabled />
                                         <label class="form-check-label" for="nb-check">
                                             New Brunswick
@@ -140,7 +140,7 @@
                                 <div class="col">
                                     <div class="form-check form-switch">
                                         <input class="form-check-input" type="checkbox" id="ns-check"
-                                            province="Nova Scotia" status="disabled" onclick="updateTraces(this)"
+                                            province="Nova Scotia" status="disabled" onclick="updateTracesTox(this)"
                                             disabled />
                                         <label class="form-check-label" for="ns-check">
                                             Nova Scotia
@@ -152,7 +152,7 @@
                                 <div class="col">
                                     <div class="form-check form-switch">
                                         <input class="form-check-input" type="checkbox" id="pei-check" province="PEI"
-                                            status="disabled" onclick="updateTraces(this)" disabled />
+                                            status="disabled" onclick="updateTracesTox(this)" disabled />
                                         <label class="form-check-label" for="pei-check">
                                             P.E.I.
                                         </label>
@@ -167,7 +167,7 @@
     </div>
     <div class="row py-2 justify-content-center align-items-center g-2">
         <div class="col">
-            <div class="card">
+            <div class="card overflow-x-scroll">
                 <div class="card-body">
                     <h4 class="card-title">Canadian Drug Toxicity Deaths Each Year by Province</h4>
                     <div id="data-table" class="text-center">
@@ -178,6 +178,7 @@
         </div>
     </div>
     <script type="text/javascript">
+
         //initial setup
         data_promise = fetch("static/js/visualization_data.json")
             .then(response => data = response.json())
@@ -218,7 +219,7 @@
                     });
                 });
                 let tableDiv = document.getElementById('data-table');
-    
+
                 // Create the initial visual
                 visDiv = document.getElementById('toxicity-deaths-vis');
                 let skTrace = {
@@ -255,7 +256,7 @@
                     'Saskatchewan': 'rgba(7, 106, 33, 1)',
                     'Canada': 'rgba(206, 17, 38, 1)'
                 }
-    
+
                 // Add the created elements to the page
                 visDiv.innerHTML = "";
                 tableDiv.innerHTML = "";
@@ -280,9 +281,9 @@
                     provinceMappings: provinceMappings
                 }
             })
-    
+
         // on click button to add/remove traces
-        function updateTraces(button) {
+        function updateTracesTox(button) {
             data_promise.then(({ vis, plots, visDiv, raw_data, colourCode, provinceMappings }) => {
                 let status = button.getAttribute("status")
                 let region = button.getAttribute("province")
@@ -423,7 +424,7 @@
                 }
             })
         }
-    
+
         // On change function to switch between chart types
         function changeChartType(selector) {
             data_promise.then(({ vis, plots, visDiv, raw_data, colourCode, provinceMappings }) => {

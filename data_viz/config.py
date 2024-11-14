@@ -34,6 +34,7 @@ def configure(app):
         case _:
             raise("Invalid FLASK_ENV value. Check the ENV file and try again")
 
+
 # Test code below
 if __name__ == '__main__':
     pass # Replace this with function calls or test code

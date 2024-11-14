@@ -10,3 +10,5 @@ plotly
 gunicorn
 Flask-Assets
 python-dotenv
+jsmin
+cssmin

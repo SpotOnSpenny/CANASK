@@ -5,4 +5,5 @@ __pycache__/
 hyperd.log
 .env
 .webassets-cache
-id_rsa.ppk
+*.ppk
+*.pem
