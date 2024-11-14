@@ -27,6 +27,14 @@ html {
   height: 65%;
 }
 
+.warning-svg {
+  width: 100px;
+}
+
+.title-icon {
+  width: 80%;
+}
+
 /* HTMX Transition Code */
 .fade-me-out.htmx-swapping {
   opacity: 0;
@@ -293,6 +301,7 @@ html {
     flex-direction: column;
     justify-content: center;
     align-items: center;
+    height: 100%;
   }
 
   .mobile-height-adjust {

@@ -1,9 +1,17 @@
 <div class="p-5 w-100 h-100 d-flex justify-content-center align-items-center">
-    <div class="card overflow-scroll">
-        <div class="card-body no-data-body h-100 text-center">
-            <h4 class="card-title">The data needed for this visualization has not yet been found, or this visualization
-                has not yet been built!</h4>
-            <img class="h-50" src="/static/assets/images/triangle-exclamation-solid.svg" class="warning-svg" alt="" />
+    <div class="card no-data-card">
+        <div class="card-body no-data-body text-center d-flex flex-column gx-5">
+            <div class="title-icon d-flex row flex-row align-self-center align-items-center">
+                <div class="col-md-4">
+                    <img src="/static/assets/images/triangle-exclamation-solid.svg" class="warning-svg"
+                        alt="Warning!" />
+                </div>
+                <div class="col-md-8">
+                    <h4 class="card-title">The data needed for this visualization has not yet been found, or this
+                        visualization
+                        has not yet been built!</h4>
+                </div>
+            </div>
             <p>Unfortunately, we either do not have the data to build out this visualization yet, or the visualization
                 is currently under construction. If you believe that you have received this message in error, or if you
                 are aware of a data source that would contribute to the selected visualization, kindly reach out to us
