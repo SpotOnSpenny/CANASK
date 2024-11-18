@@ -924,10 +924,72 @@ function updateTracesTox(button) {
 let feedbackForm = document.getElementById("feedback-form");
 
 function feedbackSubmit(token) {
-  console.log(token);
   // validate the form has required fields
-
-  // submit the form data with the recaptcha token
   let feedbackData = new FormData(feedbackForm);
-  feedbackData.append("recaptcha-token", token);
+  if (validateEmail(feedbackData.get("email")) == false) {
+    let emailField = document.getElementById("feedback-email");
+    emailField.classList.toggle("is-invalid");
+    emailField.value = "";
+    emailField.placeholder = `"${feedbackData.get(
+      "email"
+    )}"  is not a valid email address!`;
+    //return;
+  } else {
+    try {
+      emailField.classList.remove("is-invalid");
+    } catch {}
+    // submit the form data with the recaptcha token
+    feedbackData.append("recaptcha-token", token);
+    fetch("/feedback", {
+      method: "POST",
+      body: feedbackData,
+    })
+      .then((response) => {
+        if (response.ok) {
+          console.log("response ok");
+          return response.json();
+        } else {
+          console.log("response not ok");
+          console.log(response);
+          return Promise.reject(response);
+        }
+      })
+      .then((data) => {
+        let feedbackContent = document.querySelector(
+          ".feedback-content-container"
+        );
+        console.log(feedbackContent);
+        if (data["status"] == "success") {
+          let feedbackAlert = `<div class="alert alert-success alert-dismissible fade show" role="alert">
+          <strong>Success!</strong> Your feedback has been submitted. Thank you for your input.
+          <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+          </div>`;
+          feedbackContent.insertAdjacentHTML("beforebegin", feedbackAlert);
+        } else {
+          let feedbackAlert = `
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+          <strong>Error!</strong> There was an error submitting your feedback. Please try again later.
+          <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+        `;
+          feedbackContent.insertAdjacentHTML("beforebegin", feedbackAlert);
+        }
+      })
+      .catch((error) => {
+        let feedbackAlert = `
+      <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        <strong>Error!</strong> There was an error submitting your feedback. Please try again later.
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+      </div>
+      `;
+        feedbackContent.insertAdjacentHTML("beforebegin", feedbackAlert);
+      });
+  }
+}
+
+function validateEmail(mail) {
+  if (/^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/.test(mail)) {
+    return true;
+  }
+  return false;
 }

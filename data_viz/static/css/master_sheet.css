@@ -206,6 +206,10 @@ html {
   height: 100%;
 }
 
+.is-invalid {
+  border: 4px solid #f96c6cb7;
+}
+
 @media (max-width: 768px) {
   #desktop-nav {
     display: none !important;

@@ -1,8 +1,9 @@
 # Python Standard Library Dependencies
 import os
+import requests
 
 # External Dependency Imports
-from flask import Blueprint, render_template, redirect, url_for, request
+from flask import Blueprint, render_template, redirect, url_for, request, Response
 import pandas
 
 # Internal Dependency Imports
@@ -75,6 +76,17 @@ def ab(htmx_flag):
 @main_blueprint.route("/not-found")
 def page_not_found():
     return render_template("index.jinja", dash_template="404.jinja"), 404
+
+# Route for Feedback submission and recaptcha verification
+@main_blueprint.route("/feedback", methods=["POST"])
+def feedback():
+    # Get the form data
+    feedback_data = request.form
+    # Create POST request to send to the recaptcha verification server
+    recaptcha_response = requests.post("https://www.google.com/recaptcha/api/siteverify", data={"secret": os.environ.get("RECAPTCHA_SECRET"), "response": feedback_data["g-recaptcha-response"]})
+    print(recaptcha_response.json())
+    # Return an OK response
+    return Response({"ok": True}, status="success");
 
 ################################# Test Code Below ######################################
 if __name__ == '__main__':

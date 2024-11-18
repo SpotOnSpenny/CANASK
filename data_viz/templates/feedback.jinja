@@ -11,15 +11,16 @@
         <form id="feedback-form" class="d-flex flex-column justify-content-center">
             <div class="form-group pb-2">
                 <label for="feedback-name p">Name</label>
-                <input type="text" class="form-control" id="feedback-name" placeholder="Enter your name">
+                <input name="name" type="text" class="form-control" id="feedback-name" placeholder="Enter your name">
             </div>
             <div class="form-group pb-2">
                 <label for="feedback-email">Email</label>
-                <input type="email" class="form-control" id="feedback-email" placeholder="Enter your email">
+                <input name="email" type="email" class="form-control" id="feedback-email"
+                    placeholder="Enter your email">
             </div>
             <div class="form-group pb-4">
                 <label for="feedback-message">Feedback</label>
-                <textarea class="form-control" id="feedback-message" rows="3"
+                <textarea class="form-control" id="feedback-message" rows="3" name="feedback"
                     placeholder="Please provide comments, ideas, or requests for things to be changed here"></textarea>
             </div>
             <button type="submit" data-sitekey="6LckJoIqAAAAAAObcRxSz27BVJDSbg7pPID2V0jJ" data-callback="feedbackSubmit"
