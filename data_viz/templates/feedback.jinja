@@ -1,6 +1,6 @@
 <div class="feedback-form">
     <a class="feedback-toggle">
-        Submit Feedback
+        Provide Feedback
     </a>
     <div class="feedback-content-container">
         <div id="form-alerts">
@@ -8,7 +8,7 @@
         <img class="feedback-close" src="/static/assets/images/chevron-down.svg">
         <h3 class="feedback-title" hx-get="/introduction/htmx" hx-trigger="click" hx-target="#content-div"
             hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/">
-            Submit Feedback
+            Provide Dashboard Feedback
         </h3>
         <form id="feedback-form" class="d-flex flex-column justify-content-center">
             <div class="form-group pb-2">
@@ -25,8 +25,9 @@
                 <textarea class="form-control" id="feedback-message" rows="3" name="feedback"
                     placeholder="Please provide comments, ideas, or requests for things to be changed here"></textarea>
             </div>
-            <button type="submit" data-sitekey="6LckJoIqAAAAAAObcRxSz27BVJDSbg7pPID2V0jJ" data-callback="feedbackSubmit"
-                data-action="submit" class="g-recaptcha btn m-auto btn-primary">Submit
+            <button id="feedback-submit-btn" type="submit" data-sitekey="6LckJoIqAAAAAAObcRxSz27BVJDSbg7pPID2V0jJ"
+                data-callback="feedbackSubmit" data-action="submit"
+                class="g-recaptcha btn m-auto btn-outline-light">Submit
                 Feedback</button>
         </form>
     </div>

@@ -215,6 +215,10 @@ html {
   top: -15%;
 }
 
+#feedback-submit-btn:hover {
+  color: #b6bd36 !important;
+}
+
 @media (max-width: 768px) {
   #desktop-nav {
     display: none !important;
