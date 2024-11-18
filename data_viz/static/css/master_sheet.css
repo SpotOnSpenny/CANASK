@@ -210,6 +210,11 @@ html {
   border: 4px solid #f96c6cb7;
 }
 
+#form-alerts {
+  position: absolute;
+  top: -15%;
+}
+
 @media (max-width: 768px) {
   #desktop-nav {
     display: none !important;
@@ -408,5 +413,11 @@ html {
 
   .feedback-content-container {
     padding: 0% 0% 5%;
+  }
+
+  #form-alerts {
+    position: absolute;
+    top: -27%;
+    width: 75%;
   }
 }

@@ -3,8 +3,11 @@ import os
 import requests
 
 # External Dependency Imports
-from flask import Blueprint, render_template, redirect, url_for, request, Response
+from flask import Blueprint, render_template, redirect, url_for, request, jsonify
 import pandas
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import Mail
+import bleach
 
 # Internal Dependency Imports
 from .generateVisuals import pull_data, filter_data, drug_type_visual
@@ -84,9 +87,30 @@ def feedback():
     feedback_data = request.form
     # Create POST request to send to the recaptcha verification server
     recaptcha_response = requests.post("https://www.google.com/recaptcha/api/siteverify", data={"secret": os.environ.get("RECAPTCHA_SECRET"), "response": feedback_data["g-recaptcha-response"]})
-    print(recaptcha_response.json())
-    # Return an OK response
-    return Response({"ok": True}, status="success");
+    if recaptcha_response.status_code != 200:
+        return jsonify({"status": "error", "message": "Recaptcha verification failed"}), 500
+    elif recaptcha_response.json()["success"] == False:
+        return jsonify({"status": "error", "message": "Recaptcha verification failed"}), 403
+    else:
+        # Make the email and send it via sendgrid
+        message = Mail(
+            from_email="spencer.fietz@ucalgary.ca",
+            to_emails="spencer.fietz@ucalgary.ca",
+            subject="Dashboard Feedback Received",
+            html_content=f"""
+            <h2>Name:</h2>{bleach.clean(feedback_data['name']) if feedback_data['name'] else "Anonymous"} </br>
+            <h2>Feedback:</h2>{bleach.clean(feedback_data['feedback'])} </br>
+            <h2>Reach them at:</h2>{bleach.clean(feedback_data['email'])}
+            """
+        )
+        try:
+            sg = SendGridAPIClient(os.environ.get("SENDGRID_API_KEY"))
+            response = sg.send(message)
+            print(response.status_code)
+        except Exception as e:
+            return jsonify({"status": "error", "message": "Failed to send feedback email"}), 500
+        # Return an OK response
+        return jsonify({"status": "success"}), 200;
 
 ################################# Test Code Below ######################################
 if __name__ == '__main__':
