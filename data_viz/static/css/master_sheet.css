@@ -129,6 +129,83 @@ html {
   display: none;
 }
 
+.feedback-toggle {
+  visibility: visible;
+  opacity: 100%;
+  transition: opacity 300ms ease-in-out;
+  box-shadow: rgba(68, 82, 95, 0.719) 4px 4px 16px 0px;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 75px;
+  width: 75px;
+  text-align: center;
+  background: #b6bd36;
+  border-radius: 50%;
+  z-index: 1100;
+  font-size: 0.8rem;
+  text-decoration: none;
+  color: white;
+  font-weight: bolder;
+  position: fixed;
+  bottom: 5%;
+  left: 5%;
+}
+
+.feedback-form {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100vw;
+  z-index: 1000;
+  color: white;
+}
+
+#feedback-form {
+  width: 40%;
+}
+
+.feedback-content-container {
+  background: #b6bd36;
+  position: fixed;
+  bottom: 0;
+  width: 100vw;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 0% 0% 2%;
+  border-radius: 25% 25% 0 0;
+  transform: translateY(100%);
+  transition: all 300ms ease-in-out;
+}
+
+.feedback-visible {
+  transform: translateY(0);
+  transition: all 300ms ease-in-out;
+}
+
+.feedback-toggle-invisible {
+  visibility: hidden;
+  opacity: 0%;
+  transition: all 300ms ease-in-out;
+}
+
+.feedback-title {
+  color: white;
+}
+
+.feedback-close {
+  width: 50px;
+}
+
+#introduction-div {
+  height: 100%;
+}
+
 @media (max-width: 768px) {
   #desktop-nav {
     display: none !important;
@@ -310,5 +387,22 @@ html {
 
   #viz-card {
     min-height: 350px !important;
+  }
+
+  .feedback-toggle {
+    box-shadow: rgba(68, 82, 95, 0.719) 4px 4px 16px 0px,
+      rgba(255, 255, 255, 0.8) -6px -2px 16px 0px;
+  }
+
+  #introduction-div {
+    height: auto;
+  }
+
+  #feedback-form {
+    width: 75%;
+  }
+
+  .feedback-content-container {
+    padding: 0% 0% 5%;
   }
 }

@@ -71,6 +71,20 @@ mobileTitle.addEventListener("click", function () {
 navToggle.addEventListener("click", toggleHamburger);
 navLinks.forEach((link) => link.addEventListener("click", toggleHamburger));
 
+// for feedback toggle
+let feedbackToggle = document.querySelector(".feedback-toggle");
+let feedbackContent = document.querySelector(".feedback-content-container");
+let feedbackClose = document.querySelector(".feedback-close");
+
+function toggleFeedback() {
+  console.log("clicked");
+  feedbackContent.classList.toggle("feedback-visible");
+  feedbackToggle.classList.toggle("feedback-toggle-invisible");
+}
+
+feedbackToggle.addEventListener("click", toggleFeedback);
+feedbackClose.addEventListener("click", toggleFeedback);
+
 // General functions to fetch data, create charts, etc. within the templates
 function fetchData(data_file, functionCallback) {
   return fetch(data_file)
@@ -904,4 +918,16 @@ function updateTracesTox(button) {
       }
     }
   );
+}
+
+// Handling feedback submissions
+let feedbackForm = document.getElementById("feedback-form");
+
+function feedbackSubmit(token) {
+  console.log(token);
+  // validate the form has required fields
+
+  // submit the form data with the recaptcha token
+  let feedbackData = new FormData(feedbackForm);
+  feedbackData.append("recaptcha-token", token);
 }
