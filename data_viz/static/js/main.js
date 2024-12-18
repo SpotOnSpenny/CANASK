@@ -1,6 +1,6 @@
 // Set about data html strings
 let bccsu_html = `
-<h4 class="card-title text-center"> About this Data</h4>
+<h4 class="card-title text-center"> About these Data</h4>
 <hr />
 <p class="about-viz-text">This data is collected from the British Columbia Centre on Substance
     Use (BCCSU) and is based on voluntary drug testing results. The data is collected from
@@ -21,7 +21,7 @@ let bccsu_html = `
 `;
 
 let bccs_html = `
-<h4 class="card-title text-center"> About this Data</h4>
+<h4 class="card-title text-center"> About these Data</h4>
 <hr />
 <p class="about-viz-text">This data has been collected by the British Columbia Coroners Service (BCCS), and is based on toxicology reports from individuals who have died in British Columbia where the cause of death was determined to be unregulated drugs and/or drugs sold illicitly, and does not include deaths related to an individuals prescribed drugs, or intentional deaths due to toxicity. The data is updated monthly by the BCCS.
     <br>
@@ -35,7 +35,7 @@ let bccs_html = `
 `;
 
 let skcs_html = `
-<h4 class="card-title text-center"> About this Data</h4>
+<h4 class="card-title text-center"> About these Data</h4>
 <hr />
 <p class="about-viz-text">This data has been collected by the Saskatchewan Coroners Service (SKCS), and is based on toxicology reports from individuals who have died in Saskatchewan where the cause of death was confirmed, or suspected to be, drug toxicity. The data is updated monthly by the SKCS
     <br>
@@ -156,16 +156,53 @@ function createCategoryChartBC(data, first_run = true) {
     visDiv,
     traces,
     (layout = {
+      dragmode: "pan",
       yaxis: {
         fixedrange: true,
-        title: "Percent of Samples Belonging to Category of Drug",
+        title: {
+          standoff: 30,
+          text:
+            window.innerWidth > 768
+              ? "Percent of Samples Belonging to Category of Drug"
+              : "Percent of Samples Belonging<br>to Category of Drug",
+        },
       },
-      xaxis: { fixedrange: true, title: "Year" },
+      xaxis: {
+        fixedrange: false,
+        autorange: true,
+        autorangeoptions:
+          window.innerWidth > 768
+            ? {}
+            : {
+                clipmax: Number(traces[0]["x"][0]) + 2,
+              },
+        dtick: 1,
+        title: {
+          text: "Year",
+          standoff: 5,
+        },
+        constrain: "domain",
+      },
       hovermode: "x unified",
       autosize: false,
       width: $("#viz-card").width(),
-      height: $("#viz-card").height(),
-      title: "Makeup of British Columbia Drug Supply by Category and Year",
+      height: window.innerWidth > 768 ? $("#viz-card").height() : "auto",
+      title:
+        window.innerWidth > 768
+          ? "Makeup of British Columbia Drug Supply by Category and Year"
+          : "Makeup of British Columbia Drug<br>Supply by Category and Year",
+      legend:
+        window.innerWidth > 768
+          ? {}
+          : {
+              orientation: "h",
+              x: 0,
+              y: -0.2,
+              xanchor: "middle",
+              yanchor: "top",
+              tracegroupgap: 200,
+            },
+      margin: window.innerWidth > 768 ? {} : { r: 0, l: 65 },
     }),
     (config = {
       displaylogo: false,
