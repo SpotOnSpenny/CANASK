@@ -266,14 +266,59 @@ function createFentBenzChartBC(data) {
     visDiv,
     traces,
     (layout = {
-      yaxis: { fixedrange: true, title: "Percent of Samples Containing Drug" },
-      xaxis: { fixedrange: true, title: "Year" },
+      dragmode: "pan",
+      yaxis: {
+        fixedrange: true,
+        title: {
+          standoff: 30,
+          text:
+            window.innerWidth > 768
+              ? "Percent of Samples Containing Drug"
+              : "Percent of Samples<br>Containing Drug",
+        },
+      },
+      xaxis: {
+        fixedrange: false,
+        autorange: true,
+        autorangeoptions:
+          window.innerWidth > 768
+            ? {}
+            : {
+                clipmax: Number(traces[0]["x"][0]) + 2,
+              },
+        dtick: 1,
+        title: {
+          text: "Year",
+          standoff: 5,
+        },
+        constrain: "domain",
+      },
       hovermode: "x unified",
       autosize: false,
       width: $("#viz-card").width(),
-      height: $("#viz-card").height(),
-      title:
-        "Percent of Voluntarily Provided Samples Containing Fentanyl or <br> Benzodiazepines in British Columbia by Year",
+      height: window.innerWidth > 768 ? $("#viz-card").height() : "auto",
+      title: {
+        yref: "container",
+        y: 1,
+        yanchor: "top",
+        pad: { t: 50, b: 15 },
+        text:
+          window.innerWidth > 768
+            ? "Percent of Voluntarily Provided Samples Containing Fentanyl or <br> Benzodiazepines in British Columbia by Year"
+            : "Percent of Voluntarily Provided<br>Samples Containing Fentanyl or <br> Benzodiazepines in British<br>Columbia by Year",
+      },
+      legend:
+        window.innerWidth > 768
+          ? {}
+          : {
+              orientation: "h",
+              x: 0,
+              y: -0.2,
+              xanchor: "middle",
+              yanchor: "top",
+              tracegroupgap: 200,
+            },
+      margin: window.innerWidth > 768 ? {} : { t: 150, r: 0, l: 65 },
     }),
     (config = {
       displaylogo: false,
@@ -334,17 +379,62 @@ function createOpioidTypeChartBC(data) {
     visDiv,
     traces,
     (layout = {
+      dragmode: "pan",
       yaxis: {
         fixedrange: true,
-        title: "Percent of Samples Belonging to Category of Drug",
+        title: {
+          standoff: 30,
+          text:
+            window.innerWidth > 768
+              ? "Percent of Samples Belonging to Category of Drug"
+              : "Percent of Samples Belonging<br>to Category of Drug",
+        },
       },
-      xaxis: { fixedrange: true, title: "Year" },
+      xaxis: {
+        fixedrange: false,
+        autorange: true,
+        autorangeoptions:
+          window.innerWidth > 768
+            ? {}
+            : {
+                clipmax: Number(traces[0]["x"][0]) + 2,
+              },
+        dtick: 1,
+        title: {
+          text: "Year",
+          standoff: 5,
+        },
+        constrain: "domain",
+      },
       hovermode: "x unified",
       autosize: false,
       width: $("#viz-card").width(),
-      height: $("#viz-card").height(),
-      title:
-        "Types of Opioids in the British Columbia Drug Supply by Year <br> as per Voluntary Drug Testing Results",
+      height:
+        window.innerWidth > 768
+          ? $("#viz-card").height()
+          : $("#viz-card").height() + 100,
+      title: {
+        yref: "container",
+        y: 1,
+        yanchor: "top",
+        pad: { t: 50, b: 15 },
+        text:
+          window.innerWidth > 768
+            ? "Types of Opioids in the British Columbia Drug Supply by Year <br> as per Voluntary Drug Testing Results"
+            : "Types of Opioids in the British<br>Columbia Drug Supply by Year<br>as per Voluntary Drug<br>Testing Results",
+      },
+      legend:
+        window.innerWidth > 768
+          ? {}
+          : {
+              orientation: "h",
+              x: 0,
+              y: -0.2,
+              xanchor: "middle",
+              yanchor: "top",
+              tracegroupgap: 200,
+            },
+      margin: window.innerWidth > 768 ? {} : { t: 120, r: 0, l: 65 },
     }),
     (config = {
       displaylogo: false,
@@ -412,14 +502,50 @@ function createDeathDrugChartBC(data) {
     visDiv,
     traces,
     (layout = {
-      yaxis: { fixedrange: true, title: "Number of Deaths" },
-      xaxis: { fixedrange: true, title: "Year" },
+      dragmode: "pan",
+      yaxis: {
+        fixedrange: true,
+        title: {
+          standoff: 30,
+          text: "Number of Deaths",
+        },
+      },
+      xaxis: {
+        fixedrange: false,
+        autorange: true,
+        autorangeoptions:
+          window.innerWidth > 768
+            ? {}
+            : {
+                clipmax: Number(traces[0]["x"][0]) + 2,
+              },
+        dtick: 1,
+        title: {
+          text: "Year",
+          standoff: 5,
+        },
+        constrain: "domain",
+      },
       hovermode: "x unified",
       autosize: false,
       width: $("#viz-card").width(),
-      height: $("#viz-card").height(),
+      height: window.innerWidth > 768 ? $("#viz-card").height() : "auto",
       title:
-        "Drug Toxicity Deaths in British Columbia by Year and Drug Causing Death",
+        window.innerWidth > 768
+          ? "Drug Toxicity Deaths in British Columbia by Year and Drug Causing Death"
+          : "Drug Toxicity Deaths in<br>British Columbia by Year<br>and Drug Causing Death",
+      legend:
+        window.innerWidth > 768
+          ? {}
+          : {
+              orientation: "h",
+              x: 0,
+              y: -0.2,
+              xanchor: "middle",
+              yanchor: "top",
+              tracegroupgap: 200,
+            },
+      margin: window.innerWidth > 768 ? {} : { r: 0, l: 65 },
     }),
     (config = {
       displaylogo: false,
@@ -510,13 +636,56 @@ function createCategoryChartSK(data) {
     traces.push(drug_trace);
   }
   let layout = {
-    yaxis: { fixedrange: true, title: "Number of Drug Toxicity Deaths" },
-    xaxis: { fixedrange: true, title: "Year" },
+    dragmode: "pan",
+    yaxis: {
+      fixedrange: true,
+      title: {
+        standoff: 30,
+        text:
+          window.innerWidth > 768
+            ? "Number of Drug Toxicity Deaths"
+            : "Number of Drug<br>Toxicity Deaths",
+      },
+    },
+    xaxis: {
+      fixedrange: false,
+      autorange: true,
+      autorangeoptions:
+        window.innerWidth > 768
+          ? {}
+          : {
+              clipmax: Number(traces[0]["x"][0]) + 2,
+            },
+      dtick: 1,
+      title: {
+        text: "Year",
+        standoff: 5,
+      },
+      constrain: "domain",
+    },
     hovermode: "x unified",
     autosize: false,
     width: $("#viz-card").width(),
-    height: $("#viz-card").height(),
-    title: "Saskatchewan Drug Toxicity Deaths by Type of Drug",
+    height:
+      window.innerWidth > 768
+        ? $("#viz-card").height()
+        : $("#viz-card").height() + 200,
+    title:
+      window.innerWidth > 768
+        ? "Saskatchewan Drug Toxicity Deaths by Type of Drug"
+        : "Saskatchewan Drug Toxicity<br>Deaths by Type of Drug",
+    legend:
+      window.innerWidth > 768
+        ? {}
+        : {
+            orientation: "h",
+            x: 0,
+            y: -0.2,
+            xanchor: "middle",
+            yanchor: "top",
+            tracegroupgap: 200,
+          },
+    margin: window.innerWidth > 768 ? {} : { b: 20, r: 0, l: 75 },
   };
   vis_div.innerHTML = "";
   let vis = Plotly.react(
@@ -658,16 +827,53 @@ async function toxSetUp() {
         visDiv,
         plots,
         (layout = {
+          dragmode: "pan",
           yaxis: {
             fixedrange: true,
-            title: "Deaths Resulting from Drug Toxicity",
+            title: {
+              standoff: 30,
+              text:
+                window.innerWidth > 768
+                  ? "Deaths Resulting from Drug Toxicity"
+                  : "Deaths Resulting from Drug Toxicity",
+            },
           },
-          xaxis: { fixedrange: true, title: "Year" },
+          xaxis: {
+            fixedrange: false,
+            autorange: true,
+            autorangeoptions:
+              window.innerWidth > 768
+                ? {}
+                : {
+                    clipmax: Number(plots[0]["x"][0]) + 2,
+                  },
+            dtick: 1,
+            title: {
+              text: "Year",
+              standoff: 5,
+            },
+            constrain: "domain",
+          },
           hovermode: "x unified",
           autosize: false,
           width: $("#viz-card").width(),
-          height: $("#viz-card").height(),
-          title: "Canadian Drug Toxicity Deaths Each Year by Province",
+          height: window.innerWidth > 768 ? $("#viz-card").height() : "auto",
+          title:
+            window.innerWidth > 768
+              ? "Canadian Drug Toxicity Deaths Each Year by Province"
+              : "Canadian Drug Toxicity Deaths<br>Each Year by Province",
+          legend:
+            window.innerWidth > 768
+              ? {}
+              : {
+                  orientation: "h",
+                  x: 0,
+                  y: -0.2,
+                  xanchor: "middle",
+                  yanchor: "top",
+                  tracegroupgap: 200,
+                },
+          margin: window.innerWidth > 768 ? {} : { r: 0, l: 65 },
         }),
         (config = {
           displaylogo: false,
@@ -703,17 +909,53 @@ function changeChartType(selector) {
           visDiv,
           plotsToAdd,
           (layout = {
+            dragmode: "pan",
             yaxis: {
               fixedrange: true,
-              title:
-                "Percent of Deaths Resulting from Drug Toxicity in Selected Provinces",
+              title: {
+                standoff: 30,
+                text:
+                  window.innerWidth > 768
+                    ? "Percent of Deaths Resulting from Drug Toxicity in Selected Provinces"
+                    : "Percent of Deaths Resulting<br>from Drug Toxicity in Selected<br>Provinces",
+              },
             },
-            xaxis: { fixedrange: true, title: "Year" },
+            xaxis: {
+              fixedrange: false,
+              autorange: true,
+              autorangeoptions:
+                window.innerWidth > 768
+                  ? {}
+                  : {
+                      clipmax: Number(plots[0]["x"][0]) + 2,
+                    },
+              dtick: 1,
+              title: {
+                text: "Year",
+                standoff: 5,
+              },
+              constrain: "domain",
+            },
             hovermode: "x unified",
             autosize: false,
             width: $("#viz-card").width(),
-            height: $("#viz-card").height(),
-            title: "Canadian Drug Toxicity Deaths Each Year by Province",
+            height: window.innerWidth > 768 ? $("#viz-card").height() : "auto",
+            title:
+              window.innerWidth > 768
+                ? "Canadian Drug Toxicity Deaths Each Year by Province"
+                : "Canadian Drug Toxicity<br>Deaths Each Year by<br>Province",
+            legend:
+              window.innerWidth > 768
+                ? {}
+                : {
+                    orientation: "h",
+                    x: 0,
+                    y: -0.2,
+                    xanchor: "middle",
+                    yanchor: "top",
+                    tracegroupgap: 200,
+                  },
+            margin: window.innerWidth > 768 ? {} : { r: 0, l: 80 },
           }),
           (config = {
             displaylogo: false,
@@ -737,16 +979,53 @@ function changeChartType(selector) {
           visDiv,
           plotsToAdd,
           (layout = {
+            dragmode: "pan",
             yaxis: {
               fixedrange: true,
-              title: "Deaths Resulting from Drug Toxicity",
+              title: {
+                standoff: 30,
+                text:
+                  window.innerWidth > 768
+                    ? "Deaths Resulting from Drug Toxicity"
+                    : "Deaths Resulting from Drug Toxicity",
+              },
             },
-            xaxis: { fixedrange: true, title: "Year" },
+            xaxis: {
+              fixedrange: false,
+              autorange: true,
+              autorangeoptions:
+                window.innerWidth > 768
+                  ? {}
+                  : {
+                      clipmax: Number(plots[0]["x"][0]) + 2,
+                    },
+              dtick: 1,
+              title: {
+                text: "Year",
+                standoff: 5,
+              },
+              constrain: "domain",
+            },
             hovermode: "x unified",
             autosize: false,
             width: $("#viz-card").width(),
-            height: $("#viz-card").height(),
-            title: "Canadian Drug Toxicity Deaths Each Year by Province",
+            height: window.innerWidth > 768 ? $("#viz-card").height() : "auto",
+            title:
+              window.innerWidth > 768
+                ? "Canadian Drug Toxicity Deaths Each Year by Province"
+                : "Canadian Drug Toxicity Deaths<br>Each Year by Province",
+            legend:
+              window.innerWidth > 768
+                ? {}
+                : {
+                    orientation: "h",
+                    x: 0,
+                    y: -0.2,
+                    xanchor: "middle",
+                    yanchor: "top",
+                    tracegroupgap: 200,
+                  },
+            margin: window.innerWidth > 768 ? {} : { r: 0, l: 65 },
           }),
           (config = {
             displaylogo: false,
