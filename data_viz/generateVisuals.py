@@ -56,6 +56,19 @@ def filter_data(data: dict, find_these: list):
             dataframes.append(data[key])
     return dataframes
 
+# Restructured functions to generate the visual by page, not by graph
+def export_nat_drug_toxicity_deaths():
+    # Find what national data exists
+    
+
+    # Replace national data with what provincial data we have and make note of the replaced data points for an about this data section
+
+    # Export the lines in a json file which includes:
+        # The date each data source was last edited
+        # A line of data for each province
+        # A blurb with variables to be used in the about this data section
+
+
 # Function to generate the graph for drugs involved in toxicity deaths
 def drug_type_visual(data: dict):
     # Clean the data to get the aggregate values we need (SK Publication Centre Specific)
