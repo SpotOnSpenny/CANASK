@@ -24,7 +24,7 @@ def scrape_national_dashboard(driver):
     # Instantiate things we need and check to see if there's already a file in the output directory
     dataframes = []
     http = urllib3.PoolManager()
-    existing_file_updated = None
+    file_updated = False
     output_dir, needed_files, existing_files = checkup_output(["nationalHealthInfobase"])
     if existing_files != []:
         existing_file_updated = int(existing_files[0].split("_")[0])
@@ -52,20 +52,27 @@ def scrape_national_dashboard(driver):
             if ".csv" in file:
                 year, month, day, hour, minute, second = zip_ref.getinfo(file).date_time
                 new_last_updated = int(f"{year}{month}{day}")
-                if existing_file_updated is None or new_last_updated > existing_file_updated:
+                if existing_files == []:
                     print(f"Extracting {file}...")
                     with zip_ref.open(file) as data_file, open(os.path.join(output_dir, f"{new_last_updated}_nationalHealthInfobase.csv"), 'wb') as out_file:
                         shutil.copyfileobj(data_file, out_file)
                     print(f"Extraction of {file} complete")
+                elif new_last_updated > existing_file_updated:
+                    print(f"Extracting {file}...")
+                    with zip_ref.open(file) as data_file, open(os.path.join(output_dir, f"{new_last_updated}_nationalHealthInfobase.csv"), 'wb') as out_file:
+                        shutil.copyfileobj(data_file, out_file)
+                    print(f"Extraction of {file} complete")
+                    file_updated = True
                 else:
                     print(f"{file} is already up to date")
-                    os.remove(raw_data_zip)
-                    return
             
     # Clean up the zip and old files that have been updated
     os.remove(raw_data_zip)
-    if existing_files != []:
+    print("Existing files updated: ", file_updated)    
+    if existing_files != [] and file_updated:
+        print("removing old files")
         os.remove(os.path.join(output_dir, existing_files[0]))
+    return
 
 # Test code below
 if __name__ == '__main__':
