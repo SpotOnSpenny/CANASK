@@ -732,6 +732,178 @@ function createCategoryChartSK(data) {
 
 let tox_data;
 
+async function new_toxSetUp() {
+  tox_data = fetch("static/js/total_tox_deaths_data.json")
+    .then((response) => (data = response.json()))
+    .then((data) => {
+      // Initial province mappings needed to read the json data
+      let provinceMappings = {
+        "British Columbia": "bc_line_y",
+        Alberta: "ab_line_y",
+        Saskatchewan: "sk_line_y",
+        Manitoba: "mb_line_y",
+        Ontario: "on_line_y",
+        Quebec: "qc_line_y",
+        "New Brunswick": "nb_line_y",
+        "Nova Scotia": "ns_line_y",
+        "Prince Edward Island": "pe_line_y",
+        "Newfoundland and Labrador": "nl_line_y",
+        Canada: "can_line_y",
+      };
+
+      // Calculate the total deaths for each year
+      totals = [];
+      for (let i = 0; i < data.x_axes.can_line_x.length; i++) {
+        let totalForYear = 0;
+        for (const [key, value] of Object.entries(data.y_axes)) {
+          totalForYear += Number(value[i]);
+        }
+        totals.push(totalForYear);
+      }
+
+      // Create the initial table of values
+      let cols = ["Province"].concat(data.x_axes.can_line_x);
+      let rows = Object.keys(provinceMappings).filter(
+        (province) => province !== "Canada"
+      );
+      rows = rows.concat(["Total"]);
+      let table = document.createElement("table");
+      table.setAttribute(
+        "class",
+        "table table-striped table-bordered table-hover"
+      );
+      let tr = table.insertRow(-1);
+      cols.forEach((headerText) => {
+        let th = document.createElement("th"); // Create a new header cell
+        th.innerText = headerText; // Set the text of the header cell
+        tr.appendChild(th); // Add the header cell to the row
+      });
+      rows.forEach((province) => {
+        let tr = table.insertRow(-1);
+        let cell = tr.insertCell(-1);
+        cell.innerText = province;
+        data.x_axes.can_line_x.forEach((year) => {
+          let cell = tr.insertCell(-1);
+          if (province === "Total") {
+            cell.innerText = totals[data.x_axes.can_line_x.indexOf(year)];
+          } else {
+            cell.innerText =
+              data.y_axes[provinceMappings[province]][
+                data.x_axes.can_line_x.indexOf(year)
+              ];
+          }
+        });
+      });
+      let tableDiv = document.getElementById("data-table");
+
+      // // Create the initial visual
+      // visDiv = document.getElementById("toxicity-deaths-vis");
+      // let skTrace = {
+      //   x: data.total_deaths.can_line_x,
+      //   y: data.total_deaths.sk_line_y,
+      //   type: "scatter",
+      //   name: "Saskatchewan",
+      //   stackgroup: "one",
+      //   animate: true,
+      //   marker: { color: "rgba(7, 106, 33, 1)" },
+      // };
+      // let bcTrace = {
+      //   x: data.total_deaths.can_line_x,
+      //   y: data.total_deaths.bc_line_y,
+      //   type: "scatter",
+      //   name: "British Columbia",
+      //   stackgroup: "one",
+      //   animate: true,
+      //   marker: { color: "rgba(0, 71, 187, 1)" },
+      // };
+      // let canTrace = {
+      //   x: [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023],
+      //   y: totals,
+      //   type: "scatter",
+      //   stackgroup: "two",
+      //   name: "Total of Selected",
+      //   animate: true,
+      //   marker: { color: "rgba(206, 17, 38, 1)" },
+      //   fill: "none",
+      // };
+      // let plots = [skTrace, bcTrace, canTrace];
+      // let colourCode = {
+      //   "British Columbia": "rgba(0, 71, 187, 1)",
+      //   Saskatchewan: "rgba(7, 106, 33, 1)",
+      //   Canada: "rgba(206, 17, 38, 1)",
+      // };
+
+      // // Add the created elements to the page
+      // visDiv.innerHTML = "";
+      tableDiv.innerHTML = "";
+      tableDiv.appendChild(table);
+      // let vis = Plotly.react(
+      //   visDiv,
+      //   plots,
+      //   (layout = {
+      //     dragmode: "pan",
+      //     yaxis: {
+      //       fixedrange: true,
+      //       title: {
+      //         standoff: 30,
+      //         text:
+      //           window.innerWidth > 768
+      //             ? "Deaths Resulting from Drug Toxicity"
+      //             : "Deaths Resulting from Drug Toxicity",
+      //       },
+      //     },
+      //     xaxis: {
+      //       fixedrange: false,
+      //       autorange: true,
+      //       autorangeoptions:
+      //         window.innerWidth > 768
+      //           ? {}
+      //           : {
+      //               clipmax: Number(plots[0]["x"][0]) + 2,
+      //             },
+      //       dtick: 1,
+      //       title: {
+      //         text: "Year",
+      //         standoff: 5,
+      //       },
+      //       constrain: "domain",
+      //     },
+      //     hovermode: "x unified",
+      //     autosize: false,
+      //     width: $("#viz-card").width(),
+      //     height: window.innerWidth > 768 ? $("#viz-card").height() : "auto",
+      //     title:
+      //       window.innerWidth > 768
+      //         ? "Canadian Drug Toxicity Deaths Each Year by Province"
+      //         : "Canadian Drug Toxicity Deaths<br>Each Year by Province",
+      //     legend:
+      //       window.innerWidth > 768
+      //         ? {}
+      //         : {
+      //             orientation: "h",
+      //             x: 0,
+      //             y: -0.2,
+      //             xanchor: "middle",
+      //             yanchor: "top",
+      //             tracegroupgap: 200,
+      //           },
+      //     margin: window.innerWidth > 768 ? {} : { r: 0, l: 65 },
+      //   }),
+      //   (config = {
+      //     displaylogo: false,
+      //   })
+      // );
+      // return {
+      //   vis: vis,
+      //   plots: plots,
+      //   visDiv: visDiv,
+      //   raw_data: data,
+      //   colourCode: colourCode,
+      //   provinceMappings: provinceMappings,
+      // };
+    });
+}
+
 async function toxSetUp() {
   tox_data = fetch("static/js/visualization_data.json")
     .then((response) => (data = response.json()))
