@@ -2,6 +2,7 @@
 import os
 import json
 import datetime
+import re
 
 # External Dependency Imports
 import pandas
@@ -58,15 +59,98 @@ def filter_data(data: dict, find_these: list):
 
 # Restructured functions to generate the visual by page, not by graph
 def export_nat_drug_toxicity_deaths():
-    # Find what national data exists
-    
+    # Find what national data exists and clean it up to get what we need (toxicity deaths by province by year)
+    national_raw = pull_data(["nationalHealthInfobase"])
+    provincial_dfs = {}
+    raw_df = national_raw["nationalHealthInfobase"]["dataframe"]
+    provinces = ["British Columbia", "Alberta", "Saskatchewan", "Manitoba", "Ontario", "Quebec", "New Brunswick", "Nova Scotia", "Prince Edward Island", "Newfoundland and Labrador"]
+    deaths_filter = raw_df["Source"] == "Deaths"
+    stat_filter = raw_df["Type_Event"] == "Total apparent opioid toxicity deaths"
+    period_filter = raw_df["Time_Period"] == "By year"
+    unit_filter = raw_df["Unit"] == "Number"
+    for province in provinces:
+        province_filter = raw_df["Region"] == province
+        provincial_dfs[province] = {}
+        provincial_dfs[province]["sources"] = [{
+            "name": "Opioid- and Stimulant-related Harms in Canada",
+            "last_updated": national_raw["nationalHealthInfobase"]["date_updated"],
+            "url": "https://health-infobase.canada.ca/substance-related-harms/opioids-stimulants/"
+        }]
+        provincial_dfs[province]["data"] = raw_df[deaths_filter & stat_filter & period_filter & unit_filter & province_filter]
+        # Limit the column to deaths and year
+        provincial_dfs[province]["data"] = provincial_dfs[province]["data"][["Year_Quarter", "Value"]]
+        provincial_dfs[province]["data"].rename(columns={"Year_Quarter": "Year"}, inplace=True)
 
     # Replace national data with what provincial data we have and make note of the replaced data points for an about this data section
+    sask_raw = pull_data(["skPubCentre"])
+    sask_filtered = filter_data(sask_raw, ["ConfirmedDrugToxicityDeathsbyMannerofDeath"])
+    sask_total_deaths = sask_filtered[0]["dataframe"].loc[sask_filtered[0]["dataframe"]["Year"] == "Total"]
+    provincial_dfs["Saskatchewan"]["sources"] = [{
+        "name": "Saskatchewan Coroners Service",
+        "last_updated": sask_filtered[0]["date_updated"],
+        "url": "https://publications.saskatchewan.ca/#/products/90505"
+    }]
+    for column_name, column_data in sask_total_deaths.iloc[:, 1:].items():
+        column_value = column_data.to_list()[0]
+        mask = provincial_dfs["Saskatchewan"]["data"]["Year"].str.contains(re.escape(column_name), case=False, na=False)
+        provincial_dfs["Saskatchewan"]["data"].loc[mask, "Value"] = column_value
+        provincial_dfs["Saskatchewan"]["data"].loc[mask, "Year"] = column_name
 
+    bc_raw = pull_data(["bcCoronersReport"])
+    bc_filtered = filter_data(bc_raw, ["Unregulated Drug Deaths by Month"])
+    bc_total_deaths = bc_filtered[0]["dataframe"].iloc[-1]
+    provincial_dfs["British Columbia"]["sources"] = [{
+        "name": "BC Coroners Service",
+        "last_updated": bc_filtered[0]["date_updated"],
+        "url": "https://app.powerbi.com/view?r=eyJrIjoiM2Y5YzRjNzQtMzAyNS00NWFiLWI3MDktMzI5NWQ3YmVhNmZjIiwidCI6IjZmZGI1MjAwLTNkMGQtNGE4YS1iMDM2LWQzNjg1ZTM1OWFkYyJ9"
+    }]
+    provincial_dfs["British Columbia"]["data"]["Year"] = provincial_dfs["British Columbia"]["data"]["Year"].str.strip()
+    for column_name, column_data in bc_total_deaths.iloc[1:].items():
+        mask = provincial_dfs["British Columbia"]["data"]["Year"].str.contains(re.escape(column_name.strip()), case=False, na=False)
+        if mask.any():
+            provincial_dfs["British Columbia"]["data"].loc[mask, "Value"] = column_data
+            provincial_dfs["British Columbia"]["data"].loc[mask, "Year"] = column_name
+    
     # Export the lines in a json file which includes:
         # The date each data source was last edited
         # A line of data for each province
         # A blurb with variables to be used in the about this data section
+    province_keys = {
+        "British Columbia": "bc",
+        "Alberta": "ab",
+        "Saskatchewan": "sk",
+        "Manitoba": "mb",
+        "Ontario": "on",
+        "Quebec": "qc",
+        "New Brunswick": "nb",
+        "Nova Scotia": "ns",
+        "Prince Edward Island": "pe",
+        "Newfoundland and Labrador": "nl"
+    }
+    sources = []
+    total_tox_deaths_data = {
+        "x_axes": {},
+        "y_axes": {}
+    }
+    longest_year_line = []
+    for province_data in provincial_dfs:
+        for source in provincial_dfs[province_data]["sources"]:
+            if source["name"] not in [source["name"] for source in sources]:
+                if source["name"] == "Opioid- and Stimulant-related Harms in Canada":
+                    source["Province"] = "All other provincial data"
+                else:
+                    source["Province"] = province_data
+                sources.append(source)
+        province_abbreviation = province_keys[province_data]
+        total_tox_deaths_data["y_axes"][f"{province_abbreviation}_line_y"] = provincial_dfs[province_data]["data"]["Value"].to_list()
+        if len(provincial_dfs[province_data]["data"]["Year"].to_list()) > len(longest_year_line):
+            longest_year_line = provincial_dfs[province_data]["data"]["Year"].to_list()
+    total_tox_deaths_data["x_axes"]["can_line_x"] = [year.replace(u"\xa0", "") for year in longest_year_line]
+    total_tox_deaths_data["sources"] = sources
+    total_tox_deaths_data["about_these_data"] = """These data are collected from provincial authorities when available, and supplemented with national reports to fill in unavailable provincial data. If you are aware of, or have access to, a provincial data source that can be used to supplement or replace national data, please contact us at email@email.com.
+    The data sources used in this visualization are as follows:"""
+    with open(os.path.join(os.path.abspath(os.path.dirname(__file__)), "static/js/total_tox_deaths_data.json"), "w") as file:
+        json.dump(total_tox_deaths_data, file)
 
 
 # Function to generate the graph for drugs involved in toxicity deaths
@@ -152,7 +236,7 @@ def drug_type_visual(data: dict):
         y=sask_line_y,
         name="SK Total Deaths",
         marker={"color": "gray"}
-    )
+     )
     # fig = plotly.graph_objects.Figure(data=list(sask_drug_traces.values())) # Uncomment this line to see the BC data in testin
     # Create traces for combined Canada Wide Data
     graph_data = {"total_deaths": {}}
@@ -339,4 +423,4 @@ def sask_visual_data():
 
 # Test code below
 if __name__ == '__main__':
-    pull_data(["nationalHealthInfobase"])
+    export_nat_drug_toxicity_deaths()

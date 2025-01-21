@@ -1,0 +1,148 @@
+{
+    "x_axes": {
+        "can_line_x": [
+            "2016",
+            "2017",
+            "2018",
+            "2019",
+            "2020",
+            "2021",
+            "2022",
+            "2023",
+            "2024"
+        ]
+    },
+    "y_axes": {
+        "bc_line_y": [
+            "997",
+            "1496",
+            "1562",
+            "991",
+            "1776",
+            "2293",
+            "2382",
+            "2574",
+            "1925"
+        ],
+        "ab_line_y": [
+            "602",
+            "744",
+            "805",
+            "626",
+            "1191",
+            "1640",
+            "1524",
+            "1872",
+            "622"
+        ],
+        "sk_line_y": [
+            "109",
+            "119",
+            "172",
+            "180",
+            "325",
+            "407",
+            "360",
+            "422",
+            "218"
+        ],
+        "mb_line_y": [
+            "88",
+            "106",
+            "93",
+            "62",
+            "233",
+            "286",
+            "287",
+            "330",
+            "198"
+        ],
+        "on_line_y": [
+            "867",
+            "1265",
+            "1511",
+            "1560",
+            "2464",
+            "2861",
+            "2534",
+            "2647",
+            "1258"
+        ],
+        "qc_line_y": [
+            "263",
+            "280",
+            "211",
+            "213",
+            "321",
+            "293",
+            "540",
+            "536",
+            "319"
+        ],
+        "nb_line_y": [
+            "34",
+            "38",
+            "30",
+            "35",
+            "45",
+            "47",
+            "77",
+            "98",
+            "19"
+        ],
+        "ns_line_y": [
+            "53",
+            "64",
+            "55",
+            "56",
+            "49",
+            "40",
+            "62",
+            "73",
+            "38"
+        ],
+        "pe_line_y": [
+            "5",
+            "5",
+            "8",
+            "5",
+            "8",
+            "12",
+            "6",
+            "7",
+            "5"
+        ],
+        "nl_line_y": [
+            "18",
+            "33",
+            "12",
+            "18",
+            "24",
+            "27",
+            "30",
+            "37",
+            "23"
+        ]
+    },
+    "sources": [
+        {
+            "name": "BC Coroners Service",
+            "last_updated": "20241128",
+            "url": "https://app.powerbi.com/view?r=eyJrIjoiM2Y5YzRjNzQtMzAyNS00NWFiLWI3MDktMzI5NWQ3YmVhNmZjIiwidCI6IjZmZGI1MjAwLTNkMGQtNGE4YS1iMDM2LWQzNjg1ZTM1OWFkYyJ9",
+            "Province": "British Columbia"
+        },
+        {
+            "name": "Opioid- and Stimulant-related Harms in Canada",
+            "last_updated": "20241129",
+            "url": "https://health-infobase.canada.ca/substance-related-harms/opioids-stimulants/",
+            "Province": "All other provincial data"
+        },
+        {
+            "name": "Saskatchewan Coroners Service",
+            "last_updated": "20250106",
+            "url": "https://publications.saskatchewan.ca/#/products/90505",
+            "Province": "Saskatchewan"
+        }
+    ],
+    "about_these_data": "These data are collected from provincial authorities when available, and supplemented with national reports to fill in unavailable provincial data. If you are aware of, or have access to, a provincial data source that can be used to supplement or replace national data, please contact us at email@email.com.\n    The data sources used in this visualization are as follows:"
+}

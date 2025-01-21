@@ -64,7 +64,7 @@ def bc_coronersreport_scrape(driver, expected_pages:int = 18):
     existing_file = None
 
     # Load the Coroners Report page and get to data, also check the date of the report against existing scrapes to see if we need to run
-    driver.get("https://app.powerbi.com/view?r=eyJrIjoiY2NhOWZhNzMtZTFlNC00NTI2LTkwNTgtNzdmYjNjMTViMTQzIiwidCI6IjZmZGI1MjAwLTNkMGQtNGE4YS1iMDM2LWQzNjg1ZTM1OWFkYyJ9")
+    driver.get("https://app.powerbi.com/view?r=eyJrIjoiM2Y5YzRjNzQtMzAyNS00NWFiLWI3MDktMzI5NWQ3YmVhNmZjIiwidCI6IjZmZGI1MjAwLTNkMGQtNGE4YS1iMDM2LWQzNjg1ZTM1OWFkYyJ9")
     time.sleep(5) # Wait for page to finish loading and settle so that we don't get stale element errors
     date = WebDriverWait(driver, 15).until(expected_conditions.presence_of_element_located((By.XPATH, "//*[contains(text(), 'refreshed')]"))).text.split("refreshed ")[1].replace(" ", "").replace(".", "")
     date = datetime.datetime.strptime(date, "%d%b%Y").strftime("%Y%m%d")
@@ -449,7 +449,7 @@ def parse_powerBI_table(table, extra_header=None, special_rows = False, full_tit
 # Test code below
 if __name__ == "__main__":
     try:
-        driver = start_driver(headless=True)
+        driver = start_driver(headless=False)
         bc_coronersreport_scrape(driver, 18)
         driver.quit()
     except Exception as e:

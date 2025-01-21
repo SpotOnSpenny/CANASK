@@ -108,7 +108,7 @@ def sk_pubcentre_scrape(driver, expected_pages):
         "Benzodiazepines by Manner of Death, Sex and",
         "Confirmed Drug Toxicity Deaths by Place of Death",
         "Number of Confirmed Deaths Where Methamphetamine Toxicity was Part of the Cause of Death",
-        "Xylazine Toxicity",
+        "Number of Confirmed Deaths Where Xylazine Toxicity was Part of the Cause of Death",
     ]
     # Instantiate a list of data frames to hold the tables
     report_tables = {}
@@ -236,6 +236,7 @@ def sk_pubcentre_scrape(driver, expected_pages):
                     # If the line is leftover from the title, skip it
                     if line.startswith("2016 -") and not join_with_next:
                         skip_line = True
+                        ignore_next = True
                     # If the line is the years row, add some labels
                     elif line[:4].startswith("2016")and not join_with_next:
                         line = "MannerOfDeath Sex AgeGroup " + line
@@ -374,6 +375,7 @@ def sk_pubcentre_scrape(driver, expected_pages):
                             else:
                                 start = f"{start}{character}"
                 case title if spaceless_titles[10] in spaceless_title:
+                    print(line) 
                     # Basic cleaning
                     line = line.strip()
                     while "  " in line:
@@ -397,6 +399,7 @@ def sk_pubcentre_scrape(driver, expected_pages):
                     elif line.startswith(str(datetime.datetime.now().year)):
                         save_table = True
                 case title if spaceless_titles[11] in spaceless_title:
+                    print(title + "Found") 
                     # Basic cleaning
                     line = line.strip()
                     while "  " in line:
@@ -411,7 +414,7 @@ def sk_pubcentre_scrape(driver, expected_pages):
                         table = table._append(pandas.Series(header.split(" ")), ignore_index=True)
                     if not line[0].isnumeric():
                         skip_line = True
-                    if line.startswith(str(datetime.datetime.now().year)):
+                    if line.startswith(str(datetime.datetime.now().year)): #TODO Fix this, it doesn't work because the last year of data doesn't match the current year, so the table never starts searching again
                         save_table = True
             # Append the line to the table
             if not skip_line:
@@ -442,7 +445,7 @@ def sk_pubcentre_scrape(driver, expected_pages):
             continue
         else:
             continue
-
+    
     # Create the multiindex header for each table
     for title, table in report_tables.items():
         if title != "SuspectedDrugToxicityDeaths":
@@ -472,5 +475,5 @@ def sk_pubcentre_scrape(driver, expected_pages):
 # Test code below
 if __name__ == "__main__":
     driver = start_driver(headless=True)
-    sk_pubcentre_scrape(driver, 25)
+    sk_pubcentre_scrape(driver, 26)
     driver.quit()
