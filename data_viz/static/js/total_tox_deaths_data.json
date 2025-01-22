@@ -127,22 +127,22 @@
     "sources": [
         {
             "name": "BC Coroners Service",
-            "last_updated": "20241128",
+            "last_updated": "November 28, 2024",
             "url": "https://app.powerbi.com/view?r=eyJrIjoiM2Y5YzRjNzQtMzAyNS00NWFiLWI3MDktMzI5NWQ3YmVhNmZjIiwidCI6IjZmZGI1MjAwLTNkMGQtNGE4YS1iMDM2LWQzNjg1ZTM1OWFkYyJ9",
             "Province": "British Columbia"
         },
         {
             "name": "Opioid- and Stimulant-related Harms in Canada",
-            "last_updated": "20241129",
+            "last_updated": "November 29, 2024",
             "url": "https://health-infobase.canada.ca/substance-related-harms/opioids-stimulants/",
-            "Province": "All other provincial data"
+            "Province": "all other provincial"
         },
         {
             "name": "Saskatchewan Coroners Service",
-            "last_updated": "20250106",
+            "last_updated": "January 06, 2025",
             "url": "https://publications.saskatchewan.ca/#/products/90505",
             "Province": "Saskatchewan"
         }
     ],
-    "about_these_data": "These data are collected from provincial authorities when available, and supplemented with national reports to fill in unavailable provincial data. If you are aware of, or have access to, a provincial data source that can be used to supplement or replace national data, please contact us at email@email.com.\n    The data sources used in this visualization are as follows:"
+    "about_these_data": "These data are collected from provincial authorities when available, and supplemented with national reports to fill in unavailable provincial data. If you are aware of, or have access to, a provincial data source that can be used to supplement or replace national data, please contact us at email@email.com. Please also be aware that the most recent data points may be incomplete as a result of some provincial data being unpublished at this time. Kindly refer to the \"last updated\" date for information on when the data for each province was last published.\n    The data sources used in this visualization are as follows:"
 }

@@ -77,7 +77,6 @@ let feedbackContent = document.querySelector(".feedback-content-container");
 let feedbackClose = document.querySelector(".feedback-close");
 
 function toggleFeedback() {
-  console.log("clicked");
   feedbackContent.classList.toggle("feedback-visible");
   feedbackToggle.classList.toggle("feedback-toggle-invisible");
 }
@@ -736,7 +735,7 @@ function keyByValue(object, value) {
   return Object.keys(object).find((key) => object[key] === value);
 }
 
-async function new_toxSetUp() {
+async function toxSetUp() {
   tox_data = fetch("static/js/total_tox_deaths_data.json")
     .then((response) => (data = response.json()))
     .then((data) => {
@@ -797,7 +796,6 @@ async function new_toxSetUp() {
         tr.appendChild(th); // Add the header cell to the row
       });
       rows.forEach((province) => {
-        console.log(province);
         let tr = table.insertRow(-1);
         let cell = tr.insertCell(-1);
         cell.innerText = province;
@@ -819,19 +817,43 @@ async function new_toxSetUp() {
       blurbDiv = document.getElementById("about-these-data-blurb");
       aboutDataTitle = document.getElementById("about-these-data-title");
       let dataSourcesHTML = [];
+      let sourceText;
+      let buttonText;
       for (let source of data.sources) {
-        let sourceDiv = `<div class="text-center">
-          <p>${source.Province} data obtained from the ${source.name} and was last
-            updated on ${source.last_updated}</p>
-          <a class="btn btn-primary" href="${source.url}" role="button">Go to British Columbia data source</a>
+        if (source.name == "Opioid- and Stimulant-related Harms in Canada") {
+          buttonText = "Go to national report for all other provincial data";
+          sourceText =
+            "All other provincial data was obtained from the Opioid- and Stimulant-related Harms in Canada report and was last udpated on " +
+            source.last_updated;
+        } else {
+          buttonText = "Go to " + source.Province + " data source";
+          sourceText =
+            source.Province +
+            " data obtained from the " +
+            source.name +
+            " and was last updated on " +
+            source.last_updated;
+        }
+        let sourceDiv = `<div class="text-center pb-3">
+          <p class="mb-1">${sourceText}</p>
+          <a class="btn btn-primary" href="${source.url}" role="button">${buttonText}</a>
         </div>`;
-        dataSourcesHTML.push(sourceDiv);
+        let tempContainer = document.createElement("div");
+        tempContainer.innerHTML = sourceDiv;
+        if (source.name == "Opioid- and Stimulant-related Harms in Canada") {
+          dataSourcesHTML = [tempContainer, ...dataSourcesHTML];
+        } else {
+          dataSourcesHTML.push(tempContainer);
+        }
       }
-      let blurbHTML = (
-        <div>
+      dataSourcesHTML.reverse();
+      let blurbHTML = `<div>
           <p>${data.about_these_data}</p>
         </div>
-      );
+      `;
+      let tempContainer = document.createElement("div");
+      tempContainer.innerHTML = blurbHTML;
+
       // Create the initial visual
       visDiv = document.getElementById("toxicity-deaths-vis");
       plots = [];
@@ -859,173 +881,15 @@ async function new_toxSetUp() {
       });
 
       // Add the created elements to the page
-      blurbDiv.appendChild(blurbHTML);
-      aboutDataTitle.appendChild("About these Data");
-      aboutDataTitle.insertAdjacentHTML("afterend", "<hr>");
-      for (let sourceHTML in dataSourcesHTML) {
-        aboutDataDiv.appendChild(sourceHTML);
-      }
-      visDiv.innerHTML = "";
-      tableDiv.innerHTML = "";
-      tableDiv.appendChild(table);
-      let vis = Plotly.react(
-        visDiv,
-        plots,
-        (layout = {
-          dragmode: "pan",
-          yaxis: {
-            fixedrange: true,
-            title: {
-              standoff: 30,
-              text:
-                window.innerWidth > 768
-                  ? "Deaths Resulting from Drug Toxicity"
-                  : "Deaths Resulting from Drug Toxicity",
-            },
-          },
-          xaxis: {
-            fixedrange: false,
-            autorange: true,
-            autorangeoptions:
-              window.innerWidth > 768
-                ? {}
-                : {
-                    clipmax: Number(plots[0]["x"][0]) + 2,
-                  },
-            dtick: 1,
-            title: {
-              text: "Year",
-              standoff: 5,
-            },
-            constrain: "domain",
-          },
-          hovermode: "x unified",
-          autosize: false,
-          width: $("#viz-card").width(),
-          height: window.innerWidth > 768 ? $("#viz-card").height() : "auto",
-          title:
-            window.innerWidth > 768
-              ? "Canadian Drug Toxicity Deaths Each Year by Province"
-              : "Canadian Drug Toxicity Deaths<br>Each Year by Province",
-          legend:
-            window.innerWidth > 768
-              ? {}
-              : {
-                  orientation: "h",
-                  x: 0,
-                  y: -0.2,
-                  xanchor: "middle",
-                  yanchor: "top",
-                  tracegroupgap: 200,
-                },
-          margin: window.innerWidth > 768 ? {} : { r: 0, l: 65 },
-        }),
-        (config = {
-          displaylogo: false,
-        })
-      );
-      return {
-        vis: vis,
-        plots: plots,
-        visDiv: visDiv,
-        raw_data: data,
-        colourCode: colourCode,
-        provinceMappings: provinceMappings,
-      };
-    });
-}
-
-async function toxSetUp() {
-  tox_data = fetch("static/js/visualization_data.json")
-    .then((response) => (data = response.json()))
-    .then((data) => {
-      let provinceMappings = {
-        "British Columbia": "bc_line_y",
-        Saskatchewan: "sk_line_y",
-        Canada: "can_line_y",
-      };
-      totals = [];
-      for (let i = 0; i < data.total_deaths.can_line_x.length; i++) {
-        totals.push(
-          data.total_deaths.bc_line_y[i] + data.total_deaths.sk_line_y[i]
-        );
-      }
-      // Create the initial table of values
-      let cols = ["Province"].concat(data.total_deaths.can_line_x);
-      let rows = Object.keys(provinceMappings).filter(
-        (province) => province !== "Canada"
-      );
-      rows = rows.concat(["Total"]);
-      let table = document.createElement("table");
-      table.setAttribute(
-        "class",
-        "table table-striped table-bordered table-hover"
-      );
-      let tr = table.insertRow(-1);
-      cols.forEach((headerText) => {
-        let th = document.createElement("th"); // Create a new header cell
-        th.innerText = headerText; // Set the text of the header cell
-        tr.appendChild(th); // Add the header cell to the row
-      });
-      rows.forEach((province) => {
-        let tr = table.insertRow(-1);
-        let cell = tr.insertCell(-1);
-        cell.innerText = province;
-        data.total_deaths.can_line_x.forEach((year) => {
-          let cell = tr.insertCell(-1);
-          if (province === "Total") {
-            cell.innerText = totals[data.total_deaths.can_line_x.indexOf(year)];
-          } else {
-            cell.innerText =
-              data.total_deaths[provinceMappings[province]][
-                data.total_deaths.can_line_x.indexOf(year)
-              ];
-          }
-        });
-      });
-      let tableDiv = document.getElementById("data-table");
-
-      // Create the initial visual
-      visDiv = document.getElementById("toxicity-deaths-vis");
-      let skTrace = {
-        x: data.total_deaths.can_line_x,
-        y: data.total_deaths.sk_line_y,
-        type: "scatter",
-        name: "Saskatchewan",
-        stackgroup: "one",
-        animate: true,
-        marker: { color: "rgba(7, 106, 33, 1)" },
-      };
-      let bcTrace = {
-        x: data.total_deaths.can_line_x,
-        y: data.total_deaths.bc_line_y,
-        type: "scatter",
-        name: "British Columbia",
-        stackgroup: "one",
-        animate: true,
-        marker: { color: "rgba(0, 71, 187, 1)" },
-      };
-      let canTrace = {
-        x: [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023],
-        y: totals,
-        type: "scatter",
-        stackgroup: "two",
-        name: "Total of Selected",
-        animate: true,
-        marker: { color: "rgba(206, 17, 38, 1)" },
-        fill: "none",
-      };
-      let plots = [skTrace, bcTrace, canTrace];
-      let colourCode = {
-        "British Columbia": "rgba(0, 71, 187, 1)",
-        Saskatchewan: "rgba(7, 106, 33, 1)",
-        Canada: "rgba(206, 17, 38, 1)",
-      };
-
-      // Add the created elements to the page
       blurbDiv.innerHTML = "";
       visDiv.innerHTML = "";
       tableDiv.innerHTML = "";
+      blurbDiv.appendChild(tempContainer.firstChild);
+      aboutDataTitle.textContent = "About these Data";
+      aboutDataTitle.insertAdjacentHTML("afterend", "<hr>");
+      for (let sourceHTML of dataSourcesHTML) {
+        aboutDataDiv.appendChild(sourceHTML.firstChild);
+      }
       tableDiv.appendChild(table);
       let vis = Plotly.react(
         visDiv,
