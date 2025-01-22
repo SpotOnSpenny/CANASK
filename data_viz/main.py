@@ -10,7 +10,7 @@ from sendgrid.helpers.mail import Mail
 import bleach
 
 # Internal Dependency Imports
-from .generateVisuals import pull_data, filter_data, drug_type_visual
+from .generateVisuals import pull_data, filter_data
 
 #######################################################################################
 #                                        Notes:                                       #
