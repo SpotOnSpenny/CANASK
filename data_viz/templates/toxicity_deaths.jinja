@@ -1,16 +1,4 @@
 <div class="container h-100 mobile-height-adjust gy-2 layout-container">
-    <div class="row text-center py-1 justify-content-center align-items-center notice-row">
-        <div class="col-md-10">
-            <div class="card">
-                <div class="card-body bg-warning shadow-sm">
-                    <p class="text-center py-1 px-2 m-0">
-                        Data is unavailable for disabled options. If you are aware of a source that would provide this
-                        data for a province that is currently unavailable please reach out to us at email@email.com.
-                    </p>
-                </div>
-            </div>
-        </div>
-    </div>
     <div class="row data-row py-1 justify-content-center align-items-center g-2">
         <div class="col-md-9 h-100">
             <div class="card h-100">
@@ -34,7 +22,7 @@
                             </div>
                             <div class="row justify-content-center align-items-center g-2">
                                 <div class="col">
-                                    <select class="form-select" onchange="changeChartType(this)">
+                                    <select id="chart-type-select" class="form-select" onchange="changeChartType(this)">
                                         <option value="1" selected>Stacked Area Chart</option>
                                         <option value="2">Percent of Total</option>
                                     </select>
@@ -59,7 +47,7 @@
                                 <div class="col">
                                     <div class="form-check form-switch">
                                         <input class="form-check-input" type="checkbox" id="ab-check" province="Alberta"
-                                            status="disabled" onclick="updateTracesTox(this)" disabled />
+                                            status="active" onclick="updateTracesTox(this)" checked />
                                         <label class="form-check-label" for="ab-check">
                                             Alberta
                                         </label>
@@ -82,8 +70,8 @@
                                 <div class="col">
                                     <div class="form-check form-switch">
                                         <input class="form-check-input" type="checkbox" id="mb-check"
-                                            province="Manitoba" status="disabled" onclick="updateTracesTox(this)"
-                                            disabled />
+                                            province="Manitoba" status="active" onclick="updateTracesTox(this)"
+                                            checked />
                                         <label class="form-check-label" for="mb-check">
                                             Manitoba
                                         </label>
@@ -94,7 +82,7 @@
                                 <div class="col">
                                     <div class="form-check form-switch">
                                         <input class="form-check-input" type="checkbox" id="on-check" province="Ontario"
-                                            status="disabled" onclick="updateTracesTox(this)" disabled />
+                                            status="active" onclick="updateTracesTox(this)" checked />
                                         <label class="form-check-label" for="on-check">
                                             Ontario
                                         </label>
@@ -105,7 +93,7 @@
                                 <div class="col">
                                     <div class="form-check form-switch">
                                         <input class="form-check-input" type="checkbox" id="qc-check" province="Quebec"
-                                            status="disabled" onclick="updateTracesTox(this)" disabled />
+                                            status="active" onclick="updateTracesTox(this)" checked />
                                         <label class="form-check-label" for="qc-check">
                                             Quebec
                                         </label>
@@ -116,8 +104,8 @@
                                 <div class="col">
                                     <div class="form-check form-switch">
                                         <input class="form-check-input" type="checkbox" id="NL-check"
-                                            province="Newfoundland" status="disabled" onclick="updateTracesTox(this)"
-                                            disabled />
+                                            province="Newfoundland and Labrador" status="active"
+                                            onclick="updateTracesTox(this)" checked />
                                         <label class="form-check-label" for="NL-check">
                                             Newfoundland
                                         </label>
@@ -128,8 +116,8 @@
                                 <div class="col">
                                     <div class="form-check form-switch">
                                         <input class="form-check-input" type="checkbox" id="nb-check"
-                                            province="New Brunswick" status="disabled" onclick="updateTracesTox(this)"
-                                            disabled />
+                                            province="New Brunswick" status="active" onclick="updateTracesTox(this)"
+                                            checked />
                                         <label class="form-check-label" for="nb-check">
                                             New Brunswick
                                         </label>
@@ -140,8 +128,8 @@
                                 <div class="col">
                                     <div class="form-check form-switch">
                                         <input class="form-check-input" type="checkbox" id="ns-check"
-                                            province="Nova Scotia" status="disabled" onclick="updateTracesTox(this)"
-                                            disabled />
+                                            province="Nova Scotia" status="active" onclick="updateTracesTox(this)"
+                                            checked />
                                         <label class="form-check-label" for="ns-check">
                                             Nova Scotia
                                         </label>
@@ -151,8 +139,9 @@
                             <div class="row justify-content-center align-items-center g-2">
                                 <div class="col">
                                     <div class="form-check form-switch">
-                                        <input class="form-check-input" type="checkbox" id="pei-check" province="PEI"
-                                            status="disabled" onclick="updateTracesTox(this)" disabled />
+                                        <input class="form-check-input" type="checkbox" id="pei-check"
+                                            province="Prince Edward Island" status="active"
+                                            onclick="updateTracesTox(this)" checked />
                                         <label class="form-check-label" for="pei-check">
                                             P.E.I.
                                         </label>
@@ -160,6 +149,18 @@
                                 </div>
                             </div>
                         </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="row py-2 justify-content-center align-items-center g-2">
+        <div class="col">
+            <div class="card">
+                <div id="about-these-data" class="card-body">
+                    <h4 id="about-these-data-title" class="card-title"></h4>
+                    <div id="about-these-data-blurb" class="text-center">
+                        <div id="toxicity-deaths-vis" class="spinner-border" role="status"></div>
                     </div>
                 </div>
             </div>

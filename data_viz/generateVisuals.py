@@ -137,7 +137,7 @@ def export_nat_drug_toxicity_deaths():
         for source in provincial_dfs[province_data]["sources"]:
             if source["name"] not in [source["name"] for source in sources]:
                 if source["name"] == "Opioid- and Stimulant-related Harms in Canada":
-                    source["Province"] = "All other provincial data"
+                    source["Province"] = "All other provincial"
                 else:
                     source["Province"] = province_data
                 sources.append(source)
