@@ -2,11 +2,12 @@
 import sys
 import os
 import urllib3
-import shutil
-import zipfile
 import datetime
+import shutil
+import pandas
 
 # External Dependency Imports
+import openpyxl
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions
 from selenium.webdriver.support.ui import WebDriverWait
@@ -22,6 +23,8 @@ from checkUps import checkup_output
 #######################################################################################
 #                                       Notes:                                        #
 #######################################################################################
+
+# TODO we need to remove strict mode from the downloaded file
 
 def scrape_national_dashboard(driver):
     # Instantiate things we need and check to see if there's already a file in the output directory
@@ -52,18 +55,38 @@ def scrape_national_dashboard(driver):
     else:
         print("New data available")
     
-    raw_data = os.path.join(output_dir, f"{last_updated}_onODPRN.xlsx")
-    with http.request('GET', download_link, preload_content=False) as data_response, open(raw_data, 'wb') as out_file:       
-        print("Downloading the PDF report...")
-        shutil.copyfileobj(data_response, out_file)
-        print("Download complete")
-    data_response.release_conn()
+    final_data_path = os.path.join(output_dir, f"{last_updated}_onODPRN.xlsx")
+    raw_data_path = os.path.join(output_dir, "ontario_data.xlsx")
+    with http.request('GET', download_link, preload_content=False) as response, open(raw_data_path, 'wb') as out_file:
+        out_file.write(response.data)
+        response.release_conn() 
+
+    # Clean up the data and write it to the final file
+    pandas.set_option('future.no_silent_downcasting', True)
+    clean_data = {}
+    data = pandas.read_excel(raw_data_path, engine="calamine", sheet_name=None) # excel file is in strict mode, so we need to use calamine
+    for sheet in data.keys():
+        if sheet == "Figure" and sheet != "Data Notes":
+            pass
+        if sheet == "Provincial Drug Toxicity":
+            clean_data[sheet] = data[sheet].dropna(how="all")
+            clean_data[sheet] = clean_data[sheet].iloc[3: -3]
+            clean_data[sheet].iloc[:, 0] = clean_data[sheet].iloc[:, 0].ffill()
+            clean_data[sheet].columns = ["year", "month", "opioid confirmed", "opioid probable", "stimulant", "other drug"]
+        if sheet == "PHU Confirmed & Probable":
+            clean_data[sheet] = data[sheet].dropna(how="all")
+            clean_data[sheet] = clean_data[sheet].iloc[3: -3]
+            clean_data[sheet].iloc[:, 0] = clean_data[sheet].iloc[:, 0].ffill()
+
+
 
     # Clean up the zip and old files that have been updated
     if existing_files != []:
         print("removing old files")
         os.remove(os.path.join(output_dir, existing_files[0]))
     return
+
+#######################################################################################
 
 # Test code below
 if __name__ == '__main__':

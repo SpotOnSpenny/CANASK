@@ -27,14 +27,15 @@ def pull_data(data_source: list):
         output_dir = os.path.join(os.path.abspath(os.path.dirname(os.path.dirname(__file__))), "output")
         if any(source in file for file in os.listdir(output_dir)):
             file = [file for file in os.listdir(output_dir) if source in file][0]
-            match file.split(".")[1]:
+            match file.split(".")[-1]:
                 case "csv":
                     sheets[source] = {
                         "date_updated": datetime.datetime.strptime(file.split("_")[0], "%Y%m%d").strftime("%B %d, %Y"),
                         "dataframe": pandas.read_csv(os.path.join(output_dir, file))
                         }
                 case "xlsx":
-                    dataframes = pandas.read_excel(os.path.join(output_dir, file), sheet_name=None).values()
+                    dataframes = pandas.read_excel(os.path.join(output_dir, file), engine='calamine', sheet_name=None).values()
+                    print(dataframes)
                     for dataframe in dataframes:
                         name = list(filter(lambda value: True if "Unnamed" not in value and value != "NaN" else False, dataframe.columns))[0]
                         dataframe.set_flags(allows_duplicate_labels=False)
@@ -324,9 +325,13 @@ def sask_visual_data():
     with open("static/js/sask_vis.json", "w") as file:
         json.dump(graph_data, file)
 
-
+def export_on_visual_data():
+    data = pull_data(["onODPRN"])
+    print(data)
+    on_dataframes = filter_data(data, ["Provincial Drug Toxicity", "PHU Confirmed and Probable"])
+    print(on_dataframes)
 
 
 # Test code below
 if __name__ == '__main__':
-    export_nat_drug_toxicity_deaths()
+    export_on_visual_data()
