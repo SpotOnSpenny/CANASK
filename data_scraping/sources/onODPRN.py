@@ -75,12 +75,26 @@ def scrape_national_dashboard(driver):
             clean_data[sheet].columns = ["year", "month", "opioid confirmed", "opioid probable", "stimulant", "other drug"]
         if sheet == "PHU Confirmed & Probable":
             clean_data[sheet] = data[sheet].dropna(how="all")
-            clean_data[sheet] = clean_data[sheet].iloc[3: -3]
+            clean_data[sheet] = clean_data[sheet].iloc[1: -3]
+            clean_data[sheet] = clean_data[sheet].drop(clean_data[sheet].index[1]).drop(clean_data[sheet].index[3])
+            clean_data[sheet] = clean_data[sheet].transpose().reset_index(drop=True)
+            clean_data[sheet].columns = clean_data[sheet].iloc[0]
+            clean_data[sheet] = clean_data[sheet].drop(clean_data[sheet].index[0])
             clean_data[sheet].iloc[:, 0] = clean_data[sheet].iloc[:, 0].ffill()
+            clean_data[sheet].iloc[:, 1] = clean_data[sheet].iloc[:, 1].apply(lambda x: f"{x:02}")
+            clean_data[sheet]["date"]= clean_data[sheet].apply(lambda row: f"{row[0]}{row[1]}", axis=1)
+            clean_data[sheet] = clean_data[sheet].drop(clean_data[sheet].columns[0], axis=1)
+            cols = clean_data[sheet].columns.tolist()
+            cols = cols[-1:] + cols[:-1]
+            clean_data[sheet] = clean_data[sheet][cols]
 
-
+    with pandas.ExcelWriter(final_data_path) as writer:
+        for sheet in clean_data.keys():
+            print(sheet)
+            clean_data[sheet].to_excel(writer, sheet_name=sheet, index=False)
 
     # Clean up the zip and old files that have been updated
+    os.remove(raw_data_path)
     if existing_files != []:
         print("removing old files")
         os.remove(os.path.join(output_dir, existing_files[0]))

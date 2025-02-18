@@ -34,18 +34,29 @@ def pull_data(data_source: list):
                         "dataframe": pandas.read_csv(os.path.join(output_dir, file))
                         }
                 case "xlsx":
-                    dataframes = pandas.read_excel(os.path.join(output_dir, file), engine='calamine', sheet_name=None).values()
-                    print(dataframes)
-                    for dataframe in dataframes:
-                        name = list(filter(lambda value: True if "Unnamed" not in value and value != "NaN" else False, dataframe.columns))[0]
-                        dataframe.set_flags(allows_duplicate_labels=False)
-                        dataframe.columns = dataframe.iloc[0]
-                        dataframe.dropna(axis=0, inplace=True)
-                        dataframe = dataframe.drop(dataframe.columns[[0]], axis=1).reset_index(drop=True)
-                        sheets[name] = {
-                            "date_updated": datetime.datetime.strptime(file.split("_")[0], "%Y%m%d").strftime("%B %d, %Y"),
-                            "dataframe": dataframe
-                            }
+                    # Specific handling for ontario data
+                    if "onODPRN" in file.split("_")[1]:
+                        dataframes = pandas.read_excel(os.path.join(output_dir, file), sheet_name=None)
+                        for name, dataframe in dataframes.items():
+                            dataframe.set_flags(allows_duplicate_labels=False)
+                            dataframe.dropna(axis=0, inplace=True)
+                            sheets[name] = {
+                                "date_updated": datetime.datetime.strptime(file.split("_")[0], "%Y%m%d").strftime("%B %d, %Y"),
+                                "dataframe": dataframe
+                                }
+                    # Handling for other xlsx files
+                    else:
+                        dataframes = pandas.read_excel(os.path.join(output_dir, file), engine='calamine', sheet_name=None).values()
+                        for dataframe in dataframes:
+                            name = list(filter(lambda value: True if "Unnamed" not in value and value != "NaN" else False, dataframe.columns))[0]
+                            dataframe.set_flags(allows_duplicate_labels=False)
+                            dataframe.columns = dataframe.iloc[0]
+                            dataframe.dropna(axis=0, inplace=True)
+                            dataframe = dataframe.drop(dataframe.columns[[0]], axis=1).reset_index(drop=True)
+                            sheets[name] = {
+                                "date_updated": datetime.datetime.strptime(file.split("_")[0], "%Y%m%d").strftime("%B %d, %Y"),
+                                "dataframe": dataframe
+                                }
         else:
             raise FileNotFoundError(f"Data source {source} not found in the output directory!")
     return sheets
@@ -327,10 +338,93 @@ def sask_visual_data():
 
 def export_on_visual_data():
     data = pull_data(["onODPRN"])
-    print(data)
-    on_dataframes = filter_data(data, ["Provincial Drug Toxicity", "PHU Confirmed and Probable"])
-    print(on_dataframes)
+    on_dataframes = filter_data(data, ["Provincial Drug Toxicity", "PHU Confirmed & Probable"])
+    graph_data = {}
+    up_to_date_until = None
+    # Filter the drug toxicity in PHU by month into years
+    toxicity_phu_data = {
+        "data last updated": datetime.datetime.strptime(on_dataframes[1]["date_updated"], "%B %d, %Y").strftime("%Y%m%d")
+    }
+    dates = None
+    # Iterate over columns
+    for series_name, series in on_dataframes[1]["dataframe"].items():
+        if series_name == "date":
+            dates = series
+            # Get the last date in the series
+            last_date = f"{dates.iloc[-1]}01"
+            if int(toxicity_phu_data["data last updated"]) > int(last_date):
+                up_to_date_until = datetime.datetime.strptime(last_date, "%Y%m%d").strftime("%B, %Y")
+        else:
+            x_axes = []
+            y_axes = []
+            year_total = 0
+            year = 2018
+            if year == 2024:
+                print("here")
+            for index, row in series.items():
+                if str(year) in str(dates[index]):
+                    year_total += row
+                else:
+                    x_axes.append(year)
+                    y_axes.append(year_total)
+                    year_total = row
+                    year += 1
+            # Append the last year
+            x_axes.append(year)
+            y_axes.append(year_total)
+            toxicity_phu_data[series_name] = {
+                "x": x_axes,
+                "y": y_axes,
+                "up to date until": up_to_date_until
+            }
 
+    # Filter the data for procincial drug toxicity by year
+    provincial_toxicity_deaths = {
+        "data last updated": datetime.datetime.strptime(on_dataframes[0]["date_updated"], "%B %d, %Y").strftime("%Y%m%d")
+    }
+    years = None
+    months = None
+    up_to_date_until = provincial_toxicity_deaths["data last updated"]
+    for series_name, series in on_dataframes[0]["dataframe"].items():
+        if series_name == "year":
+            years = series
+        elif series_name == "month":
+            months = series
+            # Get the last date in the series
+            print(int(last_date) < int(up_to_date_until))
+            last_date = f"{years.iloc[-1]}{months.iloc[-1]}01"
+            if int(up_to_date_until) > int(last_date):
+                up_to_date_until = last_date
+        else:
+            x_axes = []
+            y_axes = []
+            year_total = 0
+            year = 2018
+            for index, row in series.items():
+                if row == "*":
+                    new_up_to_date_until = f"{years[index]}{months[index]}01"
+                    if int(up_to_date_until) > int(new_up_to_date_until):
+                        up_to_date_until = new_up_to_date_until
+                elif str(year) in str(years[index]):
+                    year_total += row
+                else:
+                    x_axes.append(year)
+                    y_axes.append(year_total)
+                    year_total = row
+                    year += 1
+            # Append the last year
+            x_axes.append(year)
+            y_axes.append(year_total)
+            provincial_toxicity_deaths[series_name] = {
+                "x": x_axes,
+                "y": y_axes,
+                "up to date until": datetime.datetime.strptime(up_to_date_until, "%Y%m%d").strftime("%B, %Y")
+            }
+
+    graph_data["toxicity_phu_data"] = toxicity_phu_data
+    graph_data["provincial_toxicity_deaths"] = provincial_toxicity_deaths
+    with open("static/js/on_vis.json", "w") as file:
+        json.dump(graph_data, file)
 
 # Test code below
 if __name__ == '__main__':

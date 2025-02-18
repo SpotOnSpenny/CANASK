@@ -1,0 +1,827 @@
+{
+    "toxicity_phu_data": {
+        "data last updated": "20241201",
+        "Algoma Public Health": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                28,
+                17,
+                51,
+                58,
+                54,
+                49,
+                36
+            ],
+            "up to date until": "September, 2024"
+        },
+        "Brant County Health Unit": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                24,
+                42,
+                40,
+                53,
+                47,
+                49,
+                33
+            ],
+            "up to date until": "September, 2024"
+        },
+        "Chatham-Kent Public Health": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                5,
+                7,
+                15,
+                19,
+                37,
+                16,
+                20
+            ],
+            "up to date until": "September, 2024"
+        },
+        "City of Hamilton Public Health Services": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                123,
+                108,
+                129,
+                163,
+                166,
+                148,
+                98
+            ],
+            "up to date until": "September, 2024"
+        },
+        "Durham Region Health Department": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                56,
+                75,
+                91,
+                128,
+                74,
+                78,
+                74
+            ],
+            "up to date until": "September, 2024"
+        },
+        "Eastern Ontario Health Unit": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                6,
+                7,
+                18,
+                25,
+                23,
+                29,
+                17
+            ],
+            "up to date until": "September, 2024"
+        },
+        "Grey Bruce Health Unit": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                7,
+                14,
+                26,
+                39,
+                26,
+                37,
+                25
+            ],
+            "up to date until": "September, 2024"
+        },
+        "Haldimand-Norfolk Health Unit": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                12,
+                13,
+                18,
+                24,
+                19,
+                12,
+                11
+            ],
+            "up to date until": "September, 2024"
+        },
+        "Haliburton, Kawartha, Pine Ridge District Health Unit": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                28,
+                20,
+                37,
+                51,
+                36,
+                42,
+                27
+            ],
+            "up to date until": "September, 2024"
+        },
+        "Halton Region Public Health": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                41,
+                31,
+                41,
+                36,
+                36,
+                30,
+                21
+            ],
+            "up to date until": "September, 2024"
+        },
+        "Hastings Prince Edward Public Health": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                21,
+                16,
+                29,
+                30,
+                27,
+                30,
+                23
+            ],
+            "up to date until": "September, 2024"
+        },
+        "Huron Perth Health Unit": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                9,
+                1,
+                9,
+                12,
+                11,
+                16,
+                4
+            ],
+            "up to date until": "September, 2024"
+        },
+        "Kingston, Frontenac and Lennox & Addington Health Unit": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                24,
+                36,
+                41,
+                34,
+                52,
+                50,
+                31
+            ],
+            "up to date until": "September, 2024"
+        },
+        "Lambton Public Health": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                13,
+                21,
+                43,
+                38,
+                32,
+                36,
+                34
+            ],
+            "up to date until": "September, 2024"
+        },
+        "Leeds, Grenville & Lanark District Health Unit": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                9,
+                7,
+                14,
+                14,
+                11,
+                19,
+                13
+            ],
+            "up to date until": "September, 2024"
+        },
+        "Middlesex-London Health Unit": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                63,
+                62,
+                105,
+                131,
+                121,
+                109,
+                50
+            ],
+            "up to date until": "September, 2024"
+        },
+        "Niagara Region Public Health": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                91,
+                95,
+                152,
+                167,
+                126,
+                134,
+                96
+            ],
+            "up to date until": "September, 2024"
+        },
+        "North Bay Parry Sound District Health Unit": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                13,
+                21,
+                50,
+                49,
+                40,
+                49,
+                23
+            ],
+            "up to date until": "September, 2024"
+        },
+        "Northwestern Health Unit": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                8,
+                9,
+                16,
+                25,
+                31,
+                24,
+                22
+            ],
+            "up to date until": "September, 2024"
+        },
+        "Ottawa Public Health": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                83,
+                65,
+                127,
+                145,
+                173,
+                218,
+                150
+            ],
+            "up to date until": "September, 2024"
+        },
+        "Peel Public Health": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                113,
+                110,
+                156,
+                185,
+                110,
+                146,
+                70
+            ],
+            "up to date until": "September, 2024"
+        },
+        "Peterborough Public Health": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                26,
+                30,
+                43,
+                37,
+                49,
+                52,
+                35
+            ],
+            "up to date until": "September, 2024"
+        },
+        "Porcupine Health Unit": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                14,
+                23,
+                40,
+                41,
+                30,
+                42,
+                34
+            ],
+            "up to date until": "September, 2024"
+        },
+        "Region of Waterloo Public Health": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                64,
+                64,
+                107,
+                111,
+                89,
+                72,
+                75
+            ],
+            "up to date until": "September, 2024"
+        },
+        "Renfrew County and District Health Unit": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                6,
+                4,
+                11,
+                19,
+                10,
+                24,
+                19
+            ],
+            "up to date until": "September, 2024"
+        },
+        "Simcoe Muskoka District Health Unit": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                78,
+                90,
+                132,
+                172,
+                138,
+                143,
+                94
+            ],
+            "up to date until": "September, 2024"
+        },
+        "Southwestern Public Health": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                24,
+                17,
+                26,
+                43,
+                38,
+                21,
+                23
+            ],
+            "up to date until": "September, 2024"
+        },
+        "Sudbury and District Health": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                34,
+                55,
+                107,
+                98,
+                113,
+                100,
+                68
+            ],
+            "up to date until": "September, 2024"
+        },
+        "Thunder Bay District Health Unit": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                48,
+                43,
+                68,
+                128,
+                85,
+                84,
+                74
+            ],
+            "up to date until": "September, 2024"
+        },
+        "Timiskaming Health Unit": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                3,
+                6,
+                7,
+                4,
+                7,
+                9,
+                10
+            ],
+            "up to date until": "September, 2024"
+        },
+        "Toronto Public Health": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                312,
+                301,
+                552,
+                592,
+                511,
+                527,
+                384
+            ],
+            "up to date until": "September, 2024"
+        },
+        "Wellington-Dufferin-Guelph Public Health": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                26,
+                37,
+                26,
+                38,
+                40,
+                41,
+                21
+            ],
+            "up to date until": "September, 2024"
+        },
+        "Windsor-Essex County Health Unit": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                56,
+                51,
+                70,
+                84,
+                112,
+                129,
+                84
+            ],
+            "up to date until": "September, 2024"
+        },
+        "York Region Public Health": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                38,
+                62,
+                64,
+                66,
+                60,
+                83,
+                42
+            ],
+            "up to date until": "September, 2024"
+        },
+        "All": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                1506,
+                1560,
+                2461,
+                2859,
+                2534,
+                2648,
+                1841
+            ],
+            "up to date until": "September, 2024"
+        }
+    },
+    "provincial_toxicity_deaths": {
+        "data last updated": "20241201",
+        "opioid confirmed": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                1506,
+                1560,
+                2461,
+                2858,
+                2532,
+                2609,
+                1552
+            ],
+            "up to date until": "September, 2024"
+        },
+        "opioid probable": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                0,
+                0,
+                0,
+                1,
+                2,
+                39,
+                289
+            ],
+            "up to date until": "September, 2024"
+        },
+        "stimulant": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                270,
+                279,
+                358,
+                411,
+                456,
+                554,
+                286
+            ],
+            "up to date until": "July, 2024"
+        },
+        "other drug": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                211,
+                236,
+                196,
+                239,
+                298,
+                274,
+                104
+            ],
+            "up to date until": "July, 2024"
+        }
+    }
+}
