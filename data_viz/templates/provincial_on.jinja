@@ -58,7 +58,7 @@
         <div class="col-md-9 h-100">
             <div class="card h-100">
                 <div class="card-body text-center h-100 d-flex align-items-center justify-content-center" id="viz-card">
-                    <div id="sk-vis-div">
+                    <div id="on-vis-div">
                         <div class="spinner-border" role="status"></div>
                         <!-- Toxicity Deaths visual will be rendered in this div using plotly.js-->
                     </div>
@@ -92,10 +92,10 @@
     <script type="text/javascript">
         //Load the data json for the page
         try {
-            skInit();
+            onInit();
         } catch (e) {
             document.addEventListener('DOMContentLoaded', async function () {
-                await skInit();
+                await onInit();
             });
         }
     </script>

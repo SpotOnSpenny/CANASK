@@ -69,7 +69,7 @@ def sk(htmx_flag):
     
 @main_blueprint.route("/province/ontario" , defaults={"htmx_flag": None})
 @main_blueprint.route("/province/ontario/<htmx_flag>")
-def sk(htmx_flag):
+def on(htmx_flag):
     if not htmx_flag:
         return render_template("index.jinja", dash_template="provincial_on.jinja")
     else:

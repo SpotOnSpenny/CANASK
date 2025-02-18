@@ -85,13 +85,15 @@ feedbackToggle.addEventListener("click", toggleFeedback);
 feedbackClose.addEventListener("click", toggleFeedback);
 
 // General functions to fetch data, create charts, etc. within the templates
-function fetchData(data_file, functionCallback) {
+function fetchData(data_file, functionCallback = null) {
   return fetch(data_file)
     .then((response) =>
       response.ok ? response.json() : Promise.reject(response)
     )
     .then((data) => {
-      functionCallback(data);
+      if (functionCallback != null) {
+        functionCallback(data);
+      }
       return data;
     });
 }
@@ -730,7 +732,63 @@ function createCategoryChartSK(data) {
 }
 
 // Code Below is for the Ontario Page
+async function onInit() {
+  try {
+    const [data, geojson] = await Promise.all([
+      fetchData("/static/js/on_vis.json"),
+      fetchData("/static/assets/geojsons/on_phus.geojson"),
+    ]);
 
+    // Use the results as function arguments
+    createDeathMapOn(data, geojson);
+  } catch (error) {
+    console.error("Error initializing Ontario page:", error);
+  }
+}
+
+function createCategoryChartON(data) {
+  //console.log(data);
+}
+
+function createDeathMapOn(data, geojson, first_run = true) {
+  let visDiv = document.getElementById("on-vis-div");
+  let chartData = [
+    {
+      type: "choropleth",
+      locationmode: "geojson-id",
+      geojson: geojson,
+      locations: "ENGNAME",
+      featureidkey: "properties.ENGNAME",
+      z: Object.values(data["toxicity_phu_data"]),
+      colorscale: [
+        [0, "rgb(255,255,255)"],
+        [0.2, "rgb(255,204,204)"],
+        [0.4, "rgb(255,153,153)"],
+        [0.6, "rgb(255,102,102)"],
+        [0.8, "rgb(255,51,51)"],
+        [1, "rgb(255,0,0)"],
+      ],
+      zmin: 0,
+      zmax: 500,
+      colorbar: {
+        title: "Number of Deaths",
+      },
+    },
+  ];
+  let layout = {
+    title: "Ontario Drug Toxicity Deaths by Public Health Unit",
+    geo: {
+      showlakes: true,
+      lakecolor: "rgb(255,255,255)",
+    },
+    sliders: [],
+  };
+  console.log(chartData);
+  if (first_run) {
+    visDiv.innerHTML = "";
+  }
+  let vis = Plotly.newPlot(visDiv, chartData, layout);
+}
 
 let tox_data;
 
