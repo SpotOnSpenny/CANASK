@@ -296,7 +296,6 @@ def bc_visual_data():
     graph_data["bc_total_deaths"] = total_deaths
     graph_data["bc_deaths_by_drug"] = deaths_by_drug
     graph_data["bc_raw_deaths_by_drug"] = deaths_by_drug_raw
-    print(deaths_by_drug_raw)
     
     with open("static/js/bc_vis.json", "w") as file:
         json.dump(graph_data, file)
@@ -359,8 +358,6 @@ def export_on_visual_data():
             y_axes = []
             year_total = 0
             year = 2018
-            if year == 2024:
-                print("here")
             for index, row in series.items():
                 if str(year) in str(dates[index]):
                     year_total += row
@@ -377,6 +374,7 @@ def export_on_visual_data():
                 "y": y_axes,
                 "up to date until": up_to_date_until
             }
+    toxicity_phu_data["data last updated"] = datetime.datetime.strptime(on_dataframes[1]["date_updated"], "%B %d, %Y").strftime("%B, %Y")
 
     # Filter the data for procincial drug toxicity by year
     provincial_toxicity_deaths = {
@@ -384,6 +382,7 @@ def export_on_visual_data():
     }
     years = None
     months = None
+    all_drug_deahts = []
     up_to_date_until = provincial_toxicity_deaths["data last updated"]
     for series_name, series in on_dataframes[0]["dataframe"].items():
         if series_name == "year":
@@ -391,7 +390,6 @@ def export_on_visual_data():
         elif series_name == "month":
             months = series
             # Get the last date in the series
-            print(int(last_date) < int(up_to_date_until))
             last_date = f"{years.iloc[-1]}{months.iloc[-1]}01"
             if int(up_to_date_until) > int(last_date):
                 up_to_date_until = last_date
@@ -420,6 +418,16 @@ def export_on_visual_data():
                 "y": y_axes,
                 "up to date until": datetime.datetime.strptime(up_to_date_until, "%Y%m%d").strftime("%B, %Y")
             }
+    provincial_toxicity_deaths["data last updated"] = datetime.datetime.strptime(on_dataframes[0]["date_updated"], "%B %d, %Y").strftime("%B, %Y")
+    # Add up matching indexes for each year to get the total deaths
+    for index in range(len(provincial_toxicity_deaths["opioid confirmed"]["x"])):
+        all_drug_deahts.append(provincial_toxicity_deaths["opioid confirmed"]["y"][index] + provincial_toxicity_deaths["stimulant"]["y"][index] + provincial_toxicity_deaths["opioid probable"]["y"][index] + provincial_toxicity_deaths["other drug"]["y"][index])
+    provincial_toxicity_deaths["all drugs"] = {
+        "x": provincial_toxicity_deaths["opioid confirmed"]["x"],
+        "y": all_drug_deahts,
+        "up to date until": datetime.datetime.strptime(up_to_date_until, "%Y%m%d").strftime("%B, %Y")
+    }
+
 
     graph_data["toxicity_phu_data"] = toxicity_phu_data
     graph_data["provincial_toxicity_deaths"] = provincial_toxicity_deaths
@@ -428,4 +436,4 @@ def export_on_visual_data():
 
 # Test code below
 if __name__ == '__main__':
-    print([False] * 5)
+    export_on_visual_data()

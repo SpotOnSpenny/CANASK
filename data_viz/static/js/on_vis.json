@@ -1,6 +1,6 @@
 {
     "toxicity_phu_data": {
-        "data last updated": "20241201",
+        "data last updated": "December, 2024",
         "Algoma Public Health": {
             "x": [
                 2018,
@@ -738,7 +738,7 @@
         }
     },
     "provincial_toxicity_deaths": {
-        "data last updated": "20241201",
+        "data last updated": "December, 2024",
         "opioid confirmed": {
             "x": [
                 2018,
@@ -820,6 +820,27 @@
                 298,
                 274,
                 104
+            ],
+            "up to date until": "July, 2024"
+        },
+        "all drugs": {
+            "x": [
+                2018,
+                2019,
+                2020,
+                2021,
+                2022,
+                2023,
+                2024
+            ],
+            "y": [
+                1987,
+                2075,
+                3015,
+                3509,
+                3288,
+                3476,
+                2231
             ],
             "up to date until": "July, 2024"
         }

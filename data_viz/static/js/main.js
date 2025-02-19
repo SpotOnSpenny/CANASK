@@ -48,6 +48,48 @@ let skcs_html = `
 </div>
 `;
 
+function generateODPRNMapAbout(lastUpdatedDate, dataUntil) {
+  let html = `
+  <h4 class="card-title text-center"> About these Data</h4>
+  <hr />
+  <h5 class="text-center">This data set was last updated in ${
+    lastUpdatedDate + " "
+  } and contains data up until ${dataUntil}.</h5>
+  <br>
+  <p class="about-viz-text">These data have been collected by the Ontario Drug Policy Research Netowrk (ODPRN) and are provided by the Office of the Chief Coroner for Ontario. The data contains the number of opioid toxicity deaths, both confirmed and probable, in each public health unit, and is updated monthly by the ODPRN.
+      <br>
+      <br>
+      For more information, visit the ODPRN website and view the reports containing these data by clicking the button below:
+  </p>
+  <div class="text-center pb-3">
+      <a target="_blank" href="https://odprn.ca/occ-opioid-and-suspect-drug-related-death-data/" role="button"
+          class="btn btn-primary">ODPRN</a>
+  </div>
+  `;
+  return html;
+}
+
+function generateODPRNToxAbout(lastUpdatedDate, dataUntil) {
+  let html = `
+  <h4 class="card-title text-center"> About these Data</h4>
+  <hr />
+  <h5 class="text-center">This data set was last updated in ${
+    lastUpdatedDate + " "
+  } and contains data up until ${dataUntil}.</h5>
+  <br>
+  <p class="about-viz-text">These data have been collected by the Ontario Drug Policy Research Netowrk (ODPRN) and are provided by the Office of the Chief Coroner for Ontario. This data set consists of how many drug toxicity deaths can be attributed to opioids, stimulants, and other drugs in Ontarion, and is updated monthly by the ODPRN.
+      <br>
+      <br>
+      For more information, visit the ODPRN website and view the reports containing these data by clicking the button below:
+  </p>
+  <div class="text-center pb-3">
+      <a target="_blank" href="https://odprn.ca/occ-opioid-and-suspect-drug-related-death-data/" role="button"
+          class="btn btn-primary">ODPRN</a>
+  </div>
+  `;
+  return html;
+}
+
 // for mobile nav
 let navToggle = document.querySelector(".nav-toggle");
 let bars = document.querySelectorAll(".bar");
@@ -732,6 +774,9 @@ function createCategoryChartSK(data) {
 }
 
 // Code Below is for the Ontario Page
+let onData;
+let onGeojson;
+
 async function onInit() {
   try {
     const [data, geojson] = await Promise.all([
@@ -740,23 +785,149 @@ async function onInit() {
       // a particular way, and the geojson_rewind package with the option rfc7496=False did this for me
       fetchData("/static/assets/geojsons/on_phus_rotated.geojson"),
     ]);
-    // Use the results as function arguments
     createDeathMapOn(data, geojson);
+    onData = data;
+    onGeojson = geojson;
   } catch (error) {
     console.error("Error initializing Ontario page:", error);
   }
 }
-
 function createCategoryChartON(data) {
-  //console.log(data);
+  let visDiv = document.getElementById("on-vis-div");
+  let aboutDataDiv = document.getElementsByClassName("about-data-div")[0];
+  let traces = [];
+  for (const [key, value] of Object.entries(
+    data["provincial_toxicity_deaths"]
+  )) {
+    if (key == "data last updated") {
+      continue;
+    } else if (key == "all drugs") {
+      let trace = {
+        x: value["x"],
+        y: value["y"],
+        type: "scatter",
+        mode: "lines",
+        name: "Total Drug Toxicity Deaths",
+      };
+      traces.push(trace);
+    } else {
+      let trace = {
+        x: value["x"],
+        y: value["y"],
+        type: "bar",
+        name: titleCase(key),
+      };
+      traces.push(trace);
+    }
+  }
+
+  let vis = Plotly.react(
+    visDiv,
+    traces,
+    (layout = {
+      dragmode: "pan",
+      yaxis: {
+        fixedrange: true,
+        title: {
+          standoff: 30,
+          text: "Number of Deaths",
+        },
+      },
+      xaxis: {
+        fixedrange: false,
+        autorange: true,
+        autorangeoptions:
+          window.innerWidth > 768
+            ? {}
+            : {
+                clipmax: Number(traces[0]["x"][0]) + 2,
+              },
+        dtick: 1,
+        title: {
+          text: "Year",
+          standoff: 5,
+        },
+        constrain: "domain",
+      },
+      hovermode: "x unified",
+      autosize: false,
+      width: $("#viz-card").width(),
+      height: window.innerWidth > 768 ? $("#viz-card").height() : "auto",
+      title:
+        window.innerWidth > 768
+          ? "Drug Toxicity Deaths in Ontario by Year and Drug Causing Death"
+          : "Drug Toxicity Deaths in<br>Ontario by Year<br>and Drug Causing Death",
+      legend:
+        window.innerWidth > 768
+          ? {}
+          : {
+              orientation: "h",
+              x: 0,
+              y: -0.2,
+              xanchor: "middle",
+              yanchor: "top",
+              tracegroupgap: 200,
+            },
+      margin: window.innerWidth > 768 ? {} : { r: 0, l: 65 },
+    }),
+    (config = {
+      displaylogo: false,
+    })
+  );
+  // Replace the tabular section with table data for this vis
+  let table_title = document.getElementById("table-title");
+  let table_div = document.getElementById("data-table");
+  table_div.innerHTML = "";
+  let table = document.createElement("table");
+  table.setAttribute(
+    "class",
+    "mb-0 table table-striped table-bordered table-hover"
+  );
+  let cols = [""].concat(
+    data["toxicity_phu_data"][Object.keys(data["toxicity_phu_data"])[1]]["x"]
+  );
+  let tr = table.insertRow(-1);
+  cols.forEach((headerText) => {
+    let th = document.createElement("th"); // Create a new header cell
+    th.innerText = headerText; // Set the text of the header cell
+    tr.appendChild(th); // Add the header cell to the row
+  });
+  table_div.appendChild(table);
+  table_title.innerText =
+    "Drug Toxicity Deaths in Ontario by Year and Drug Causing Death";
+  aboutDataDiv.innerHTML = generateODPRNToxAbout(
+    data["provincial_toxicity_deaths"]["data last updated"],
+    data["provincial_toxicity_deaths"]["all drugs"]["up to date until"]
+  );
+  for (const [key, value] of Object.entries(
+    data["provincial_toxicity_deaths"]
+  )) {
+    if (key != "data last updated") {
+      let tr = table.insertRow(-1);
+      tr.setAttribute("class", "align-middle");
+      let tabCell = tr.insertCell(-1);
+      tabCell.innerText = titleCase(key);
+      value["y"].forEach((element) => {
+        let tabCell = tr.insertCell(-1);
+        tabCell.innerText = element;
+      });
+    }
+  }
 }
 
 function createDeathMapOn(data, geojson, first_run = true) {
   let visDiv = document.getElementById("on-vis-div");
+  let aboutDataDiv = document.querySelector(".about-data-div");
   let dataSlider = [];
+  let steps = [];
+  let table_div = document.getElementById("data-table");
+  let table = document.createElement("table");
+  let table_title = document.getElementById("table-title");
   for (
     let year_index = 0;
-    year_index < data["toxicity_phu_data"]["Algoma Public Health"]["x"].length;
+    year_index <
+    data["toxicity_phu_data"][Object.keys(data["toxicity_phu_data"])[1]]["x"]
+      .length;
     year_index++
   ) {
     let values = {};
@@ -777,24 +948,24 @@ function createDeathMapOn(data, geojson, first_run = true) {
       colorbar: {
         title: "Number<br>of Deaths",
         thickness: 15,
-        xref: "container",
       },
       visible: year_index === 0,
+      hoverinfo: "location+z",
     };
     dataSlider.push(chartData);
   }
-  console.log(dataSlider);
-  let steps = [];
   for (let i = 0; i < dataSlider.length; i++) {
     let step = {
       method: "restyle",
       args: ["visible", Array(dataSlider.length).fill(false)],
-      label: data["toxicity_phu_data"]["Algoma Public Health"]["x"][i],
+      label:
+        data["toxicity_phu_data"][Object.keys(data["toxicity_phu_data"])[1]][
+          "x"
+        ][i],
     };
     step.args[1][i] = true;
     steps.push(step);
   }
-
   let layout = {
     geo: {
       showlakes: false,
@@ -813,7 +984,7 @@ function createDeathMapOn(data, geojson, first_run = true) {
         xanchor: "left",
         y: 0,
         yanchor: "top",
-        pad: { t: 50, b: 10 },
+        pad: { t: 0, b: 10 },
         currentvalue: {
           visible: true,
           prefix: "Year: ",
@@ -833,10 +1004,46 @@ function createDeathMapOn(data, geojson, first_run = true) {
         : $("#viz-card").height() + 200,
     title:
       window.innerWidth > 768
-        ? "Ontario Drug Toxicity Deaths by Public Health Unit"
-        : "Ontario Drug Toxicity Deahths<br>by Public Health Unit",
+        ? "Confirmed and Probable Opioid Toxicity Deaths<br>in Ontario by Public Health Unit"
+        : "Confirmed and Probable Opioid<br>Toxicity Deaths in Ontario by<br>Public Health Unit",
     margin: window.innerWidth > 768 ? { l: 0 } : { b: 20, r: 0, l: 75 },
   };
+
+  // Create the table and add in tabular data
+  table.setAttribute(
+    "class",
+    "mb-0 table table-striped table-bordered table-hover"
+  );
+  let cols = ["Public Health Unit"].concat(
+    data["toxicity_phu_data"][Object.keys(data["toxicity_phu_data"])[1]]["x"]
+  );
+  let tr = table.insertRow(-1);
+  cols.forEach((headerText) => {
+    let th = document.createElement("th"); // Create a new header cell
+    th.innerText = headerText; // Set the text of the header cell
+    tr.appendChild(th); // Add the header cell to the row
+  });
+  table_div.innerHTML = "";
+  table_div.appendChild(table);
+  table_title.innerText = "Ontario Drug Toxicity Deaths by Public Health Unit";
+  aboutDataDiv.innerHTML = generateODPRNMapAbout(
+    data["toxicity_phu_data"]["data last updated"],
+    data["toxicity_phu_data"][Object.keys(data["toxicity_phu_data"])[1]][
+      "up to date until"
+    ]
+  );
+  for (const [key, value] of Object.entries(data["toxicity_phu_data"])) {
+    if (key != "data last updated") {
+      let tr = table.insertRow(-1);
+      tr.setAttribute("class", "align-middle");
+      let tabCell = tr.insertCell(-1);
+      tabCell.innerText = key;
+      value["y"].forEach((element) => {
+        let tabCell = tr.insertCell(-1);
+        tabCell.innerText = element;
+      });
+    }
+  }
   if (first_run) {
     visDiv.innerHTML = "";
   }
@@ -846,9 +1053,30 @@ function createDeathMapOn(data, geojson, first_run = true) {
     layout,
     (config = {
       displaylogo: false,
-      scrollZoom: true,
+      responsive: true,
     })
   );
+}
+
+// Function to change the chart type
+function changeChartON(buttonElement, parentID) {
+  Array.from(document.querySelectorAll(".active")).forEach((element) => {
+    element.classList.remove("active");
+  });
+  switch (buttonElement.id) {
+    case "opioid-death-heatmap":
+      createDeathMapOn(onData, onGeojson, false);
+      break;
+    case "deaths-by-drug":
+      createCategoryChartON(onData);
+      break;
+    default:
+      console.error("Unknown button ID:", buttonElement.id);
+  }
+  buttonElement.classList.add("active");
+  if (parentID != null) {
+    document.getElementById(parentID).classList.add("active");
+  }
 }
 
 let tox_data;
@@ -1528,4 +1756,10 @@ function validateEmail(mail) {
     return true;
   }
   return false;
+}
+
+function titleCase(str) {
+  return str.toLowerCase().replace(/(?:^|\s)\w/g, function (match) {
+    return match.toUpperCase();
+  });
 }

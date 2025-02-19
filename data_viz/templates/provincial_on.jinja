@@ -14,9 +14,12 @@
                                 data-bs-toggle="dropdown" id="deathsDropdown">Deaths and Demographics</a>
                             <ul class="dropdown-menu">
                                 <li>
-                                    <a class="dropdown-item" onclick="changeChartSK(this, 'deathsDropdown')"
-                                        id="deaths-by-drug" aria-current="page">Drug Toxicity Deaths by Type of
-                                        Drug</a>
+                                    <a class="dropdown-item active" onclick="changeChartON(this, 'deathsDropdown')"
+                                        id="opioid-death-heatmap" aria-current="page">Opioid Toxicity Death Heatmap by PHU</a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item" onclick="changeChartON(this, 'deathsDropdown')"
+                                        id="deaths-by-drug" aria-current="page">Drug Toxicity Deaths by Type of Drug</a>
                                 </li>
                             </ul>
                         </li>
