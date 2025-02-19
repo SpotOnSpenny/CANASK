@@ -122,6 +122,4 @@ def feedback():
 
 ################################# Test Code Below ######################################
 if __name__ == '__main__':
-    all_frames = pull_data("skPubCentre")
-    needed_frames = filter_data(all_frames, ["BreakdownofOpioidDrugsIdentifiedinConfirmedDrugToxicityDeathsbyMannerofDeath,2016-2024", "BreakdownofBenzodiazepineDrugsIdentifiedinConfirmedDrugToxicityDeathsbyMannerofDeath,2024"])
-    print(needed_frames)
+    pass

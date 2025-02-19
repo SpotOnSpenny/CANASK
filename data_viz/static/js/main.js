@@ -736,9 +736,10 @@ async function onInit() {
   try {
     const [data, geojson] = await Promise.all([
       fetchData("/static/js/on_vis.json"),
-      fetchData("/static/assets/geojsons/on_phus.geojson"),
+      // Note that for whoever else may look at this down the line, the geojson polygons have to be "rotating"
+      // a particular way, and the geojson_rewind package with the option rfc7496=False did this for me
+      fetchData("/static/assets/geojsons/on_phus_rotated.geojson"),
     ]);
-
     // Use the results as function arguments
     createDeathMapOn(data, geojson);
   } catch (error) {
@@ -752,42 +753,102 @@ function createCategoryChartON(data) {
 
 function createDeathMapOn(data, geojson, first_run = true) {
   let visDiv = document.getElementById("on-vis-div");
-  let chartData = [
-    {
+  let dataSlider = [];
+  for (
+    let year_index = 0;
+    year_index < data["toxicity_phu_data"]["Algoma Public Health"]["x"].length;
+    year_index++
+  ) {
+    let values = {};
+    for (let loc_index = 0; loc_index < geojson.features.length; loc_index++) {
+      values[geojson.features[loc_index].properties.ENGNAME] =
+        data["toxicity_phu_data"][
+          geojson.features[loc_index].properties.ENGNAME
+        ]["y"][year_index];
+    }
+    let chartData = {
       type: "choropleth",
       locationmode: "geojson-id",
       geojson: geojson,
-      locations: "ENGNAME",
+      locations: Object.keys(values),
       featureidkey: "properties.ENGNAME",
-      z: Object.values(data["toxicity_phu_data"]),
-      colorscale: [
-        [0, "rgb(255,255,255)"],
-        [0.2, "rgb(255,204,204)"],
-        [0.4, "rgb(255,153,153)"],
-        [0.6, "rgb(255,102,102)"],
-        [0.8, "rgb(255,51,51)"],
-        [1, "rgb(255,0,0)"],
-      ],
-      zmin: 0,
-      zmax: 500,
+      z: Object.values(values),
+      autocolorscale: true,
       colorbar: {
-        title: "Number of Deaths",
+        title: "Number<br>of Deaths",
+        thickness: 15,
+        xref: "container",
       },
-    },
-  ];
+      visible: year_index === 0,
+    };
+    dataSlider.push(chartData);
+  }
+  console.log(dataSlider);
+  let steps = [];
+  for (let i = 0; i < dataSlider.length; i++) {
+    let step = {
+      method: "restyle",
+      args: ["visible", Array(dataSlider.length).fill(false)],
+      label: data["toxicity_phu_data"]["Algoma Public Health"]["x"][i],
+    };
+    step.args[1][i] = true;
+    steps.push(step);
+  }
+
   let layout = {
-    title: "Ontario Drug Toxicity Deaths by Public Health Unit",
     geo: {
-      showlakes: true,
-      lakecolor: "rgb(255,255,255)",
+      showlakes: false,
+      fitbounds: "locations",
+      showcoastlines: false,
     },
-    sliders: [],
+    hoverlabel: {
+      namelength: -1,
+    },
+    sliders: [
+      {
+        active: 0,
+        steps: steps,
+        x: 0.1,
+        len: 0.9,
+        xanchor: "left",
+        y: 0,
+        yanchor: "top",
+        pad: { t: 50, b: 10 },
+        currentvalue: {
+          visible: true,
+          prefix: "Year: ",
+          xanchor: "right",
+          font: {
+            size: 20,
+            color: "#666",
+          },
+        },
+      },
+    ],
+    autosize: false,
+    width: $("#viz-card").width(),
+    height:
+      window.innerWidth > 768
+        ? $("#viz-card").height()
+        : $("#viz-card").height() + 200,
+    title:
+      window.innerWidth > 768
+        ? "Ontario Drug Toxicity Deaths by Public Health Unit"
+        : "Ontario Drug Toxicity Deahths<br>by Public Health Unit",
+    margin: window.innerWidth > 768 ? { l: 0 } : { b: 20, r: 0, l: 75 },
   };
-  console.log(chartData);
   if (first_run) {
     visDiv.innerHTML = "";
   }
-  let vis = Plotly.newPlot(visDiv, chartData, layout);
+  let vis = Plotly.react(
+    visDiv,
+    dataSlider,
+    layout,
+    (config = {
+      displaylogo: false,
+      scrollZoom: true,
+    })
+  );
 }
 
 let tox_data;

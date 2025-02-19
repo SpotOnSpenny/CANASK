@@ -428,4 +428,4 @@ def export_on_visual_data():
 
 # Test code below
 if __name__ == '__main__':
-    export_on_visual_data()
+    print([False] * 5)
