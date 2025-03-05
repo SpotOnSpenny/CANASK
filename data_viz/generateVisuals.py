@@ -161,6 +161,15 @@ def export_nat_drug_toxicity_deaths():
     total_tox_deaths_data["sources"] = sources
     total_tox_deaths_data["about_these_data"] = """These data are collected from provincial authorities when available, and supplemented with national reports to fill in unavailable provincial data. If you are aware of, or have access to, a provincial data source that can be used to supplement or replace national data, please contact us at email@email.com. Please also be aware that the most recent data points may be incomplete as a result of some provincial data being unpublished at this time. Kindly refer to the "last updated" date for information on when the data for each province was last published.
     The data sources used in this visualization are as follows:"""
+
+    # Create the statistics for the /100,000 population
+    # Get the population data
+    population_data = pull_data(["nationalPopulationData"])
+    population_df = filter_data(population_data, ["nationalPopulationData"])[0]
+    print(population_df)
+        
+
+    # Export the data to a json file
     with open(os.path.join(os.path.abspath(os.path.dirname(__file__)), "static/js/total_tox_deaths_data.json"), "w") as file:
         json.dump(total_tox_deaths_data, file)
 
@@ -436,4 +445,4 @@ def export_on_visual_data():
 
 # Test code below
 if __name__ == '__main__':
-    export_on_visual_data()
+    export_nat_drug_toxicity_deaths()
