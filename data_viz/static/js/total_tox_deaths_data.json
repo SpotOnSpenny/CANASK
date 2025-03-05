@@ -124,6 +124,118 @@
             "23"
         ]
     },
+    "y_axes_per_100k": {
+        "bc_line_y_per_100k": [
+            17.5,
+            26.25,
+            27.41,
+            17.39,
+            31.17,
+            40.24,
+            41.8,
+            45.17,
+            33.78
+        ],
+        "ab_line_y_per_100k": [
+            12.31,
+            15.22,
+            16.47,
+            12.8,
+            24.36,
+            33.55,
+            31.17,
+            38.29,
+            12.72
+        ],
+        "sk_line_y_per_100k": [
+            8.79,
+            9.6,
+            13.87,
+            14.52,
+            26.21,
+            32.83,
+            29.04,
+            34.04,
+            17.58
+        ],
+        "mb_line_y_per_100k": [
+            5.89,
+            7.09,
+            6.22,
+            4.15,
+            15.59,
+            19.14,
+            19.21,
+            22.08,
+            13.25
+        ],
+        "on_line_y_per_100k": [
+            5.38,
+            7.85,
+            9.37,
+            9.67,
+            15.28,
+            17.74,
+            15.72,
+            16.42,
+            7.8
+        ],
+        "qc_line_y_per_100k": [
+            2.9,
+            3.09,
+            2.33,
+            2.35,
+            3.54,
+            3.24,
+            5.96,
+            5.92,
+            3.52
+        ],
+        "nb_line_y_per_100k": [
+            3.98,
+            4.45,
+            3.51,
+            4.1,
+            5.27,
+            5.5,
+            9.01,
+            11.47,
+            2.22
+        ],
+        "ns_line_y_per_100k": [
+            4.92,
+            5.95,
+            5.11,
+            5.2,
+            4.55,
+            3.72,
+            5.76,
+            6.78,
+            3.53
+        ],
+        "pe_line_y_per_100k": [
+            2.8,
+            2.8,
+            4.48,
+            2.8,
+            4.48,
+            6.72,
+            3.36,
+            3.92,
+            2.8
+        ],
+        "nl_line_y_per_100k": [
+            3.3,
+            6.05,
+            2.2,
+            3.3,
+            4.4,
+            4.95,
+            5.5,
+            6.79,
+            4.22
+        ]
+    },
     "sources": [
         {
             "name": "BC Coroners Service",
@@ -142,6 +254,12 @@
             "last_updated": "January 06, 2025",
             "url": "https://publications.saskatchewan.ca/#/products/90505",
             "Province": "Saskatchewan"
+        },
+        {
+            "name": "Statistics Canada",
+            "last_updated": "2024",
+            "url": "https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1710000501",
+            "Province": "population data for all provinces"
         }
     ],
     "about_these_data": "These data are collected from provincial authorities when available, and supplemented with national reports to fill in unavailable provincial data. If you are aware of, or have access to, a provincial data source that can be used to supplement or replace national data, please contact us at email@email.com. Please also be aware that the most recent data points may be incomplete as a result of some provincial data being unpublished at this time. Kindly refer to the \"last updated\" date for information on when the data for each province was last published.\n    The data sources used in this visualization are as follows:"

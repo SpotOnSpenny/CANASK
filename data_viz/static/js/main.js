@@ -1175,6 +1175,11 @@ async function toxSetUp() {
           sourceText =
             "All other provincial data was obtained from the Opioid- and Stimulant-related Harms in Canada report and was last udpated on " +
             source.last_updated;
+        } else if (source.name == "Statistics Canada") {
+          buttonText = "See population estimtes from Statistics Canada";
+          sourceText =
+            "Population estimates were obtained from Statistics Canada and were last updated in " +
+            source.last_updated;
         } else {
           buttonText = "Go to " + source.Province + " data source";
           sourceText =
@@ -1229,6 +1234,22 @@ async function toxSetUp() {
         marker: { color: "rgba(206, 17, 38, 1)" },
         fill: "none",
       });
+
+      // Also create the data/100k visual for later
+      let dataPerPopPlots = [];
+      for (const [title, y_axis] of Object.entries(data.y_axes_per_100k)) {
+        let plotTitle = title.replace("_per_100k", "");
+        let trace = {
+          x: data.x_axes.can_line_x,
+          y: y_axis,
+          type: "scatter",
+          name: provinceMappings[plotTitle],
+          stackgroup: "one",
+          animate: true,
+          marker: { color: colourCode[title] },
+        };
+        dataPerPopPlots.push(trace);
+      }
 
       // Add the created elements to the page
       blurbDiv.innerHTML = "";
@@ -1304,13 +1325,22 @@ async function toxSetUp() {
         raw_data: data,
         colourCode: colourCode,
         provinceMappings: provinceMappings,
+        dataPerPopPlots: dataPerPopPlots,
       };
     });
 }
 
 function changeChartType(selector) {
   tox_data.then(
-    ({ vis, plots, visDiv, raw_data, colourCode, provinceMappings }) => {
+    ({
+      vis,
+      plots,
+      visDiv,
+      raw_data,
+      colourCode,
+      provinceMappings,
+      dataPerPopPlots,
+    }) => {
       if (selector.value == "2") {
         let active = document.querySelectorAll(`input[status="active"]`);
         active = Array.from(active).map((button) =>
@@ -1374,6 +1404,73 @@ function changeChartType(selector) {
                     tracegroupgap: 200,
                   },
             margin: window.innerWidth > 768 ? {} : { r: 0, l: 80 },
+          }),
+          (config = {
+            displaylogo: false,
+          })
+        );
+      } else if (selector.value == "3") {
+        let active = document.querySelectorAll(`input[status="active"]`);
+        active = Array.from(active).map((button) =>
+          button.getAttribute("province")
+        );
+        let plotsToAdd = [];
+        for (let plot of dataPerPopPlots) {
+          if (active.includes(plot.name) || plot.name === "Total of Selected") {
+            plotsToAdd.push(plot);
+          }
+        }
+        Plotly.react(
+          visDiv,
+          plotsToAdd,
+          (layout = {
+            dragmode: "pan",
+            yaxis: {
+              fixedrange: true,
+              title: {
+                standoff: 30,
+                text:
+                  window.innerWidth > 768
+                    ? "Deaths Resulting from Drug Toxicity"
+                    : "Deaths Resulting from Drug Toxicity",
+              },
+            },
+            xaxis: {
+              fixedrange: false,
+              autorange: true,
+              autorangeoptions:
+                window.innerWidth > 768
+                  ? {}
+                  : {
+                      clipmax: Number(dataPerPopPlots[0]["x"][0]) + 2,
+                    },
+              dtick: 1,
+              title: {
+                text: "Year",
+                standoff: 5,
+              },
+              constrain: "domain",
+            },
+            hovermode: "x unified",
+            autosize: false,
+            width: $("#viz-card").width(),
+            height: window.innerWidth > 768 ? $("#viz-card").height() : "auto",
+            title:
+              window.innerWidth > 768
+                ? "Canadian Drug Toxicity Deaths Each Year by Province"
+                : "Canadian Drug Toxicity Deaths<br>Each Year by Province",
+            legend:
+              window.innerWidth > 768
+                ? {}
+                : {
+                    orientation: "h",
+                    x: 0,
+                    y: -0.2,
+                    xanchor: "middle",
+                    yanchor: "top",
+                    tracegroupgap: 200,
+                  },
+            margin: window.innerWidth > 768 ? {} : { r: 0, l: 65 },
           }),
           (config = {
             displaylogo: false,
@@ -1454,9 +1551,20 @@ function changeChartType(selector) {
   );
 }
 
+//TODO there's a bug in here resulting in a console error that needs to be resolved
+//TODO there's a bug here resulting in issues when you click a province and then switch chart types
+//TODO we need to swap out the data table for the per 100k data table when the chart type is changed
 function updateTracesTox(button) {
   tox_data.then(
-    ({ vis, plots, visDiv, raw_data, colourCode, provinceMappings }) => {
+    ({
+      vis,
+      plots,
+      visDiv,
+      raw_data,
+      colourCode,
+      provinceMappings,
+      dataPerPopPlots,
+    }) => {
       let status = button.getAttribute("status");
       let region = button.getAttribute("province");
       let index = plots.findIndex((object) => {
@@ -1465,32 +1573,44 @@ function updateTracesTox(button) {
       let totalIndex = plots.findIndex((object) => {
         return object.name === "Total of Selected";
       });
+      chartType = document.getElementById("chart-type-select").value;
+      let dataPlots;
+      if (chartType == "3") {
+        dataPlots = dataPerPopPlots;
+      } else {
+        dataPlots = plots;
+      }
       if (status == "inactive") {
         button.setAttribute("status", "active");
         // Find the new peak of the data including the added trace
         let region_line_key = keyByValue(provinceMappings, region);
-        valuesToAdd = raw_data.y_axes[region_line_key];
+        let valuesToAdd;
+        if (chartType == "3") {
+          valuesToAdd = raw_data.y_axes_per_100k[`${region_line_key}_per_100k`];
+        } else {
+          valuesToAdd = raw_data.y_axes[region_line_key];
+        }
         peak = 0;
         let active = document.querySelectorAll(`input[status="active"]`);
         active = Array.from(active).map((button) =>
           button.getAttribute("province")
         );
         let total = [];
-        for (let index = 0; index < plots[0].x.length; index++) {
+        for (let index = 0; index < dataPlots[0].x.length; index++) {
           current = 0;
-          for (let plot = 0; plot < plots.length; plot++) {
-            if (active.includes(plots[plot].name)) {
-              current += Number(plots[plot].y[index]);
+          for (let plot = 0; plot < dataPlots.length; plot++) {
+            if (active.includes(dataPlots[plot].name)) {
+              current += Number(dataPlots[plot].y[index]);
             }
           }
           current += Number(valuesToAdd[index]);
           total.push(current);
           if (current > peak) {
-            peak = current;
+            peak = Math.round(current);
           }
         }
         chartType = document.getElementById("chart-type-select").value;
-        if (chartType == "1") {
+        if (chartType == "1" || chartType == "3") {
           digits = peak.toString().length;
           if (digits >= 4) {
             peak = Math.ceil(peak / 1000) * 1000;
@@ -1574,14 +1694,14 @@ function updateTracesTox(button) {
         // Find the peak of data that will be displayed
         peak = 0;
         totals = [];
-        for (let index = 0; index < plots[0].x.length; index++) {
+        for (let index = 0; index < dataPlots[0].x.length; index++) {
           current = 0;
-          for (let plot = 0; plot < plots.length; plot++) {
+          for (let plot = 0; plot < dataPlots.length; plot++) {
             if (
-              plots[plot].name != region &&
-              plots[plot].name != "Total of Selected"
+              dataPlots[plot].name != region &&
+              dataPlots[plot].name != "Total of Selected"
             ) {
-              current += Number(plots[plot].y[index]);
+              current += Number(dataPlots[plot].y[index]);
             }
           }
           totals.push(current);

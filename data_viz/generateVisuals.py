@@ -142,7 +142,8 @@ def export_nat_drug_toxicity_deaths():
     sources = []
     total_tox_deaths_data = {
         "x_axes": {},
-        "y_axes": {}
+        "y_axes": {},
+        "y_axes_per_100k": {}
     }
     longest_year_line = []
     for province_data in provincial_dfs:
@@ -165,9 +166,22 @@ def export_nat_drug_toxicity_deaths():
     # Create the statistics for the /100,000 population
     # Get the population data
     population_data = pull_data(["nationalPopulationData"])
-    population_df = filter_data(population_data, ["nationalPopulationData"])[0]
-    print(population_df)
-        
+    population_data = filter_data(population_data, ["nationalPopulationData"])
+    population_df = population_data[0]["dataframe"]
+    
+    # diivide each popululation by 100,000
+    for province in provinces:
+        for index, year in enumerate(total_tox_deaths_data["x_axes"]["can_line_x"]):
+            population = population_df.loc[population_df["GEO"] == province].loc[population_df["REF_DATE"] == int(year)]["VALUE"].values[0]
+            hundred_k = population / 100000
+            total_tox_deaths_data["y_axes_per_100k"][f"{province_keys[province]}_line_y_per_100k"] = [round((float(value) / hundred_k), 2) for value in total_tox_deaths_data["y_axes"][f"{province_keys[province]}_line_y"]]
+    # Add population data to sources
+    sources.append({
+        "name": "Statistics Canada",
+        "last_updated": population_data[0]["date_updated"][-4:],
+        "url": "https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1710000501",
+        "Province": "population data for all provinces"
+    })
 
     # Export the data to a json file
     with open(os.path.join(os.path.abspath(os.path.dirname(__file__)), "static/js/total_tox_deaths_data.json"), "w") as file:

@@ -88,7 +88,7 @@ def national_population_scrape():
     print("Cleaning up the raw data files...")
     os.remove(os.path.join(output_dir, "rawCSV.zip"))
     os.remove(os.path.join(output_dir, "17100005.csv"))
-    print("Finished extracting and cleaning the data from the New Brunswick Public Safety Crime Dashboard!")
+    print("Finished extracting and cleaning the population data for canadian provinces and territories!")
 
 
 # CSV Generator function to iterate/clean the data at the same time
