@@ -1431,8 +1431,8 @@ function changeChartType(selector) {
                 standoff: 30,
                 text:
                   window.innerWidth > 768
-                    ? "Deaths Resulting from Drug Toxicity"
-                    : "Deaths Resulting from Drug Toxicity",
+                    ? "Deaths per 100,000 People Resulting from Drug Toxicity"
+                    : "Deaths per 100,000 People<br>Resulting from Drug Toxicity",
               },
             },
             xaxis: {
@@ -1457,8 +1457,8 @@ function changeChartType(selector) {
             height: window.innerWidth > 768 ? $("#viz-card").height() : "auto",
             title:
               window.innerWidth > 768
-                ? "Canadian Drug Toxicity Deaths Each Year by Province"
-                : "Canadian Drug Toxicity Deaths<br>Each Year by Province",
+                ? "Canadian Drug Toxicity Deaths per 100,000 People Each Year by Province"
+                : "Canadian Drug Toxicity Deaths per 100,000<br>People Each Year by Province",
             legend:
               window.innerWidth > 768
                 ? {}
