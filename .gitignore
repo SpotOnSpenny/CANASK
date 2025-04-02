@@ -7,3 +7,4 @@ hyperd.log
 .webassets-cache
 *.ppk
 *.pem
+/conda_env

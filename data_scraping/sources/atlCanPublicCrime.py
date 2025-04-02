@@ -64,22 +64,24 @@ def nb_crime_scrape():
 
     # Check the output directory for the data
     output_dir, needed_files, existing_files = checkup_output(["atlCanPublicCrime"])
+
     # Check if the existing files are up to  date, exit if they are
     for file in existing_files:
         if file.split("_")[0] == end_date and "atlCanPublicCrime" in file.split("_")[1]:
             print("Data from Atlantic Canada is up to date! No need to pull it again.")
             return
     # Check existing files to see if there's a CSV that we need to delete
-    for file in existing_files:
-        if "atlCanPublicCrime" in file.split("_")[1]:
-            existing_file = os.path.join(output_dir, file)
-            previous_year = int(file.split("_")[0][:4])
-            print(f"Found existing file {file} in the output directory. Appending data from {previous_year} onward...")
-            break
-        else:
-            print("No existing file found, generating data from 2007 onward...")
-            previous_year = 2007
-            existing_file = None
+    if existing_files != []:
+        for file in existing_files:
+            if "atlCanPublicCrime" in file.split("_")[1]:
+                existing_file = os.path.join(output_dir, file)
+                previous_year = int(file.split("_")[0][:4])
+                print(f"Found existing file {file} in the output directory. Appending data from {previous_year} onward...")
+                break
+    else:
+        print("No existing file found, generating data from 2007 onward...")
+        previous_year = 2007
+        existing_file = None
 
     # If the data is not up to date, pull the data
     try:

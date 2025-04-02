@@ -97,18 +97,18 @@ def sk_pubcentre_scrape(driver, expected_pages):
         dont_delete = True
     # Look for the table titles in the pages of the report
     titles =[
-        "Confirmed Drug Toxicity Deaths by Manner of Death",
-        "Suspected Drug Toxicity Deaths",
-        "Breakdown of Opioid Drugs Identified in Confirmed Drug Toxicity Deaths by Manner of Death",
-        "Breakdown of Benzodiazepine Drugs Identified in Confirmed Drug Toxicity Deaths by Manner of Death",
-        "Confirmed Drug Toxicity Deaths Involving Opioid Drugs by Manner of Death, Sex and Race",
-        "Confirmed Drug Toxicity Deaths Involving Opioid Drugs by Manner of Death, Sex and Age Group",
-        "Confirmed Drug Toxicity Deaths Involving Fentanyl by Manner of Death, Sex and Race",
-        "Confirmed Drug Toxicity Deaths Involving Fentanyl by Manner of Death, Sex and Age Group",
-        "Benzodiazepines by Manner of Death, Sex and",
-        "Confirmed Drug Toxicity Deaths by Place of Death",
-        "Number of Confirmed Deaths Where Methamphetamine Toxicity was Part of the Cause of Death",
-        "Number of Confirmed Deaths Where Xylazine Toxicity was Part of the Cause of Death",
+        "Confirmed Drug Toxicity Deaths by Manner of Death", #0
+        "Suspected Drug Toxicity Deaths", #1
+        "Breakdown of Opioid Drugs Identified in Confirmed Drug Toxicity Deaths by Manner of Death", #2
+        "Breakdown of Benzodiazepine Drugs Identified in Confirmed Drug Toxicity Deaths by Manner of Death", #3
+        "Confirmed Drug Toxicity Deaths Involving Opioid Drugs by Manner of Death, Sex and Race", #4
+        "Confirmed Drug Toxicity Deaths Involving Opioid Drugs by Manner of Death, Sex and Age Group", #5
+        "Confirmed Drug Toxicity Deaths Involving Fentanyl by Manner of Death, Sex and Race", #6
+        "Confirmed Drug Toxicity Deaths Involving Fentanyl by Manner of Death, Sex and Age Group", #7
+        "Benzodiazepines by Manner of Death, Sex and", #8
+        "Confirmed Drug Toxicity Deaths by Place of Death", #9
+        "Number of Confirmed Deaths Where Methamphetamine Toxicity was Part of the Cause of Death", #10
+        "Number of Confirmed Deaths Where Xylazine Toxicity was Part of the Cause of Death", #11
     ]
     # Instantiate a list of data frames to hold the tables
     report_tables = {}
@@ -148,12 +148,14 @@ def sk_pubcentre_scrape(driver, expected_pages):
             # Check the case for the current title as well and apply the given rules to the data
             match title:
                 case title if spaceless_titles[0] in spaceless_title and "breakdown" not in spaceless_title:
+                    print(title + "Found")
                     # Strip out leading/trailg whitespace and doublespaces
                     line = line.strip().replace("  ", " ")
                     # If the first character is a number, it's the year row so insert a label
                     if line[0].isnumeric():
                         line = "Year " + line
                 case title if spaceless_titles[1] in spaceless_title:
+                    print(title + "Found")
                     # Set the title to something more general
                     if title != titles[1]:
                         title = titles[1]
@@ -174,6 +176,7 @@ def sk_pubcentre_scrape(driver, expected_pages):
                         line = line.replace("Total", spaceless_title[-4:]).replace("*", "")
                 # Table 3 and 4 are the same format, so we can double up on the case
                 case title if spaceless_titles[2] in spaceless_title or spaceless_titles[3] in spaceless_title:
+                    print(title + "Found")
                     # Strip out leading/trailg whitespace and doublespaces
                     line = line.strip().replace("  ", " ")
                     # Consolidate all the drug lines into one line
@@ -193,6 +196,7 @@ def sk_pubcentre_scrape(driver, expected_pages):
                     elif any(manner in line for manner in ["Accident", "Suicide", "Homicide", "Undetermined"]) and not table.empty and not line[0].isnumeric():
                         line = f"{year} {line}"
                 case title if spaceless_titles[4] in spaceless_title or spaceless_titles[6] in spaceless_title:
+                    print(title + "Found")
                     # Basic Cleaning  
                     line = line.strip().replace("non -s", "nonS")
                     while "  " in line: 
@@ -229,6 +233,7 @@ def sk_pubcentre_scrape(driver, expected_pages):
                             else:
                                 start = f"{start}{character}"
                 case title if spaceless_titles[5] in spaceless_title or spaceless_titles[7] in spaceless_title:
+                    print(title + "Found")
                     # Basic cleaning
                     line = line.strip()
                     while "  " in line:
@@ -262,6 +267,7 @@ def sk_pubcentre_scrape(driver, expected_pages):
                     else:
                         line = f"{manner} {sex} {line.replace(' – ', '-').replace(' +', '+').replace(' - ', '-')}"
                 case title if spaceless_titles[8] in spaceless_title and "age" not in spaceless_title:
+                    print(title + "Found")
                     if title_set == False:
                         title = "Confirmed Drug Toxicity Deaths Involving Benzodiazepines by Manner of Death, Sed and Race"
                         title_set = True
@@ -307,6 +313,7 @@ def sk_pubcentre_scrape(driver, expected_pages):
                             else:
                                 start = f"{start}{character}"
                 case title if spaceless_titles[8] and "age" in spaceless_title:
+                    print(title + "Found")
                     # Basic cleaning
                     line = line.strip()
                     while "  " in line:
@@ -329,6 +336,7 @@ def sk_pubcentre_scrape(driver, expected_pages):
                     else:
                         line = f"{manner} {sex} {line.replace(' – ', '-').replace(' +', '+').replace(' - ', '-')}"
                 case title if spaceless_titles[9] in spaceless_title and "breakdown" not in spaceless_title:
+                    print(title + "Found")
                     # Basic cleaning
                     line = line.strip()
                     while "  " in line:
@@ -346,6 +354,7 @@ def sk_pubcentre_scrape(driver, expected_pages):
                             else:
                                 start = f"{start}{character}"
                 case title if spaceless_titles[9] and "breakdown" in spaceless_title:
+                    print(title + "Found")
                     # Basic cleaning
                     line = line.strip()
                     while "  " in line:
@@ -375,7 +384,7 @@ def sk_pubcentre_scrape(driver, expected_pages):
                             else:
                                 start = f"{start}{character}"
                 case title if spaceless_titles[10] in spaceless_title:
-                    print(line) 
+                    print(title + "Found")
                     # Basic cleaning
                     line = line.strip()
                     while "  " in line:
