@@ -7,7 +7,6 @@ import time
 import shutil
 
 # External Dependency Imports
-import pandas
 import pantab
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions

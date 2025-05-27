@@ -783,7 +783,7 @@ async function onInit() {
       fetchData("/static/js/on_vis.json"),
       // Note that for whoever else may look at this down the line, the geojson polygons have to be "rotating"
       // a particular way, and the geojson_rewind package with the option rfc7496=False did this for me
-      fetchData("/static/assets/geojsons/on_phus_rotated.geojson"),
+      fetchData("/static/assets/geojsons/onPHUs.geojson"),
     ]);
     createDeathMapOn(data, geojson);
     onData = data;
@@ -1055,7 +1055,15 @@ function createDeathMapOn(data, geojson, first_run = true) {
       displaylogo: false,
       responsive: true,
     })
-  );
+  ).then(() => {
+    visDiv.on("plotly_click", function (data) {
+            if (data && data.points.length > 0) {
+        let location = data.points[0].location; // Get the clicked location
+        let value = data.points[0].z; // Get the value at the clicked location
+        console.log(`Clicked on ${location} with value ${value}`);
+      }
+    });
+  });
 }
 
 // Function to change the chart type

@@ -97,15 +97,15 @@ def sk_pubcentre_scrape(driver, expected_pages):
         dont_delete = True
     # Look for the table titles in the pages of the report
     titles =[
-        "Confirmed Drug Toxicity Deaths by Manner of Death", #0
-        "Suspected Drug Toxicity Deaths", #1
+        "Confirmed & Suspected Drug Toxicity Deaths by Manner of Death", 
+        "Depricated Table Not in Use", #1
         "Breakdown of Opioid Drugs Identified in Confirmed Drug Toxicity Deaths by Manner of Death", #2
         "Breakdown of Benzodiazepine Drugs Identified in Confirmed Drug Toxicity Deaths by Manner of Death", #3
         "Confirmed Drug Toxicity Deaths Involving Opioid Drugs by Manner of Death, Sex and Race", #4
         "Confirmed Drug Toxicity Deaths Involving Opioid Drugs by Manner of Death, Sex and Age Group", #5
         "Confirmed Drug Toxicity Deaths Involving Fentanyl by Manner of Death, Sex and Race", #6
         "Confirmed Drug Toxicity Deaths Involving Fentanyl by Manner of Death, Sex and Age Group", #7
-        "Benzodiazepines by Manner of Death, Sex and", #8
+        "Confirmed Drug Toxicity Deaths Involving Benzodiazepines", #8 Not in cleaned report
         "Confirmed Drug Toxicity Deaths by Place of Death", #9
         "Number of Confirmed Deaths Where Methamphetamine Toxicity was Part of the Cause of Death", #10
         "Number of Confirmed Deaths Where Xylazine Toxicity was Part of the Cause of Death", #11
@@ -149,11 +149,27 @@ def sk_pubcentre_scrape(driver, expected_pages):
             match title:
                 case title if spaceless_titles[0] in spaceless_title and "breakdown" not in spaceless_title:
                     print(title + "Found")
+                    print(line)
                     # Strip out leading/trailg whitespace and doublespaces
                     line = line.strip().replace("  ", " ")
                     # If the first character is a number, it's the year row so insert a label
                     if line[0].isnumeric():
                         line = "Year " + line
+                    # If the line is not the header, then parse the data rows
+                    elif line.startswith("Accident"):
+                        line = line.replace("Accident", "Accident-Confirmed").strip()
+                    elif line.startswith("Suicide"):
+                        line=line.replace("Suicide", "Suicide-Confirmed").strip()
+                    elif line.startswith("Homicide"):
+                        line=line.replace("Homicide", "Homicide-Confirmed").strip()
+                    elif line.startswith("Undetermined"):
+                        line=line.replace("Undetermined", "Undetermined-Confirmed").strip()
+                    elif line.startswith("Confirmed Cases"):
+                        line = line.replace("Confirmed Cases", "").strip()
+                        reason = line.split()[0]
+                        line=line.replace(reason, f"{reason}-Confirmed")
+                    elif line.startswith("Suspected"):
+                        line = line.replace("Suspected Cases", "").strip()
                 case title if spaceless_titles[1] in spaceless_title:
                     print(title + "Found")
                     # Set the title to something more general
@@ -464,6 +480,7 @@ def sk_pubcentre_scrape(driver, expected_pages):
             table.columns = cols
             table.columns.name = None
         else:
+            print(table)
             table.columns = ["Year", "Suspected Deaths"]
         report_tables[title].columns = pandas.MultiIndex.from_product([[title], table.columns])
 

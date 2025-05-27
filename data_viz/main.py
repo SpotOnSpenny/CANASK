@@ -55,25 +55,25 @@ def toxicity_deaths(htmx_flag):
 @main_blueprint.route("/province/british-columbia/<htmx_flag>")
 def bc(htmx_flag):
     if not htmx_flag:
-        return render_template("index.jinja", dash_template="provincial_bc.jinja")
+        return render_template("index.jinja", dash_template="v0/provincial_bc.jinja")
     else:
-        return render_template("provincial_bc.jinja")
+        return render_template("v0/provincial_bc.jinja")
 
 @main_blueprint.route("/province/saskatchewan" , defaults={"htmx_flag": None})
 @main_blueprint.route("/province/saskatchewan/<htmx_flag>")
 def sk(htmx_flag):
     if not htmx_flag:
-        return render_template("index.jinja", dash_template="provincial_sask.jinja")
+        return render_template("index.jinja", dash_template="v0/provincial_sask.jinja")
     else:
-        return render_template("provincial_sask.jinja")
+        return render_template("v0/provincial_sask.jinja")
     
 @main_blueprint.route("/province/ontario" , defaults={"htmx_flag": None})
 @main_blueprint.route("/province/ontario/<htmx_flag>")
 def on(htmx_flag):
     if not htmx_flag:
-        return render_template("index.jinja", dash_template="provincial_on.jinja")
+        return render_template("index.jinja", dash_template="v0/provincial_on.jinja")
     else:
-        return render_template("provincial_on.jinja")
+        return render_template("v0/provincial_on.jinja")
 
 @main_blueprint.route("/province/alberta", defaults={"htmx_flag": None})
 @main_blueprint.route("/province/alberta/<htmx_flag>")
