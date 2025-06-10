@@ -67,7 +67,7 @@ def bc_drugsense_scrape(driver):
         data_to_check = existing_data.head(5).fillna("")
         scrape_all = False
     # Go to the website
-    driver.get("https://bccsu-drugsense.onrender.com/")
+    driver.get("https://drugsense.bccsu.ubc.ca/")
     # Click the results tab and wait for it to load
     try:
         results_tab = WebDriverWait(driver, 15).until(expected_conditions.presence_of_element_located((By.XPATH, "//a[text()[contains(.,'Results Table')]]")))
@@ -131,7 +131,9 @@ def bc_drugsense_scrape(driver):
         os.makedirs(output_dir)
     # Save the dataframe to a csv file
     date = datetime.datetime.now().strftime("%Y-%m-%d").replace("-", "")
-    drug_data.to_csv(os.path.join(output_dir, f"{date}_bcDrugSense.csv"), index=False)
+    data_until = drug_data.iloc[0]["Visit Date"]
+    data_until = datetime.datetime.strptime(data_until, "%Y-%m-%d").strftime("%Y%m%d")
+    drug_data.to_csv(os.path.join(output_dir, f"{date}_{data_until}_bcDrugSense.csv"), index=False)
     print("Data scraped and saved to csv file in the output directory!")
 
 # Test code below

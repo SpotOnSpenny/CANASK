@@ -53,8 +53,16 @@ def pull_data(data_source: list):
                             dataframe.columns = dataframe.iloc[0]
                             dataframe.dropna(axis=0, inplace=True)
                             dataframe = dataframe.drop(dataframe.columns[[0]], axis=1).reset_index(drop=True)
+                            if file.split("_")[1].isdigit():
+                                try: # Try the full date format
+                                    data_until = datetime.datetime.strptime(file.split("_")[1], "%Y%m%d").strftime("%B %d, %Y")
+                                except ValueError: # If it fails, try the year only format
+                                    data_until = datetime.datetime.strptime(file.split("_")[1], "%Y%m").strftime("%B, %Y")
+                            else:
+                                data_until = file.split("_")[0]
                             sheets[name] = {
                                 "date_updated": datetime.datetime.strptime(file.split("_")[0], "%Y%m%d").strftime("%B %d, %Y"),
+                                "data_until": data_until,
                                 "dataframe": dataframe
                                 }
         else:
@@ -457,6 +465,61 @@ def export_on_visual_data():
     with open("static/js/on_vis.json", "w") as file:
         json.dump(graph_data, file)
 
+
+def v1_BC_export_clean():
+    # Pull up data from the BC Coroners Service and BC Drug Sense
+    data = pull_data(["bcCoronersReport", "bcDrugSense"])
+
+    # Filter data out for the heatmap of unregulated drug deaths by health authority
+    bc_coroners = filter_data(data, ["Unregulated Drug Deaths by Health Authority of Injury", "Unregulated Drug Death Rates per 100,000 by Health Authority of Injury"])
+    # Create the data structure for the heatmap
+    heatmap_data = {
+        "data_source": {
+            "name": "BC Coroners Service",
+            "about": "This data is collected from the BC Coroners Service and BC Drug Sense. The data is updated monthly and includes the most recent data available.",
+            "link": "https://app.powerbi.com/view?r=eyJrIjoiNjhiYjgxYzUtYjIyOC00ZGQ2LThhMzEtOWU5Y2Q4YWI0OTc5IiwidCI6IjZmZGI1MjAwLTNkMGQtNGE4YS1iMDM2LWQzNjg1ZTM1OWFkYyJ9",
+            "last_updated": bc_coroners[0]["date_updated"],
+            "data_until": bc_coroners[0]["data_until"]
+        },
+        "data": {
+            "rates": {},
+            "counts": {}
+        }
+    }
+    # Format the years for the x axis
+    years = [str(year).replace(u"\xa0", "") for year in bc_coroners[0]["dataframe"].columns.to_list()[1:]]
+    # Count data
+    for index, row in bc_coroners[0]["dataframe"].iterrows():
+        # Create the x and y axes for the rates
+        heatmap_data["data"]["counts"][row["HA_Name\xa0"]] = {
+            "x": years,
+            "y": bc_coroners[0]["dataframe"].iloc[index].to_list()[1:]
+        }
+    # Rate data
+    for index, row in bc_coroners[1]["dataframe"].iterrows():
+        # Create the x and y axes for the rates
+        heatmap_data["data"]["rates"][row["Health Authority\xa0"]] = {
+            "x": years,
+            "y": bc_coroners[1]["dataframe"].iloc[index].to_list()[1:]
+        }
+    
+    # Compile all the data to a single dictionary for export
+    bc_data = {
+        "drug_death_heatmap": heatmap_data,
+    }
+    return bc_data
+
+# Export all data to a json file, using URL friendly province names as keys
+# These keys will be passed as parameters to javascript so that we can pull the right data for each page
+def export_data_json():
+    data = {
+        "british-columbia": v1_BC_export_clean()
+    }
+
+    # Write the data to a json file
+    with open(os.path.join(os.path.abspath(os.path.dirname(__file__)), "static/js/visual_data.json"), "w") as file:
+        json.dump(data, file, indent=4)
+
 # Test code below
 if __name__ == '__main__':
-    export_nat_drug_toxicity_deaths()
+    export_data_json()

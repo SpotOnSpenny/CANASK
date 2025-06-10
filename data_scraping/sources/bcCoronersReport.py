@@ -64,10 +64,14 @@ def bc_coronersreport_scrape(driver, expected_pages:int = 18):
     existing_file = None
 
     # Load the Coroners Report page and get to data, also check the date of the report against existing scrapes to see if we need to run
-    driver.get("https://app.powerbi.com/view?r=eyJrIjoiM2Y5YzRjNzQtMzAyNS00NWFiLWI3MDktMzI5NWQ3YmVhNmZjIiwidCI6IjZmZGI1MjAwLTNkMGQtNGE4YS1iMDM2LWQzNjg1ZTM1OWFkYyJ9")
+    driver.get("https://app.powerbi.com/view?r=eyJrIjoiNjhiYjgxYzUtYjIyOC00ZGQ2LThhMzEtOWU5Y2Q4YWI0OTc5IiwidCI6IjZmZGI1MjAwLTNkMGQtNGE4YS1iMDM2LWQzNjg1ZTM1OWFkYyJ9")
     time.sleep(5) # Wait for page to finish loading and settle so that we don't get stale element errors
     date = WebDriverWait(driver, 15).until(expected_conditions.presence_of_element_located((By.XPATH, "//*[contains(text(), 'refreshed')]"))).text.split("refreshed ")[1].replace(" ", "").replace(".", "")
     date = datetime.datetime.strptime(date, "%d%b%Y").strftime("%Y%m%d")
+    data_until = WebDriverWait(driver, 15).until(expected_conditions.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Data up to')]"))).text.split("of ")[1].replace(" ", "").replace(".", "")
+    data_until = datetime.datetime.strptime(data_until, "%b%Y").strftime("%Y%m")
+    print(f"Data refreshed on {date} with data up to {data_until}")
+    quit(1) # This is a temporary quit to stop the script from running, remove this line when ready to scrape
     output_dir, needed_files, existing_files = checkup_output(["bcCoronersReport"])
     if existing_files == []:
         print("No existing files found for this source. Scraping data...")
@@ -363,7 +367,7 @@ def bc_coronersreport_scrape(driver, expected_pages:int = 18):
         bar()
 
     # Output all the dataframes to an excel spreadsheet with different worksheets for each dataframe
-    with pandas.ExcelWriter(os.path.join(output_dir, f"{date}_bcCoronersReport.xlsx")) as writer:
+    with pandas.ExcelWriter(os.path.join(output_dir, f"{date}_{data_until}_bcCoronersReport.xlsx")) as writer:
         for index, dataframe in enumerate(dataframes):
             dataframe.to_excel(writer, sheet_name=f"Table {index + 1}")
     print("Data successfully scraped and saved!")
