@@ -120,6 +120,14 @@ def feedback():
         # Return an OK response
         return jsonify({"status": "success"}), 200;
 
+# Rout for V1 data visuals
+@main_blueprint.route("/v1/province/<province>", defaults={"htmx_flag": None})
+@main_blueprint.route("/v1/province/<province>/<htmx_flag>")
+def v1_province(province, htmx_flag):
+    if not htmx_flag:
+        return render_template("index.jinja", dash_template="v1/provincial_vis.jinja", province=province)
+
+
 ################################# Test Code Below ######################################
 if __name__ == '__main__':
     #Test update
