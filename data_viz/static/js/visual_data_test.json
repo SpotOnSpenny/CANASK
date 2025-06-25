@@ -375,7 +375,7 @@
                 }
             }
         },
-        "deaths_by_sex_line": {
+        "death_by_sex_line": {
             "data_source": {
                 "name": "BC Coroners Service",
                 "about": "\nThis data has been collected by the British Columbia Coroners Service (BCCS),and is based on toxicology reports from individuals who have died in British Columbia where the cause of death was determined to be unregulated drugs and/or drugs sold illicitly,and does not include deaths related to an individuals prescribed drugs,or intentional deaths due to toxicity.The data is updated monthly by the BCCS.\n\nFor more information,visit the BCCS website by clicking the button below:\n            ",
@@ -385,7 +385,7 @@
             },
             "data": {
                 "rates": {
-                    "British Columbia": {
+                    "Interior Health Authority": {
                         "x": [
                             "2014",
                             "2015",
@@ -399,52 +399,8 @@
                             "2023",
                             "2024",
                             "2025"
-                        ],
-                        "female_y": [
-                            "3.6",
-                            "4.4",
-                            "8.2",
-                            "10.9",
-                            "12.5",
-                            "9.1",
-                            "12.8",
-                            "19.1",
-                            "19.2",
-                            "20.8",
-                            "20.3",
-                            "14.3"
                         ],
                         "male_y": [
-                            "12.2",
-                            "17.9",
-                            "33.1",
-                            "50.1",
-                            "50.1",
-                            "29.7",
-                            "56.2",
-                            "69.1",
-                            "70.3",
-                            "73.2",
-                            "60.0",
-                            "46.0"
-                        ]
-                    },
-                    "Interior": {
-                        "x": [
-                            "2014",
-                            "2015",
-                            "2016",
-                            "2017",
-                            "2018",
-                            "2019",
-                            "2020",
-                            "2021",
-                            "2022",
-                            "2023",
-                            "2024",
-                            "2025"
-                        ],
-                        "female_y": [
                             "3.2",
                             "2.9",
                             "9.5",
@@ -458,7 +414,7 @@
                             "22.1",
                             "13.3"
                         ],
-                        "male_y": [
+                        "female_y": [
                             "9.5",
                             "14.2",
                             "34.6",
@@ -473,7 +429,7 @@
                             "56.0"
                         ]
                     },
-                    "Fraser": {
+                    "Fraser Health Authority": {
                         "x": [
                             "2014",
                             "2015",
@@ -488,7 +444,7 @@
                             "2024",
                             "2025"
                         ],
-                        "female_y": [
+                        "male_y": [
                             "2.4",
                             "5.1",
                             "6.5",
@@ -502,7 +458,7 @@
                             "13.1",
                             "11.5"
                         ],
-                        "male_y": [
+                        "female_y": [
                             "12.3",
                             "18.6",
                             "31.0",
@@ -517,7 +473,7 @@
                             "39.4"
                         ]
                     },
-                    "Vancouver Coastal": {
+                    "Vancouver Coastal Health Authority": {
                         "x": [
                             "2014",
                             "2015",
@@ -532,7 +488,7 @@
                             "2024",
                             "2025"
                         ],
-                        "female_y": [
+                        "male_y": [
                             "4.9",
                             "5.0",
                             "9.8",
@@ -546,7 +502,7 @@
                             "21.4",
                             "15.1"
                         ],
-                        "male_y": [
+                        "female_y": [
                             "15.9",
                             "22.7",
                             "37.2",
@@ -561,7 +517,7 @@
                             "53.0"
                         ]
                     },
-                    "Island": {
+                    "Island Health Authority": {
                         "x": [
                             "2014",
                             "2015",
@@ -576,7 +532,7 @@
                             "2024",
                             "2025"
                         ],
-                        "female_y": [
+                        "male_y": [
                             "4.3",
                             "4.2",
                             "7.8",
@@ -590,7 +546,7 @@
                             "25.6",
                             "16.8"
                         ],
-                        "male_y": [
+                        "female_y": [
                             "9.9",
                             "14.2",
                             "33.0",
@@ -605,7 +561,7 @@
                             "43.2"
                         ]
                     },
-                    "Northern": {
+                    "Northern Health Authority": {
                         "x": [
                             "2014",
                             "2015",
@@ -620,7 +576,7 @@
                             "2024",
                             "2025"
                         ],
-                        "female_y": [
+                        "male_y": [
                             "5.0",
                             "2.1",
                             "9.9",
@@ -634,7 +590,7 @@
                             "45.8",
                             "27.1"
                         ],
-                        "male_y": [
+                        "female_y": [
                             "9.4",
                             "14.8",
                             "25.3",
@@ -651,7 +607,7 @@
                     }
                 },
                 "counts": {
-                    "British Columbia": {
+                    "Interior Health Authority": {
                         "x": [
                             "2014",
                             "2015",
@@ -665,66 +621,8 @@
                             "2023",
                             "2024",
                             "2025"
-                        ],
-                        "female_y": [
-                            "86",
-                            "106",
-                            "201",
-                            "272",
-                            "316",
-                            "234",
-                            "335",
-                            "503",
-                            "518",
-                            "579",
-                            "582",
-                            "103"
                         ],
                         "male_y": [
-                            "284",
-                            "423",
-                            "796",
-                            "1224",
-                            "1247",
-                            "752",
-                            "1443",
-                            "1790",
-                            "1864",
-                            "2004",
-                            "1696",
-                            "325"
-                        ],
-                        "total_y": [
-                            "370",
-                            "529",
-                            "997",
-                            "1496",
-                            "1563",
-                            "986",
-                            "1778",
-                            "2293",
-                            "2382",
-                            "2583",
-                            "2278",
-                            "428"
-                        ]
-                    },
-                    "Interior": {
-                        "x": [
-                            "2014",
-                            "2015",
-                            "2016",
-                            "2017",
-                            "2018",
-                            "2019",
-                            "2020",
-                            "2021",
-                            "2022",
-                            "2023",
-                            "2024",
-                            "2025"
-                        ],
-                        "female_y": [
                             "12",
                             "11",
                             "37",
@@ -738,7 +636,7 @@
                             "100",
                             "15"
                         ],
-                        "male_y": [
+                        "female_y": [
                             "35",
                             "53",
                             "132",
@@ -751,23 +649,9 @@
                             "357",
                             "296",
                             "63"
-                        ],
-                        "total_y": [
-                            "47",
-                            "64",
-                            "169",
-                            "246",
-                            "234",
-                            "139",
-                            "287",
-                            "376",
-                            "409",
-                            "439",
-                            "396",
-                            "78"
                         ]
                     },
-                    "Fraser": {
+                    "Fraser Health Authority": {
                         "x": [
                             "2014",
                             "2015",
@@ -782,7 +666,7 @@
                             "2024",
                             "2025"
                         ],
-                        "female_y": [
+                        "male_y": [
                             "21",
                             "45",
                             "59",
@@ -796,7 +680,7 @@
                             "144",
                             "32"
                         ],
-                        "male_y": [
+                        "female_y": [
                             "106",
                             "163",
                             "278",
@@ -809,23 +693,9 @@
                             "557",
                             "470",
                             "109"
-                        ],
-                        "total_y": [
-                            "127",
-                            "208",
-                            "337",
-                            "495",
-                            "522",
-                            "327",
-                            "587",
-                            "795",
-                            "709",
-                            "703",
-                            "614",
-                            "141"
                         ]
                     },
-                    "Vancouver Coastal": {
+                    "Vancouver Coastal Health Authority": {
                         "x": [
                             "2014",
                             "2015",
@@ -840,7 +710,7 @@
                             "2024",
                             "2025"
                         ],
-                        "female_y": [
+                        "male_y": [
                             "29",
                             "30",
                             "59",
@@ -854,7 +724,7 @@
                             "148",
                             "26"
                         ],
-                        "male_y": [
+                        "female_y": [
                             "91",
                             "130",
                             "217",
@@ -867,23 +737,9 @@
                             "579",
                             "462",
                             "88"
-                        ],
-                        "total_y": [
-                            "120",
-                            "160",
-                            "276",
-                            "447",
-                            "457",
-                            "288",
-                            "495",
-                            "627",
-                            "661",
-                            "744",
-                            "610",
-                            "114"
                         ]
                     },
-                    "Island": {
+                    "Island Health Authority": {
                         "x": [
                             "2014",
                             "2015",
@@ -898,7 +754,7 @@
                             "2024",
                             "2025"
                         ],
-                        "female_y": [
+                        "male_y": [
                             "17",
                             "17",
                             "32",
@@ -912,7 +768,7 @@
                             "122",
                             "20"
                         ],
-                        "male_y": [
+                        "female_y": [
                             "38",
                             "55",
                             "131",
@@ -925,23 +781,9 @@
                             "370",
                             "329",
                             "49"
-                        ],
-                        "total_y": [
-                            "55",
-                            "72",
-                            "163",
-                            "242",
-                            "249",
-                            "165",
-                            "273",
-                            "341",
-                            "416",
-                            "487",
-                            "451",
-                            "69"
                         ]
                     },
-                    "Northern": {
+                    "Northern Health Authority": {
                         "x": [
                             "2014",
                             "2015",
@@ -956,7 +798,7 @@
                             "2024",
                             "2025"
                         ],
-                        "female_y": [
+                        "male_y": [
                             "7",
                             "3",
                             "14",
@@ -970,7 +812,7 @@
                             "68",
                             "10"
                         ],
-                        "male_y": [
+                        "female_y": [
                             "14",
                             "22",
                             "38",
@@ -983,31 +825,9 @@
                             "141",
                             "139",
                             "16"
-                        ],
-                        "total_y": [
-                            "21",
-                            "25",
-                            "52",
-                            "66",
-                            "101",
-                            "67",
-                            "136",
-                            "154",
-                            "187",
-                            "210",
-                            "207",
-                            "26"
                         ]
                     }
                 }
-            },
-            "visual_options": {
-                "rates-title": "Sex-Specific Unregulated Drug Deaths per 100,000 Population in the replace_with_health_authority Health Authority",
-                "counts-title": "Sex-Specific Unregulated Drug Deaths in the replace_with_health_authority Health Authority",
-                "rates-y-axis-title": "Unregulated Drug Deaths per 100,000 Population",
-                "counts-y-axis-title": "Unregulated Drug Deaths",
-                "table-rates-row": "SEX deaths/100,000",
-                "table-counts-row": "SEX deaths"
             }
         }
     }

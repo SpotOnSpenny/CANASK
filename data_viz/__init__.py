@@ -38,6 +38,7 @@ assets.register(
         "js/htmx.min.js",
         "js/plotly-2.32.0.min.js",
         "js/main.js",
+        "js/visualGeneration.js",
         "js/jquery-3.7.1.min.js",
         filters="jsmin",
         output="assets/main.js"

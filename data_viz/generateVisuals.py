@@ -70,11 +70,20 @@ def pull_data(data_source: list):
     return sheets
 
 # Helper function to pull the data from the provided source into a dataframe
-def filter_data(data: dict, find_these: list):
+# Use exact_match to determine if the seach should be looking for the exact title (ie, return a single, exact dataframe for each term)
+# or if it should be looking for any dataframe that contains the term (ie, return all dataframes that contain the term)
+def filter_data(data: dict, find_these: list, exact_match: bool = False):
     dataframes = []
-    for key in data.keys():
-        if any(find_this.split(",")[0].lower().replace(" ", "") == key.split(",")[0].lower().replace(" ", "") for find_this in find_these):
-            dataframes.append(data[key])
+    match exact_match:
+        case True:
+            for key in data.keys():
+                if any(find_this.split(",")[0].lower().replace(" ", "") == key.split(",")[0].lower().replace(" ", "") for find_this in find_these):
+                    dataframes.append(data[key])
+        case False:
+            for key in data.keys():
+                if any(find_this.split(",")[0].lower().replace(" ", "") in key.split(",")[0].lower().replace(" ", "") for find_this in find_these):
+                    data[key]["Name"] = key
+                    dataframes.append(data[key])
     return dataframes
 
 # Restructured functions to generate the visual by page, not by graph
@@ -470,13 +479,18 @@ def v1_BC_export_clean():
     # Pull up data from the BC Coroners Service and BC Drug Sense
     data = pull_data(["bcCoronersReport", "bcDrugSense"])
 
+    # ---- Clean Data for Unregulated Drug Deaths Heatmap ----
     # Filter data out for the heatmap of unregulated drug deaths by health authority
-    bc_coroners = filter_data(data, ["Unregulated Drug Deaths by Health Authority of Injury", "Unregulated Drug Death Rates per 100,000 by Health Authority of Injury"])
+    bc_coroners = filter_data(data, ["Unregulated Drug Deaths by Health Authority of Injury", "Unregulated Drug Death Rates per 100,000 by Health Authority of Injury"], True)
     # Create the data structure for the heatmap
     heatmap_data = {
         "data_source": {
             "name": "BC Coroners Service",
-            "about": "This data is collected from the BC Coroners Service and BC Drug Sense. The data is updated monthly and includes the most recent data available.",
+            "about": """
+This data has been collected by the British Columbia Coroners Service (BCCS),and is based on toxicology reports from individuals who have died in British Columbia where the cause of death was determined to be unregulated drugs and/or drugs sold illicitly,and does not include deaths related to an individuals prescribed drugs,or intentional deaths due to toxicity.The data is updated monthly by the BCCS.
+
+For more information,visit the BCCS website by clicking the button below:
+            """,
             "link": "https://app.powerbi.com/view?r=eyJrIjoiNjhiYjgxYzUtYjIyOC00ZGQ2LThhMzEtOWU5Y2Q4YWI0OTc5IiwidCI6IjZmZGI1MjAwLTNkMGQtNGE4YS1iMDM2LWQzNjg1ZTM1OWFkYyJ9",
             "last_updated": bc_coroners[0]["date_updated"],
             "data_until": bc_coroners[0]["data_until"]
@@ -502,10 +516,64 @@ def v1_BC_export_clean():
             "x": years,
             "y": bc_coroners[1]["dataframe"].iloc[index].to_list()[1:]
         }
+
+    # ----- Clean Data for Unregulated Drug Deaths by Sex -----
+    # pull and filter the data needed
+    bc_coroners = filter_data(data, ["Sex-Specific Unregulated Drug Death Rates", "Unregulated Drug Deaths by Sex"], False)
     
+    # Create the data structure for the line chart
+    death_by_sex_data = {
+        "data_source": {
+            "name": "BC Coroners Service",
+            "about": """
+This data has been collected by the British Columbia Coroners Service (BCCS),and is based on toxicology reports from individuals who have died in British Columbia where the cause of death was determined to be unregulated drugs and/or drugs sold illicitly,and does not include deaths related to an individuals prescribed drugs,or intentional deaths due to toxicity.The data is updated monthly by the BCCS.
+
+For more information,visit the BCCS website by clicking the button below:
+            """,
+            "link": "https://app.powerbi.com/view?r=eyJrIjoiNjhiYjgxYzUtYjIyOC00ZGQ2LThhMzEtOWU5Y2Q4YWI0OTc5IiwidCI6IjZmZGI1MjAwLTNkMGQtNGE4YS1iMDM2LWQzNjg1ZTM1OWFkYyJ9",
+            "last_updated": bc_coroners[0]["date_updated"],
+            "data_until": bc_coroners[0]["data_until"]
+        },
+        "data": {
+            "rates": {},
+            "counts": {}
+        },
+        "visual_options":{
+            "rates-title": "Sex-Specific Unregulated Drug Deaths per 100,000 Population in the replace_with_health_authority Health Authority",
+            "counts-title": "Sex-Specific Unregulated Drug Deaths in the replace_with_health_authority Health Authority",
+            "rates-y-axis-title": "Unregulated Drug Deaths per 100,000 Population",
+            "counts-y-axis-title": "Unregulated Drug Deaths",
+            "table-rates-row": "SEX deaths/100,000",
+            "table-counts-row": "SEX deaths",
+        }
+    }
+
+    # Iterate over each dataframe and pull the data we need
+    for dataframe in bc_coroners:
+        # Get the dataframe and the name of the dataframe
+        df = dataframe["dataframe"]
+        health_authority = dataframe["Name"].split(":")[0].strip().replace(" Health Authority", "")
+        df_name = dataframe["Name"].split(":")[1].strip()
+        if health_authority == "British Columbia Health Authority":
+            continue
+
+        if "rates" in df_name.lower():
+            death_by_sex_data["data"]["rates"][health_authority] = {
+                "x": [str(year).replace(u"\xa0", "") for year in df.columns.to_list()[1:]],
+                "female_y": df.iloc[0].to_list()[1:],
+                "male_y": df.iloc[1].to_list()[1:]
+            }
+        else:
+            death_by_sex_data["data"]["counts"][health_authority] = {
+                "x": [str(year).replace(u"\xa0", "") for year in df.columns.to_list()[1:]],
+                "female_y": df.iloc[0].to_list()[1:],
+                "male_y": df.iloc[1].to_list()[1:],
+                "total_y": df.iloc[2].to_list()[1:]
+            }
     # Compile all the data to a single dictionary for export
     bc_data = {
         "drug_death_heatmap": heatmap_data,
+        "deaths_by_sex_line": death_by_sex_data,
     }
     return bc_data
 
@@ -522,4 +590,5 @@ def export_data_json():
 
 # Test code below
 if __name__ == '__main__':
+    # data = v1_BC_export_clean()
     export_data_json()
