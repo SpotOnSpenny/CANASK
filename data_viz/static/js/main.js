@@ -783,7 +783,7 @@ async function onInit() {
       fetchData("/static/js/on_vis.json"),
       // Note that for whoever else may look at this down the line, the geojson polygons have to be "rotating"
       // a particular way, and the geojson_rewind package with the option rfc7496=False did this for me
-      fetchData("/static/assets/geojsons/onPHUs.geojson"),
+      fetchData("/static/assets/geojsons/ontario.geojson"),
     ]);
     createDeathMapOn(data, geojson);
     onData = data;
