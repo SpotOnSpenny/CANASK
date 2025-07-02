@@ -1006,9 +1006,190 @@
                 "counts-title": "Sex-Specific Unregulated Drug Deaths in the replace_with_health_authority Health Authority",
                 "rates-y-axis-title": "Unregulated Drug Deaths per 100,000 Population",
                 "counts-y-axis-title": "Unregulated Drug Deaths",
-                "table-rates-row": "SEX deaths/100,000",
-                "table-counts-row": "SEX deaths"
+                "table-rates-row": "replace_me deaths/100,000",
+                "table-counts-row": "replace_me deaths"
             }
-        }
+        },
+        "drug_supply_by_year": {
+            "data_source": {
+                "name": "British Columbia Centre for Substance Use (BCCSU)",
+                "about": "\nThis data is collected from the British Columbia Centre on Substance Use (BCCSU) and is based on voluntary drug testing results.The data is collected from samples provided by individuals and organizations in British Columbia.The data is collected to help inform the public about the drug supply in British Columbia and to help inform harm reduction strategies.Please note that this data is not representative of the entire illicit drug supply in British Columbia,but rather provides a snapshot of the drug supply based on voluntary submissions.\n\nFor more information visit the BCCSU's Drug Sense website by clicking the button below:\n            ",
+                "link": "https://drugsense.bccsu.ubc.ca/",
+                "last_updated": "May 06, 2024",
+                "data_until": "April 28, 2024"
+            },
+            "data": {
+                "rates": {
+                    "x": [
+                        "2018",
+                        "2019",
+                        "2020",
+                        "2021",
+                        "2022",
+                        "2023",
+                        "2024"
+                    ],
+                    "Unknown_y": [
+                        8.3,
+                        6.86,
+                        6.64,
+                        9.05,
+                        12.98,
+                        14.02,
+                        12.49
+                    ],
+                    "Stimulant_y": [
+                        17.8,
+                        16.65,
+                        19.77,
+                        19.91,
+                        19.07,
+                        20.49,
+                        20.31
+                    ],
+                    "Opioid_y": [
+                        58.18,
+                        59.37,
+                        41.89,
+                        37.0,
+                        31.85,
+                        32.36,
+                        42.66
+                    ],
+                    "Polysubstance_y": [
+                        0.32,
+                        0.22,
+                        0.17,
+                        0.22,
+                        0.16,
+                        0.15,
+                        0.15
+                    ],
+                    "Psychedelic_y": [
+                        14.39,
+                        13.99,
+                        22.62,
+                        23.45,
+                        29.09,
+                        26.52,
+                        16.41
+                    ],
+                    "Depressant_y": [
+                        0.78,
+                        2.56,
+                        6.49,
+                        7.74,
+                        5.04,
+                        4.92,
+                        5.77
+                    ],
+                    "Other_y": [
+                        0.23,
+                        0.35,
+                        2.41,
+                        2.63,
+                        1.81,
+                        1.54,
+                        2.21
+                    ]
+                },
+                "counts": {
+                    "x": [
+                        "2018",
+                        "2019",
+                        "2020",
+                        "2021",
+                        "2022",
+                        "2023",
+                        "2024"
+                    ],
+                    "Unknown_y": [
+                        395,
+                        338,
+                        648,
+                        1543,
+                        3734,
+                        5219,
+                        1400
+                    ],
+                    "Stimulant_y": [
+                        847,
+                        820,
+                        1928,
+                        3393,
+                        5485,
+                        7628,
+                        2277
+                    ],
+                    "Opioid_y": [
+                        2769,
+                        2924,
+                        4085,
+                        6306,
+                        9162,
+                        12044,
+                        4784
+                    ],
+                    "Polysubstance_y": [
+                        15,
+                        11,
+                        17,
+                        37,
+                        47,
+                        57,
+                        17
+                    ],
+                    "Psychedelic_y": [
+                        685,
+                        689,
+                        2206,
+                        3997,
+                        8368,
+                        9871,
+                        1840
+                    ],
+                    "Depressant_y": [
+                        37,
+                        126,
+                        633,
+                        1319,
+                        1450,
+                        1831,
+                        647
+                    ],
+                    "Other_y": [
+                        11,
+                        17,
+                        235,
+                        448,
+                        522,
+                        573,
+                        248
+                    ]
+                }
+            },
+            "visual_options": {
+                "rates-title": "Percent of Submitted Samples Belonging to Major Drug Categories in British Columbia by Year",
+                "counts-title": "Number of Submitted Samples Belonging to Major Drug Categories in British Columbia by Year",
+                "rates-y-axis-title": "Percent of Samples Belonging to Category of Drug",
+                "counts-y-axis-title": "Number of Samples Belonging to Category of Drug",
+                "table-rates-row": "Percent of Samples Classified as replace_me",
+                "table-counts-row": "Number of Samples Classified as replace_me"
+            },
+            "additional_rows": {
+                "Total Samples": [
+                    4759,
+                    4925,
+                    9752,
+                    17043,
+                    28768,
+                    37223,
+                    11213
+                ]
+            }
+        },
+        "presence_of_fentbentanyl_benzos_by_year": null,
+        "opioid_types_by_year": null,
+        "toxicity_deaths_per_drug_by_year": null
     }
 }
