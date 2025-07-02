@@ -31,6 +31,7 @@ def pull_data(data_source: list):
                 case "csv":
                     sheets[source] = {
                         "date_updated": datetime.datetime.strptime(file.split("_")[0], "%Y%m%d").strftime("%B %d, %Y"),
+                        "data_until": datetime.datetime.strptime(file.split("_")[1], "%Y%m%d").strftime("%B %d, %Y") if len(file.split("_")) > 1 else None,
                         "dataframe": pandas.read_csv(os.path.join(output_dir, file))
                         }
                 case "xlsx":
@@ -543,8 +544,8 @@ For more information,visit the BCCS website by clicking the button below:
             "counts-title": "Sex-Specific Unregulated Drug Deaths in the replace_with_health_authority Health Authority",
             "rates-y-axis-title": "Unregulated Drug Deaths per 100,000 Population",
             "counts-y-axis-title": "Unregulated Drug Deaths",
-            "table-rates-row": "SEX deaths/100,000",
-            "table-counts-row": "SEX deaths",
+            "table-rates-row": "replace_me deaths/100,000",
+            "table-counts-row": "replace_me deaths",
         }
     }
 
@@ -570,10 +571,71 @@ For more information,visit the BCCS website by clicking the button below:
                 "male_y": df.iloc[1].to_list()[1:],
                 "total_y": df.iloc[2].to_list()[1:]
             }
+    # ----- Prep BC Drug Sense data for use in several visuals -----
+    bc_drug_sense = data["bcDrugSense"]["dataframe"]
+    last_updated = data["bcDrugSense"]["date_updated"]
+    data_until = data["bcDrugSense"]["data_until"]
+    # Separate the data by year
+    data_by_year = {}
+    starting_year = 2018
+    current_year = datetime.datetime.strptime(data_until, "%B %d, %Y").year
+    range_years = range(starting_year, current_year + 1)
+    for year in range_years:
+        data_by_year[str(year)] = bc_drug_sense.loc[bc_drug_sense["Visit Date"].str.contains(str(year))]
+
+    # ----- Clean Data for Drug Supply by Year -----
+    drug_supply_by_year = {
+        "data_source": {
+            "name": "British Columbia Centre for Substance Use (BCCSU)",
+            "about": """
+This data is collected from the British Columbia Centre on Substance Use (BCCSU) and is based on voluntary drug testing results.The data is collected from samples provided by individuals and organizations in British Columbia.The data is collected to help inform the public about the drug supply in British Columbia and to help inform harm reduction strategies.Please note that this data is not representative of the entire illicit drug supply in British Columbia,but rather provides a snapshot of the drug supply based on voluntary submissions.
+
+For more information visit the BCCSU's Drug Sense website by clicking the button below:
+            """,
+            "link": "https://drugsense.bccsu.ubc.ca/",
+            "last_updated": last_updated,
+            "data_until": data_until
+        },
+        "data": {
+            "rates": {},
+            "counts": {}
+        },
+        "visual_options":{
+            "rates-title": "Percent of Submitted Samples Belonging to Major Drug Categories in British Columbia by Year",
+            "counts-title": "Number of Submitted Samples Belonging to Major Drug Categories in British Columbia by Year",
+            "rates-y-axis-title": "Percent of Samples Belonging to Category of Drug",
+            "counts-y-axis-title": "Number of Samples Belonging to Category of Drug",
+            "table-rates-row": "Percent of Samples Classified as replace_me",
+            "table-counts-row": "Number of Samples Classified as replace_me",
+        },
+        "additional_rows": {
+            "Total Samples": []
+        }
+    }
+
+    drug_categories = bc_drug_sense["Category"].unique()
+    drug_supply_by_year["data"]["counts"]["x"] = [year for year in data_by_year.keys()]
+    drug_supply_by_year["data"]["rates"]["x"] = [year for year in data_by_year.keys()]
+    for category in drug_categories:
+        drug_supply_by_year["data"]["counts"][f"{category}_y"] = []
+        drug_supply_by_year["data"]["rates"][f"{category}_y"] = []
+        for year, data in data_by_year.items():
+            category_data = data.loc[data["Category"] == category]
+            drug_supply_by_year["data"]["counts"][f"{category}_y"].append(len(category_data))
+            drug_supply_by_year["data"]["rates"][f"{category}_y"].append(round((len(category_data)/len(data) * 100), 2))
+    # Add the total samples to the additional rows
+    drug_supply_by_year["additional_rows"]["Total Samples"] = [len(data) for data in data_by_year.values()]
+
+    print(drug_supply_by_year)
+
     # Compile all the data to a single dictionary for export
     bc_data = {
         "drug_death_heatmap": heatmap_data,
         "deaths_by_sex_line": death_by_sex_data,
+        "drug_supply_by_year": drug_supply_by_year,
+        "presence_of_fentbentanyl_benzos_by_year": None,
+        "opioid_types_by_year": None,
+        "toxicity_deaths_per_drug_by_year": None,
     }
     return bc_data
 
@@ -590,5 +652,5 @@ def export_data_json():
 
 # Test code below
 if __name__ == '__main__':
-    # data = v1_BC_export_clean()
+    #data = v1_BC_export_clean()
     export_data_json()

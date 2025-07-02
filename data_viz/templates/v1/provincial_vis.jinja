@@ -12,7 +12,11 @@
                                 class="nav-link dropdown-toggle">Drug Supply</a>
                             <ul class="dropdown-menu">
                                 <li>
-                                    <a class="dropdown-item active" onclick="changeChartBC(this, 'drugSupplyDropdown')"
+                                    <a class="dropdown-item active" onclick="
+                                    console.log('Drug Supply by Year');
+                                    currentVisual = 'drug_supply_by_year';
+                                    createVisualLine(currentData[currentVisual]['data'], currentVisual, 'counts', currentData[currentVisual]['data_source'], currentData[currentVisual]['visual_options'], currentData[currentVisual]['additional_rows'] || null);
+                                    "
                                         id="drugs-by-category" aria-current="page">Drugs by
                                         Category</a>
                                 </li>

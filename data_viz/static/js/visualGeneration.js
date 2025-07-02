@@ -12,6 +12,10 @@ const visuals = {
         }
       },
     },
+    "drug_supply_by_year": {
+      "count-key": "counts",
+      "rates-key": "rates"
+    },
   },
 }
 
@@ -141,29 +145,35 @@ async function createVisualMap(province, currentVisual, geojson, mapData, mapSou
   ).then(() => {
     visDiv.on("plotly_click", function (data) {
       if (data && data.points.length > 0) {
-        let location = data.points[0].location; // Get the clicked location
-        let secondLevelData = getSecondLevelData(province, currentVisual, location);
-        let backButton = document.getElementById("back-button");
-        backButton.classList.remove("d-none");
-        backButton.onclick = function () {
-          // on click, re-render the map visual, and hide the back button/rates toggle again
-          backButton.classList.add("d-none");
-          countRateToggle.classList.add("d-none");
-          countRateToggle.classList.remove("d-flex");
-          //reset the count/rate toggle so that counts is selected
-          countToggle.checked = true;
-          rateToggle.checked = false;
-          // Recreate the map visual
-          createVisualMap(province, currentVisual, geojson, mapData, mapSource, mapOptions);
+        // check if second level data exists for the current visual
+        if (!visuals[province][currentVisual]["second-level"]) {
+          console.error("No second level visual exists for this visual");
+        } else {
+          console.log(currentVisual)
+          let location = data.points[0].location; // Get the clicked location
+          let secondLevelData = getSecondLevelData(province, currentVisual, location);
+          let backButton = document.getElementById("back-button");
+          backButton.classList.remove("d-none");
+          backButton.onclick = function () {
+            // on click, re-render the map visual, and hide the back button/rates toggle again
+            backButton.classList.add("d-none");
+            countRateToggle.classList.add("d-none");
+            countRateToggle.classList.remove("d-flex");
+            //reset the count/rate toggle so that counts is selected
+            countToggle.checked = true;
+            rateToggle.checked = false;
+            // Recreate the map visual
+            createVisualMap(province, currentVisual, geojson, mapData, mapSource, mapOptions);
+          };
+          switch (secondLevelData["type"]) {
+            case "line":
+              createVisualLine(secondLevelData["data"], currentVisual, "counts", secondLevelData["data_source"], secondLevelData["visual_options"], secondLevelData["additional_rows"] || null);
+              break;
+            // Add more cases for other visual types as the need arises
+            default:
+              console.error("Unsupported visual type:", secondLevelData["type"]);
+          }
         };
-        switch (secondLevelData["type"]) {
-          case "line":
-            createVisualLine(secondLevelData["data"], null, secondLevelData["data_source"], secondLevelData["visual_options"]);
-            break;
-          // Add more cases for other visual types as the need arises
-          default:
-            console.error("Unsupported visual type:", secondLevelData["type"]);
-        }
       }
     });
   }
@@ -216,7 +226,7 @@ async function createVisualMap(province, currentVisual, geojson, mapData, mapSou
 }
 
 // create line chart
-async function createVisualLine(lineData, countsOrRates, lineSource, visualOptions){
+async function createVisualLine(lineData, currentVisual, countsOrRates, lineSource, visualOptions, additionalRows = null){
   let countRateToggle = document.getElementById("count-rate-toggle");
   let visDiv = document.getElementById("vis-div");
   let aboutDataDiv = document.getElementById("about-data");
@@ -241,11 +251,7 @@ async function createVisualLine(lineData, countsOrRates, lineSource, visualOptio
   }
   
   // check to see if we have a total
-  if (traceData["total_y"]) {
-    totalPresent = true;
-  } else {
-    totalPresent = false;
-  }
+  totalPresent = !!("total_y" in traceData);
 
   for (const [key, value] of Object.entries(traceData)) {
     // create a trace for each y value in the lineData object entry
@@ -266,6 +272,7 @@ async function createVisualLine(lineData, countsOrRates, lineSource, visualOptio
     }
   }
 
+  Plotly.purge(visDiv); // Clear any previous Plotly plots
   let vis = Plotly.react(
     visDiv,
     traces,
@@ -323,6 +330,7 @@ async function createVisualLine(lineData, countsOrRates, lineSource, visualOptio
     "mb-0 table table-striped table-bordered table-hover"
   );
   let cols = [""].concat(traceData["x"]);
+  console.log(traceData["x"]);
   let tr = table.insertRow(-1);
   cols.forEach((headerText) => {
     let th = document.createElement("th"); // Create a new header cell
@@ -338,12 +346,25 @@ async function createVisualLine(lineData, countsOrRates, lineSource, visualOptio
         let tr = table.insertRow(-1);
         tr.setAttribute("class", "align-middle");
         let tabCell = tr.insertCell(-1);
-        tabCell.innerText = key == "counts" ? visualOptions["table-counts-row"].replace("SEX", subKey.replaceAll("_y", "").toTitleCase()) : visualOptions["table-rates-row"].replace("SEX", subKey.replaceAll("_y", "").toTitleCase());
+        tabCell.innerText = key == "counts" ? visualOptions["table-counts-row"].replace("replace_me", subKey.replaceAll("_y", "").toTitleCase()) : visualOptions["table-rates-row"].replace("replace_me", subKey.replaceAll("_y", "").toTitleCase());
         subValue.forEach((element) => {
           let tabCell = tr.insertCell(-1);
           tabCell.innerText = element;
         });
         }
+    }
+  }
+  // If there are additional rows, add them to the table
+  if (additionalRows) {
+    for (const [key, value] of Object.entries(additionalRows)) {
+      let tr = table.insertRow(-1);
+      tr.setAttribute("class", "align-middle");
+      let tabCell = tr.insertCell(-1);
+      tabCell.innerText = key;
+      value.forEach((element) => {
+        let tabCell = tr.insertCell(-1);
+        tabCell.innerText = element;
+      });
     }
   }
 
@@ -356,10 +377,10 @@ async function createVisualLine(lineData, countsOrRates, lineSource, visualOptio
     countRateToggle.onchange = function () {
       if (countToggle.checked) {
         // If the toggle is checked, show counts
-        createVisualLine(lineData, "counts", lineSource, visualOptions);
+        createVisualLine(lineData, currentVisual, "counts", lineSource, visualOptions, additionalRows);
       } else {
         // If the toggle is unchecked, show rates
-        createVisualLine(lineData, "rates", lineSource, visualOptions);
+        createVisualLine(lineData, currentVisual, "rates", lineSource, visualOptions, additionalRows);
       }
     };
   }
