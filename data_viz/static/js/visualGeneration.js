@@ -2,6 +2,9 @@
 const visuals = {
   "british-columbia": {
     "drug_death_heatmap": {
+      "type": "heatmap",
+      "parent": "Deaths and Demographics",
+      "menu-name": "Drug Toxicity Deaths by Health Authority",
       "count-key":"",
       "rates-key": "",
       "second-level": {
@@ -13,9 +16,19 @@ const visuals = {
       },
     },
     "drug_supply_by_year": {
+      "type": "line",
+      "parent": "Drug Supply",
+      "menu-name":"Drugs by Category",
       "count-key": "counts",
       "rates-key": "rates"
     },
+    "fent_benz_by_year": {
+      "type": "line",
+      "parent": "Drug Supply",
+      "menu-name": "Presence of Fentanly and Benzodiazepines",
+      "count-key": "counts",
+      "rates-key": "rates"
+    }
   },
 }
 
@@ -24,7 +37,83 @@ let currentData;
 let currentGeojson;
 let currentVisual;
 
-// Function to initialize the 
+// Function to dynamically create the menu based on the visuals object and current province
+function createMenu(province) {
+  // Create the menu and add all parent categories
+  let menu = document.getElementById("vis-selection-menu");
+  menu.innerHTML = ""; // Clear existing menu items
+  let parentCategories = ["Drug Supply", "Deaths and Demographics", "Naloxone", "Safe Consumption and Drug Checking Sites", "Miscellaneous"];
+  // create a menu dropdown for each parent category
+  for (const parent of parentCategories) {
+    let li = document.createElement("li");
+    li.className = "nav-item dropdown";
+    let a = document.createElement("a");
+    a.className = "nav-link dropdown-toggle";
+    a.href = "";
+    a.id = `${parent.toLowerCase().replace(/ /g, "-")}-dropdown`;
+    a.setAttribute("role", "button");
+    a.setAttribute("data-bs-toggle", "dropdown");
+    a.textContent = parent;
+    li.appendChild(a);
+    let ul = document.createElement("ul");
+    ul.className = "dropdown-menu";
+    ul.id = `${parent.toLowerCase().replace(/ /g, "-")}-dropdown-menu`;
+    li.appendChild(ul);
+    menu.appendChild(li);
+  }
+
+  for (const [visual, details] of Object.entries(visuals[province])) {
+    // Create a new list item for each visual
+    let li = document.createElement("li");
+    li.className = "nav-item";
+    
+    // Create the anchor element for the visual
+    let a = document.createElement("a");
+    a.className = "nav-link";
+    a.id = visual;
+    a.href = "#";
+    a.textContent = details["menu-name"];
+    li.appendChild(a);
+    
+    // Add an onclick event to set the current visual and create the visual
+    switch (details["type"]) {
+      case "heatmap":
+        a.onclick = function () {
+          resetVisualControl();
+          currentVisual = visual;
+          createVisualMap(province, currentVisual, currentGeojson, currentData[currentVisual]["data"]["counts"], currentData[currentVisual]["data_source"], null);
+        };
+        break;
+      case "line":
+        a.onclick = function () {
+          resetVisualControl();
+          currentVisual = visual;
+          createVisualLine(currentData[currentVisual]['data'], currentVisual, 'counts', currentData[currentVisual]['data_source'], currentData[currentVisual]['visual_options'], currentData[currentVisual]['additional_rows'] || null);
+        };
+        break;
+    }
+    
+    // append the menu item to the appropriate parent category
+    document.getElementById(`${details["parent"].toLowerCase().replace(/ /g, "-")}-dropdown-menu`).appendChild(li);
+  }
+    // Add a disabled class to the parent categories that have no visuals
+  for (const parent of parentCategories) {
+    let dropdownMenu = document.getElementById(`${parent.toLowerCase().replace(/ /g, "-")}-dropdown-menu`);
+    if (dropdownMenu.children.length === 0) {
+      // remove the parent li item from the menu
+      let parentLi = document.querySelector(`li.dropdown > a#${parent.toLowerCase().replace(/ /g, "-")}-dropdown`);
+      parentLi.remove();
+      // add a new disabled a element to the menu
+      let disabledA = document.createElement("a");
+      disabledA.className = "nav-link disabled";
+      disabledA.href = "";
+      disabledA.textContent = `${parent}`;
+      menu.appendChild(disabledA);
+    }
+  }
+}
+
+// Function to initialize the data by fetching provincial data
 async function fetchRegionData(province){
     console.log(`Fetched data for ${province}`);
     //fetch the data and unpack it
@@ -236,6 +325,17 @@ async function createVisualLine(lineData, currentVisual, countsOrRates, lineSour
   let traces = [];
   let location = visualOptions["location"] || "";
 
+  // remove the active class from other visuals and add it to the current visual
+  Array.from(document.querySelectorAll(".active")).forEach((element) => {
+    element.classList.remove("active");
+  });
+  let currentVisualElement = document.getElementById(currentVisual);
+  if (currentVisualElement) {
+    currentVisualElement.classList.add("active");
+  } else {
+    console.error(`No element found with id ${currentVisual}`);
+  }
+
   // Check to see if we have count or rate data, default to count if not specified
   if (countsOrRates !== null){
     traceData = lineData[countsOrRates];
@@ -421,6 +521,22 @@ function getSecondLevelData(province, visual, location = null) {
   }
 }
 
+// Helper function to reset the count/rates toggle
+function resetVisualControl() {
+  let countRateToggle = document.getElementById("count-rate-toggle");
+  countRateToggle.classList.add("d-none");
+  countRateToggle.classList.remove("d-flex");
+  let countToggle = document.getElementById("counts-toggle");
+  let rateToggle = document.getElementById("rates-toggle");
+  // reset the count/rate toggle so that counts is selected
+  countToggle.checked = true;
+  rateToggle.checked = false;
+  // remove the back button if it exists
+  let backButton = document.getElementById("back-button");
+  if (backButton) {
+    backButton.classList.add("d-none");
+  }
+}
 // Function to convert titles to sentence case
 String.prototype.toSentenceCase = function () {
   return this.charAt(0).toUpperCase() + this.slice(1).toLowerCase();

@@ -499,6 +499,10 @@ For more information,visit the BCCS website by clicking the button below:
         "data": {
             "rates": {},
             "counts": {}
+        },
+        "visual_options": {
+            "heatmap-title": "Unregulated Drug Deaths in British Columbia by Health Authority",
+            "table-row-title": "replace_location",
         }
     }
     # Format the years for the x axis
@@ -626,14 +630,58 @@ For more information visit the BCCSU's Drug Sense website by clicking the button
     # Add the total samples to the additional rows
     drug_supply_by_year["additional_rows"]["Total Samples"] = [len(data) for data in data_by_year.values()]
 
-    print(drug_supply_by_year)
+    # ---- Clean Data for Presence of Fentanyl and Benzodiazepines by Year -----
+    fent_benz_by_year = {
+        "data_source": {
+            "name": "British Columbia Centre for Substance Use (BCCSU)",
+            "about": """
+This data is collected from the British Columbia Centre on Substance Use (BCCSU) and is based on voluntary drug testing results.The data is collected from samples provided by individuals and organizations in British Columbia.The data is collected to help inform the public about the drug supply in British Columbia and to help inform harm reduction strategies.Please note that this data is not representative of the entire illicit drug supply in British Columbia,but rather provides a snapshot of the drug supply based on voluntary submissions.
+
+For more information visit the BCCSU's Drug Sense website by clicking the button below:
+            """,
+            "link": "https://drugsense.bccsu.ubc.ca/",
+            "last_updated": last_updated,
+            "data_until": data_until
+        },
+        "data": {
+            "rates": {},
+            "counts": {}
+        },
+        "visual_options":{
+            "rates-title": "Percent of Submitted Samples Containing Fentanyl or Benzodiazepines in British Columbia by Year",
+            "counts-title": "Number of Submitted Samples Containing Fentanyl or Benzodiazepines in British Columbia by Year",
+            "rates-y-axis-title": "Percent of Samples Containing Drug",
+            "counts-y-axis-title": "Number of Samples Containing Drug",
+            "table-rates-row": "Percent of Samples Pos. for replace_me",
+            "table-counts-row": "Number of Samples Pos. for replace_me",
+        },
+        "additional_rows": {
+            "Total Samples": []
+        }
+    }
+
+    fent_benz_by_year["data"]["counts"]["x"] = [year for year in data_by_year.keys()]
+    fent_benz_by_year["data"]["rates"]["x"] = [year for year in data_by_year.keys()]
+    fent_benz_by_year["data"]["counts"]["Fentanyl"] = []
+    fent_benz_by_year["data"]["rates"]["Fentanyl"] = []
+    fent_benz_by_year["data"]["counts"]["Benzodiazepines"] = []
+    fent_benz_by_year["data"]["rates"]["Benzodiazepines"] = []
+    fent_benz_by_year["additional_rows"]["Total Samples"] = []
+    for year, data in data_by_year.items():
+        fentanyl_pos = data.loc[data["Fentanyl Strip"] == "Pos"]
+        fent_benz_by_year["data"]["counts"]["Fentanyl"].append(len(fentanyl_pos))
+        fent_benz_by_year["data"]["rates"]["Fentanyl"].append(round(((len(fentanyl_pos) / len(data)) * 100), 2))
+        benzodiazepine_pos = data.loc[data["Benzo Strip"] == "Pos"]
+        fent_benz_by_year["data"]["counts"]["Benzodiazepines"].append(len(benzodiazepine_pos))
+        fent_benz_by_year["data"]["rates"]["Benzodiazepines"].append(round(((len(benzodiazepine_pos) / len(data)) * 100), 2))
+        fent_benz_by_year["additional_rows"]["Total Samples"].append(len(data))
 
     # Compile all the data to a single dictionary for export
     bc_data = {
         "drug_death_heatmap": heatmap_data,
         "deaths_by_sex_line": death_by_sex_data,
         "drug_supply_by_year": drug_supply_by_year,
-        "presence_of_fentbentanyl_benzos_by_year": None,
+        "fent_benz_by_year": fent_benz_by_year,
         "opioid_types_by_year": None,
         "toxicity_deaths_per_drug_by_year": None,
     }
