@@ -29,7 +29,8 @@ def national_population_scrape():
     # Pull the metadata to get the date of the last data point
     try:
         metadata = http.request("POST", "https://www150.statcan.gc.ca/t1/wds/rest/getCubeMetadata", body=json.dumps([{"productId": 17100005}]), headers={"Content-Type": "application/json"})
-        end_date = json.loads(metadata.data.decode("utf-8"))[0]["object"]["cubeEndDate"].replace("-", "")
+        end_date_year = json.loads(metadata.data.decode("utf-8"))[0]["object"]["cubeEndDate"].split("-")[0]
+        end_date = int(f"{end_date_year}0701")  # YYYYMMDD format
     except:
         print("Error pulling metadata from the Stat Can API. Exiting...")
         traceback.print_exc()
@@ -39,14 +40,14 @@ def national_population_scrape():
     output_dir, needed_files, existing_files = checkup_output(["nationalPopulationData"])
     # Check if the existing files are up to  date, exit if they are
     for file in existing_files:
-        if file.split("_")[0] == end_date and "nationalPopulationData" in file.split("_")[1]:
+        if file.split("_")[1] == end_date and "nationalPopulationData" in file.split("_")[2]:
             print("Population data is up to date. Exiting...")
             return
         
     # Check existing files to see if there's a CSV that we need to delete
     if len(existing_files) > 0:
         for file in existing_files:
-            if "nationalPopulationData" in file.split("_")[1]:
+            if "nationalPopulationData" in file.split("_")[2]:
                 existing_file = os.path.join(output_dir, file)
                 previous_year = int(file.split("_")[0][:4])
                 print(f"Found existing file {file} in the output directory. Appending data from {previous_year} onward...")
@@ -77,12 +78,15 @@ def national_population_scrape():
     # Clean out data that is out of scope (date, and non-substance related data)
     cleaned = [row for row in data_generator(os.path.join(output_dir, f"17100005.csv"), previous_year)]
     cleaned_dataframe = pandas.DataFrame(cleaned)
+    # Get todays date as YYYYMMDD for the filename
+    today = pandas.Timestamp.now()
+    today = today.strftime("%Y%m%d")
     # Write the cleaned data to a CSV, or append to the existing csv if it exists
     if existing_file:
         cleaned_dataframe.to_csv(existing_file, mode="a", header=False, index=False)
-        os.rename(existing_file, os.path.join(output_dir, f"{end_date}_nationalPopulationData.csv"))
+        os.rename(existing_file, os.path.join(output_dir, f"{today}_{end_date}_nationalPopulationData.csv"))
     else:
-        cleaned_dataframe.to_csv(os.path.join(output_dir, f"{end_date}_nationalPopulationData.csv"), index=False)
+        cleaned_dataframe.to_csv(os.path.join(output_dir, f"{today}_{end_date}_nationalPopulationData.csv"), index=False)
 
     # Clean up the zip file and the raw csv
     print("Cleaning up the raw data files...")

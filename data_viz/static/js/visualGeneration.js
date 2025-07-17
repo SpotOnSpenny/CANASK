@@ -1,3 +1,5 @@
+// TODO Create a total deaths line for the bar chart
+
 // Dictionary of visuals that each province has
 const visuals = {
   "british-columbia": {
@@ -5,12 +7,9 @@ const visuals = {
       "type": "heatmap",
       "parent": "Deaths and Demographics",
       "menu-name": "Drug Toxicity Deaths by Health Authority",
-      "count-key":"",
-      "rates-key": "",
       "second-level": {
         "deaths_by_sex_line": {
-          "count-key": "",
-          "rates-key": "",
+          "data-types": ["counts", "rates"],
           "type": "line",
         }
       },
@@ -19,15 +18,31 @@ const visuals = {
       "type": "line",
       "parent": "Drug Supply",
       "menu-name":"Drugs by Category",
-      "count-key": "counts",
-      "rates-key": "rates"
+      "data-types": ["counts", "rates"],
     },
     "fent_benz_by_year": {
       "type": "line",
       "parent": "Drug Supply",
       "menu-name": "Presence of Fentanly and Benzodiazepines",
-      "count-key": "counts",
-      "rates-key": "rates"
+      "data-types": ["counts", "rates"],
+    },
+    "opioid_types_by_year": {
+      "type": "line",
+      "parent": "Drug Supply",
+      "menu-name": "Presence of Opioid Types",
+      "data-types": ["counts", "rates"],
+    },
+    "toxicity_deaths_per_drug_by_year": {
+      "type": "bar",
+      "parent": "Deaths and Demographics",
+      "menu-name": "Unregulated Drug Toxicity Deaths by Drug Type",
+      "data-types": ["counts", "rates", "percentages"],
+    },
+    "drug_toxicity_deaths_by_age": {
+      "type": "line",
+      "parent": "Deaths and Demographics",
+      "menu-name": "Unregulated Drug Toxicity Deaths by Age Group",
+      "data-types": ["counts", "rates"],
     }
   },
 }
@@ -61,7 +76,7 @@ function createMenu(province) {
     li.appendChild(ul);
     menu.appendChild(li);
   }
-
+ 
   for (const [visual, details] of Object.entries(visuals[province])) {
     // Create a new list item for each visual
     let li = document.createElement("li");
@@ -81,15 +96,22 @@ function createMenu(province) {
         a.onclick = function () {
           resetVisualControl();
           currentVisual = visual;
-          createVisualMap(province, currentVisual, currentGeojson, currentData[currentVisual]["data"]["counts"], currentData[currentVisual]["data_source"], null);
+          createVisualHeatMap(province, currentVisual, currentGeojson, currentData[currentVisual]["data"]["counts"], currentData[currentVisual]["data_source"], null);
         };
         break;
       case "line":
         a.onclick = function () {
           resetVisualControl();
           currentVisual = visual;
-          createVisualLine(currentData[currentVisual]['data'], currentVisual, 'counts', currentData[currentVisual]['data_source'], currentData[currentVisual]['visual_options'], currentData[currentVisual]['additional_rows'] || null);
+          createVisualLine(province, currentData[currentVisual]['data'], currentVisual, 'counts', currentData[currentVisual]['data_source'], currentData[currentVisual]['visual_options'], currentData[currentVisual]['additional_rows'] || null);
         };
+        break;
+      case "bar":
+        a.onclick = function () {
+          resetVisualControl();
+          currentVisual = visual;
+          createVisualBar(province, currentData[currentVisual]['data'], currentVisual, "counts", currentData[currentVisual]['data_source'], currentData[currentVisual]['visual_options']);
+        }
         break;
     }
     
@@ -128,19 +150,20 @@ async function fetchRegionData(province){
 }
 
 // Function to generate heatmaps
-async function createVisualMap(province, currentVisual, geojson, mapData, mapSource, mapOptions){
+async function createVisualHeatMap(province, currentVisual, geojson, mapData, mapSource, mapOptions){
   // Setup the map container and other elements
   let visDiv = document.getElementById("vis-div");
   let aboutDataDiv = document.getElementById("about-data");
   let tableDiv = document.getElementById("data-table");
   let table = document.createElement("table");
   let tableTitle = document.getElementById("table-title");
-  let countRateToggle = document.getElementById("count-rate-toggle");
-  let countToggle = document.getElementById("counts-toggle");
-  let rateToggle = document.getElementById("rates-toggle");
+  let countRateToggle = document.getElementById("data-type-toggle");
   let dataSlider = [];
   let steps = [];
   
+  // remove the active class from other visuals and add it to the current visual
+  setActiveVisual(province, currentVisual);
+
   // Create the map using the provided data and options and push them into the slider
   for (let year_index = 0; year_index < mapData[Object.keys(mapData)[0]]["x"].length; year_index++) {
     let values = {};
@@ -238,25 +261,21 @@ async function createVisualMap(province, currentVisual, geojson, mapData, mapSou
         if (!visuals[province][currentVisual]["second-level"]) {
           console.error("No second level visual exists for this visual");
         } else {
-          console.log(currentVisual)
           let location = data.points[0].location; // Get the clicked location
           let secondLevelData = getSecondLevelData(province, currentVisual, location);
           let backButton = document.getElementById("back-button");
           backButton.classList.remove("d-none");
           backButton.onclick = function () {
-            // on click, re-render the map visual, and hide the back button/rates toggle again
-            backButton.classList.add("d-none");
-            countRateToggle.classList.add("d-none");
-            countRateToggle.classList.remove("d-flex");
-            //reset the count/rate toggle so that counts is selected
-            countToggle.checked = true;
-            rateToggle.checked = false;
+            // Reset the visual control
+            resetVisualControl();
             // Recreate the map visual
-            createVisualMap(province, currentVisual, geojson, mapData, mapSource, mapOptions);
+            createVisualHeatMap(province, currentVisual, geojson, mapData, mapSource, mapOptions);
           };
           switch (secondLevelData["type"]) {
             case "line":
-              createVisualLine(secondLevelData["data"], currentVisual, "counts", secondLevelData["data_source"], secondLevelData["visual_options"], secondLevelData["additional_rows"] || null);
+              // pull the data types for the second level visual
+              let dataTypes = Object.keys(secondLevelData["data"]);
+              createVisualLine(province, secondLevelData["data"], currentVisual, "counts", secondLevelData["data_source"], secondLevelData["visual_options"], secondLevelData["additional_rows"] || null, dataTypes);
               break;
             // Add more cases for other visual types as the need arises
             default:
@@ -315,8 +334,8 @@ async function createVisualMap(province, currentVisual, geojson, mapData, mapSou
 }
 
 // create line chart
-async function createVisualLine(lineData, currentVisual, countsOrRates, lineSource, visualOptions, additionalRows = null){
-  let countRateToggle = document.getElementById("count-rate-toggle");
+async function createVisualLine(province, lineData, currentVisual, countsOrRates, lineSource, visualOptions, additionalRows = null, dataTypes = null){
+  let dataTypeToggle = document.getElementById("data-type-toggle");
   let visDiv = document.getElementById("vis-div");
   let aboutDataDiv = document.getElementById("about-data");
   let tableDiv = document.getElementById("data-table");
@@ -326,15 +345,7 @@ async function createVisualLine(lineData, currentVisual, countsOrRates, lineSour
   let location = visualOptions["location"] || "";
 
   // remove the active class from other visuals and add it to the current visual
-  Array.from(document.querySelectorAll(".active")).forEach((element) => {
-    element.classList.remove("active");
-  });
-  let currentVisualElement = document.getElementById(currentVisual);
-  if (currentVisualElement) {
-    currentVisualElement.classList.add("active");
-  } else {
-    console.error(`No element found with id ${currentVisual}`);
-  }
+  setActiveVisual(province, currentVisual);
 
   // Check to see if we have count or rate data, default to count if not specified
   if (countsOrRates !== null){
@@ -430,7 +441,6 @@ async function createVisualLine(lineData, currentVisual, countsOrRates, lineSour
     "mb-0 table table-striped table-bordered table-hover"
   );
   let cols = [""].concat(traceData["x"]);
-  console.log(traceData["x"]);
   let tr = table.insertRow(-1);
   cols.forEach((headerText) => {
     let th = document.createElement("th"); // Create a new header cell
@@ -439,14 +449,14 @@ async function createVisualLine(lineData, currentVisual, countsOrRates, lineSour
   });
   tableDiv.innerHTML = "";
   tableDiv.appendChild(table);
-  tableTitle.innerText = visualOptions["counts-title"].replace("replace_with_health_authority", location);
+  tableTitle.innerText = visualOptions["table-title"].replace("replace_with_health_authority", location);
   for (const [key, value] of Object.entries(lineData)) {
     for (const [subKey, subValue] of Object.entries(value)) {
       if (subKey != "x") {
         let tr = table.insertRow(-1);
         tr.setAttribute("class", "align-middle");
         let tabCell = tr.insertCell(-1);
-        tabCell.innerText = key == "counts" ? visualOptions["table-counts-row"].replace("replace_me", subKey.replaceAll("_y", "").toTitleCase()) : visualOptions["table-rates-row"].replace("replace_me", subKey.replaceAll("_y", "").toTitleCase());
+        tabCell.innerText = visualOptions[`table-${key}-row`].replace("replace_me", subKey.replaceAll("_y", "").toTitleCase());
         subValue.forEach((element) => {
           let tabCell = tr.insertCell(-1);
           tabCell.innerText = element;
@@ -468,22 +478,217 @@ async function createVisualLine(lineData, currentVisual, countsOrRates, lineSour
     }
   }
 
-  // If there are rates and counts, unhide the toggle button, and enable it to switch between counts and rates
-  if (lineData["counts"] && lineData["rates"]) {
-    countRateToggle.classList.remove("d-none");
-    countRateToggle.classList.add("d-flex");
-    let countToggle = document.getElementById("counts-toggle");
-    let rateToggle = document.getElementById("rates-toggle");
-    countRateToggle.onchange = function () {
-      if (countToggle.checked) {
-        // If the toggle is checked, show counts
-        createVisualLine(lineData, currentVisual, "counts", lineSource, visualOptions, additionalRows);
-      } else {
-        // If the toggle is unchecked, show rates
-        createVisualLine(lineData, currentVisual, "rates", lineSource, visualOptions, additionalRows);
-      }
-    };
+  // If there is more than one data type available, create a toggle to switch between each data type
+  if (dataTypes == null) {
+    dataTypes = visuals[province][currentVisual]["data-types"];
   }
+
+  if (dataTypes.length > 1) {
+    for (const dataType of dataTypes) {
+      // Create a toggle for each data type
+      let toggle = document.createElement("input");
+      toggle.type = "radio";
+      toggle.className = "btn-check";
+      toggle.name = "data-toggle";
+      toggle.id = `${dataType}-toggle`;
+      toggle.autocomplete = "off";
+      if (dataType === countsOrRates) {
+        toggle.checked = true;
+      }
+      // Add an event listener to the toggle
+      toggle.onclick = function () {
+        // Reset the count/rate toggle
+        resetVisualControl(true);
+        // Recreate the line visual with the selected data type
+        createVisualLine(province, lineData, currentVisual, dataType, lineSource, visualOptions, additionalRows, dataTypes);
+      };
+      let label = document.createElement("label");
+      label.className = "btn btn-outline-primary";
+      label.setAttribute("for", `${dataType}-toggle`);
+      label.innerText = dataType.charAt(0).toUpperCase() + dataType.slice(1);
+      
+      dataTypeToggle.appendChild(toggle);
+      dataTypeToggle.appendChild(label);
+    }
+  }
+}
+
+// Function to generate a bar chart
+async function createVisualBar(province, barData, currentVisual, dataType, barSource, visualOptions, dataTypes = null) {
+  let dataTypeToggle = document.getElementById("data-type-toggle");
+  let visDiv = document.getElementById("vis-div");
+  let aboutDataDiv = document.getElementById("about-data");
+  let tableDiv = document.getElementById("data-table");
+  let table = document.createElement("table");
+  let tableTitle = document.getElementById("table-title");
+  let traces = [];
+
+  // remove the active class from other visuals and add it to the current visual
+  setActiveVisual(province, currentVisual);
+
+  // Check to see if we have count, percentage, or rate data, default to count if not specified
+  if (dataType !== null){
+    traceData = barData[dataType];
+  } else if (barData["counts"]) {
+    traceData = barData["counts"];
+    dataType = "counts";
+  } else if (barData["rates"]) {
+    traceData = barData["rates"];
+    dataType = "rates";
+  } else if (barData["percentages"]){
+    traceData = barData["percentages"];
+    dataType = "percentages";
+  } else {
+    console.error("No counts, percentages, or rates data found in barData");
+    return;
+  }
+
+  // Create a trace for each y value in the barData object entry
+  for (const [key, value] of Object.entries(traceData)) {
+    if (key != "x") {
+      let trace = {
+        x: traceData["x"],
+        y: value,
+        name: key.replaceAll("_y", "").toSentenceCase(),
+        type: "bar",
+        marker: {
+          line: {
+            width: 1,
+            color: "black",
+          },
+        },
+      };
+      traces.push(trace);
+    }
+  }
+  Plotly.purge(visDiv);
+  let vis = Plotly.react(
+    visDiv,
+    traces,
+    (layout = {
+      dragmode: "pan",
+      yaxis: {
+        fixedrange: true,
+        title: {
+          standoff: 30,
+          text: visualOptions[`${dataType}-y-axis-title`],
+        },
+      },
+      xaxis: {
+        fixedrange: false,
+        autorange: true,
+        dtick: 1,
+        title: {
+          text: "Year",
+          standoff: 5,
+        },
+        constrain: "domain",
+      },
+      hovermode: "x unified",
+      autosize: false,
+      width: $("#viz-card").width(),
+      height:
+        window.innerWidth > 768
+          ? $("#viz-card").height()
+          : $("#viz-card").height(),
+      title: visualOptions[`${dataType}-title`],
+      legend:
+        window.innerWidth > 768
+          ? {}
+          : {
+              orientation: "h",
+              x: 0,
+              y: -0.2,
+              xanchor: "middle",
+              yanchor: "top",
+              tracegroupgap: 200,
+            },
+      margin: window.innerWidth > 768 ? {} : { r: 0, l: 65 },
+    }),
+    (config = {
+      displaylogo: false,
+    })
+  );
+
+  // Replace the tabular section with table data for this vis
+  table.setAttribute(
+    "class",
+    "mb-0 table table-striped table-bordered table-hover"
+  );
+  let cols = [""].concat(traceData["x"]);
+  let tr = table.insertRow(-1);
+  cols.forEach((headerText) => {
+    let th = document.createElement("th"); // Create a new header cell
+    th.innerText = headerText; // Set the text of the header cell
+    tr.appendChild(th); // Add the header cell to the row
+  });
+  tableDiv.innerHTML = "";
+  tableDiv.appendChild(table);
+  tableTitle.innerText = visualOptions["table-title"];
+  for (const [key, value] of Object.entries(barData)) {
+    for (const [subKey, subValue] of Object.entries(value)) {
+      if (subKey != "x") {
+        let tr = table.insertRow(-1);
+        tr.setAttribute("class", "align-middle");
+        let tabCell = tr.insertCell(-1);
+        tabCell.innerText = visualOptions[`table-${key}-row`].replace("replace_me", subKey.replaceAll("_y", "").toTitleCase());
+        subValue.forEach((element) => {
+          let tabCell = tr.insertCell(-1);
+          tabCell.innerText = element;
+        });
+      }
+    }
+  }
+
+// If there is more than one data type available, create a toggle to switch between each data type
+  if (dataTypes == null) {
+    dataTypes = visuals[province][currentVisual]["data-types"];
+  }
+
+  if (dataTypes.length > 1) {
+    for (const data of dataTypes) {
+      // Create a toggle for each data type
+      let toggle = document.createElement("input");
+      toggle.type = "radio";
+      toggle.className = "btn-check";
+      toggle.name = "data-toggle";
+      toggle.id = `${data}-toggle`;
+      toggle.autocomplete = "off";
+      if (data === dataType) {
+        toggle.checked = true;
+      }
+      // Add an event listener to the toggle
+      toggle.onclick = function () {
+        // Reset the count/rate toggle
+        resetVisualControl(true);
+        // Recreate the line visual with the selected data type
+        createVisualBar(province, barData, currentVisual, data, barSource, visualOptions, dataTypes);
+      };
+      let label = document.createElement("label");
+      label.className = "btn btn-outline-primary";
+      label.setAttribute("for", `${data}-toggle`);
+      label.innerText = data.charAt(0).toUpperCase() + data.slice(1);
+      
+      dataTypeToggle.appendChild(toggle);
+      dataTypeToggle.appendChild(label);
+    }
+  }
+  // Generate the About these Data section and insert the html
+  let header = `<h4 class="card-title text-center"> About these Data</h4>
+  <hr />
+  <h5 class="text-center">This data set was last updated in ${barSource["last_updated"] + " "} and contains data up until ${barSource["data_until"]}.</h5>
+  `;
+  let button = `<div class="text-center pb-3">
+    <a target="_blank" href="${barSource["link"]}" role="button"
+          class="btn btn-primary">${barSource["name"]}</a>
+  </div>
+  `;
+  let aboutHTML = `${header}
+  ${barSource["about"]}
+  <br></br>
+  ${button}
+  `;
+  aboutDataDiv.innerHTML = aboutHTML;
 }
 
 // Helper function to get the data for the secondary level of the visual
@@ -522,21 +727,39 @@ function getSecondLevelData(province, visual, location = null) {
 }
 
 // Helper function to reset the count/rates toggle
-function resetVisualControl() {
-  let countRateToggle = document.getElementById("count-rate-toggle");
-  countRateToggle.classList.add("d-none");
-  countRateToggle.classList.remove("d-flex");
-  let countToggle = document.getElementById("counts-toggle");
-  let rateToggle = document.getElementById("rates-toggle");
-  // reset the count/rate toggle so that counts is selected
-  countToggle.checked = true;
-  rateToggle.checked = false;
-  // remove the back button if it exists
+function resetVisualControl(toggleOnly = false) {
+  let dataTypeToggle = document.getElementById("data-type-toggle");
+  // reset the count/rate toggle so that 
+  dataTypeToggle.innerHTML = "";
+  // remove the back button if it exists and toggle only is false
   let backButton = document.getElementById("back-button");
-  if (backButton) {
+  if (backButton != null && !toggleOnly) {
     backButton.classList.add("d-none");
   }
 }
+
+// Function to set the active visual in the menu
+function setActiveVisual(province, currentVisual) {
+  // Remove the active class from all visuals
+  Array.from(document.querySelectorAll(".nav-link")).forEach((element) => {
+    element.classList.remove("active");
+  });
+  
+  // Add the active class to the current visual
+  let currentVisualElement = document.getElementById(currentVisual);
+  if (currentVisualElement) {
+    currentVisualElement.classList.add("active");
+  } else {
+    console.error(`No element found with id ${currentVisual}`);
+  }
+
+  // Add the active class to the parent dropdown if it exists
+  let parentElement = document.querySelector(`#${visuals[province][currentVisual]["parent"].toLowerCase().replace(/ /g, "-")}-dropdown`);
+  if (parentElement) {
+    parentElement.classList.add("active");
+    }
+}
+
 // Function to convert titles to sentence case
 String.prototype.toSentenceCase = function () {
   return this.charAt(0).toUpperCase() + this.slice(1).toLowerCase();

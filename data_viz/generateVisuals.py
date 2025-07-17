@@ -497,11 +497,12 @@ For more information,visit the BCCS website by clicking the button below:
             "data_until": bc_coroners[0]["data_until"]
         },
         "data": {
-            "rates": {},
-            "counts": {}
+            "counts": {},
+            "rates": {}
         },
         "visual_options": {
             "heatmap-title": "Unregulated Drug Deaths in British Columbia by Health Authority",
+            "table-title": "Unregulated Drug Deaths in replace_with_health_authority Health Authority",
             "table-row-title": "replace_location",
         }
     }
@@ -540,12 +541,13 @@ For more information,visit the BCCS website by clicking the button below:
             "data_until": bc_coroners[0]["data_until"]
         },
         "data": {
-            "rates": {},
-            "counts": {}
+            "counts": {},
+            "rates": {}
         },
         "visual_options":{
             "rates-title": "Sex-Specific Unregulated Drug Deaths per 100,000 Population in the replace_with_health_authority Health Authority",
             "counts-title": "Sex-Specific Unregulated Drug Deaths in the replace_with_health_authority Health Authority",
+            "table-title": "Sex-Specific Unregulated Drug Deaths in replace_with_health_authority Health Authority",
             "rates-y-axis-title": "Unregulated Drug Deaths per 100,000 Population",
             "counts-y-axis-title": "Unregulated Drug Deaths",
             "table-rates-row": "replace_me deaths/100,000",
@@ -575,6 +577,116 @@ For more information,visit the BCCS website by clicking the button below:
                 "male_y": df.iloc[1].to_list()[1:],
                 "total_y": df.iloc[2].to_list()[1:]
             }
+
+    # ----- Drug Toxicity Deaths by Drug Type -----
+    drug_toxicity_deaths_by_type = {
+        "data_source": {
+            "name": "BC Coroners Service",
+            "about": """
+This data has been collected by the British Columbia Coroners Service (BCCS),and is based on toxicology reports from individuals who have died in British Columbia where the cause of death was determined to be unregulated drugs and/or drugs sold illicitly,and does not include deaths related to an individuals prescribed drugs,or intentional deaths due to toxicity.The data is updated monthly by the BCCS.
+
+For more information,visit the BCCS website by clicking the button below:
+            """,
+            "link": "https://app.powerbi.com/view?r=eyJrIjoiNjhiYjgxYzUtYjIyOC00ZGQ2LThhMzEtOWU5Y2Q4YWI0OTc5IiwidCI6IjZmZGI1MjAwLTNkMGQtNGE4YS1iMDM2LWQzNjg1ZTM1OWFkYyJ9",
+            "last_updated": bc_coroners[0]["date_updated"],
+            "data_until": bc_coroners[0]["data_until"]
+        },
+        "data": {
+            "counts": {},
+            "rates": {},
+            "percentages": {}
+        },
+        "visual_options":{
+            "percentages-title": "Percent of Unregulated Drug Deaths in British Columbia Attributed to Drugs Relevant to Death by Year",
+            "rates-title": "Unregulated Drug Deaths per 100,000 Population in British Columbia by Year and Drugs Relevant to Death",
+            "counts-title": "Unregulated Drug Deaths in British Columbia by Year and Drugs Relevant to Death",
+            "table-title": "Unregulated Drug Deaths in British Columbia by Year and Drugs Relevant to Death",
+            "rates-y-axis-title": "Unregulated Drug Deaths Caused by Drug per 100,000 Population",
+            "counts-y-axis-title": "Unregulated Drug Deaths Caused by Drug",
+            "percentages-y-axis-title": "Percent of Unregulated Drug Deaths Caused by Drug",
+            "table-rates-row": "Unregulated Drug Deaths Caused by replace_me/100,000 Population",
+            "table-percentages-row": "Percent of Unregulated Drug Deaths Caused by replace_me",
+            "table-counts-row": "Unregulated Drug Deaths Caused by replace_me",
+        }
+}
+
+    # Get the population data for the rates
+    population_data = pull_data(["nationalPopulationData"])
+    bc_population_data = filter_data(population_data, ["nationalPopulationData"])[0]["dataframe"]
+    bc_population_data = bc_population_data.loc[bc_population_data["GEO"] == "British Columbia"]
+    
+    # Pull the list of drugs
+    bc_coroners = filter_data(data, ["Unregulated Drug Deaths byDrug Types Relevant to Death"])
+    drugs = [drug for drug in bc_coroners[0]["dataframe"].iloc[:, 0].values]
+    total_deaths = heatmap_data["data"]["counts"]["British Columbia"]
+    for dataframe in bc_coroners:
+        if dataframe["Name"] == "Unregulated Drug Deaths by Drug Types Relevant to Death":
+            dataframe = dataframe["dataframe"]
+            years = [str(year).replace(u"\xa0", "") for year in dataframe.columns.to_list()[1:]]
+            drug_toxicity_deaths_by_type["data"]["rates"]["x"] = years
+            drug_toxicity_deaths_by_type["data"]["percentages"]["x"] = years
+            drug_toxicity_deaths_by_type["data"]["counts"]["x"] = years
+            break
+
+    # Iterate over each drug and pull the data we need
+    for drug in drugs:
+        drug_data = dataframe.loc[dataframe.iloc[:, 0] == drug].iloc[0, 1:]
+        drug_data = [float(value.replace(u"\xa0", "").replace("%", "")) if isinstance(value, str) else value for value in drug_data]
+        drug_toxicity_deaths_by_type["data"]["percentages"][f"{drug}_y"] = drug_data
+        drug_toxicity_deaths_by_type["data"]["counts"][f"{drug}_y"] = [round(drug_data[index] * int(total_deaths["y"][index]) / 100) for index in range(len(drug_data))]
+        drug_toxicity_deaths_by_type["data"]["rates"][f"{drug}_y"] = [round((drug_toxicity_deaths_by_type["data"]["counts"][f"{drug}_y"][index] / float(bc_population_data.loc[bc_population_data["REF_DATE"] == int(years[index]), "VALUE"].values[0]) * 100000), 2) for index in range(len(drug_data))]
+
+    # ----- Unregulated Drug Toxicity Deaths by Age Group -----
+        drug_toxicity_deaths_by_age = {
+        "data_source": {
+            "name": "BC Coroners Service",
+            "about": """
+This data has been collected by the British Columbia Coroners Service (BCCS),and is based on toxicology reports from individuals who have died in British Columbia where the cause of death was determined to be unregulated drugs and/or drugs sold illicitly,and does not include deaths related to an individuals prescribed drugs,or intentional deaths due to toxicity.The data is updated monthly by the BCCS.
+
+For more information,visit the BCCS website by clicking the button below:
+            """,
+            "link": "https://app.powerbi.com/view?r=eyJrIjoiNjhiYjgxYzUtYjIyOC00ZGQ2LThhMzEtOWU5Y2Q4YWI0OTc5IiwidCI6IjZmZGI1MjAwLTNkMGQtNGE4YS1iMDM2LWQzNjg1ZTM1OWFkYyJ9",
+            "last_updated": bc_coroners[0]["date_updated"],
+            "data_until": bc_coroners[0]["data_until"]
+        },
+        "data": {
+            "counts": {},
+            "rates": {},
+        },
+        "visual_options":{
+            "rates-title": "Annual Unregulated Drug Deaths per 100,000 Population in British Columbia by Age Group",
+            "counts-title": "Annual Unregulated Drug Deaths in British Columbia by Age Group",
+            "table-title": "Annual Unregulated Drug Deaths in British Columbia by Age Group",
+            "rates-y-axis-title": "Unregulated Drug Deaths per 100,000 Population",
+            "counts-y-axis-title": "Unregulated Drug Deaths",
+            "table-rates-row": "Unregulated Drug Deaths for Those replace_me/100,000 Population",
+            "table-counts-row": "Unregulated Drug Deaths among for Those replace_me",
+        },
+        "additional_rows": {
+            "Total Deaths": []
+        }
+}
+    bc_coroners = filter_data(data, ["Unregulated Drug Deaths by Age Group", "Age-Specific Unregulated Drug Death Rates per 100,000 Population"])
+    bc_coroners = bc_coroners[:2] # NOTE the other two dataframes pulled and discluded here are monthly data which we can use later on if we'd like
+    for dataframe in bc_coroners:
+        if "Unregulated Drug Deaths by Age Group" in dataframe["Name"]:
+            years = [str(year).replace(u"\xa0", "") for year in dataframe["dataframe"].columns.to_list()[1:]]
+            working_frame = dataframe["dataframe"]
+            drug_toxicity_deaths_by_age["data"]["counts"]["x"] = years
+            for index, row in working_frame.iterrows():
+                if "Total" in row.iloc[0]:
+                    drug_toxicity_deaths_by_age["additional_rows"]["Total Deaths"] = [str(value).replace(u"\xa0", "") if value.replace(u"\xa0", "") != "" != "" or u"\xa0" else 0 for value in row.to_list()[1:]]
+                    continue
+                age_group = row.iloc[0].replace(u"\xa0", "") if row.iloc[0] != "Not available" else "Age Unavailable"
+                drug_toxicity_deaths_by_age["data"]["counts"][f"{age_group}_y"] = [str(value).replace(u"\xa0", "") if value.replace(u"\xa0", "") != "" else 0 for value in row.to_list()[1:]]
+        if "Rates" in dataframe["Name"]:
+            working_frame = dataframe["dataframe"]
+            years = [str(year).replace(u"\xa0", "") for year in working_frame.columns.to_list()[1:]]
+            drug_toxicity_deaths_by_age["data"]["rates"]["x"] = years
+            for index, row in working_frame.iterrows():
+                age_group = row.iloc[0].replace(u"\xa0", "")
+                drug_toxicity_deaths_by_age["data"]["rates"][f"{age_group}_y"] = [str(value).replace(u"\xa0", "") if value.replace(u"\xa0", "") != "" != "" or u"\xa0" else 0 for value in row.to_list()[1:]]
+
     # ----- Prep BC Drug Sense data for use in several visuals -----
     bc_drug_sense = data["bcDrugSense"]["dataframe"]
     last_updated = data["bcDrugSense"]["date_updated"]
@@ -582,8 +694,9 @@ For more information,visit the BCCS website by clicking the button below:
     # Separate the data by year
     data_by_year = {}
     starting_year = 2018
-    current_year = datetime.datetime.strptime(data_until, "%B %d, %Y").year
+    current_year = int(datetime.datetime.strptime(data_until, "%B %d, %Y").year)
     range_years = range(starting_year, current_year + 1)
+
     for year in range_years:
         data_by_year[str(year)] = bc_drug_sense.loc[bc_drug_sense["Visit Date"].str.contains(str(year))]
 
@@ -601,12 +714,13 @@ For more information visit the BCCSU's Drug Sense website by clicking the button
             "data_until": data_until
         },
         "data": {
-            "rates": {},
-            "counts": {}
+            "counts": {},
+            "rates": {}
         },
         "visual_options":{
             "rates-title": "Percent of Submitted Samples Belonging to Major Drug Categories in British Columbia by Year",
             "counts-title": "Number of Submitted Samples Belonging to Major Drug Categories in British Columbia by Year",
+            "table-title": "Major Drug Categories in Submitted Samples by Year",
             "rates-y-axis-title": "Percent of Samples Belonging to Category of Drug",
             "counts-y-axis-title": "Number of Samples Belonging to Category of Drug",
             "table-rates-row": "Percent of Samples Classified as replace_me",
@@ -644,12 +758,13 @@ For more information visit the BCCSU's Drug Sense website by clicking the button
             "data_until": data_until
         },
         "data": {
-            "rates": {},
-            "counts": {}
+            "counts": {},
+            "rates": {}
         },
         "visual_options":{
             "rates-title": "Percent of Submitted Samples Containing Fentanyl or Benzodiazepines in British Columbia by Year",
             "counts-title": "Number of Submitted Samples Containing Fentanyl or Benzodiazepines in British Columbia by Year",
+            "table-title": "Presence of Fentanyl and Benzodiazepines in Submitted Samples by Year",
             "rates-y-axis-title": "Percent of Samples Containing Drug",
             "counts-y-axis-title": "Number of Samples Containing Drug",
             "table-rates-row": "Percent of Samples Pos. for replace_me",
@@ -676,14 +791,65 @@ For more information visit the BCCSU's Drug Sense website by clicking the button
         fent_benz_by_year["data"]["rates"]["Benzodiazepines"].append(round(((len(benzodiazepine_pos) / len(data)) * 100), 2))
         fent_benz_by_year["additional_rows"]["Total Samples"].append(len(data))
 
+    # ---- Clean Data for Opioid Types by Year ----
+    opioid_types_by_year = {
+                "data_source": {
+            "name": "British Columbia Centre for Substance Use (BCCSU)",
+            "about": """
+This data is collected from the British Columbia Centre on Substance Use (BCCSU) and is based on voluntary drug testing results.The data is collected from samples provided by individuals and organizations in British Columbia.The data is collected to help inform the public about the drug supply in British Columbia and to help inform harm reduction strategies.Please note that this data is not representative of the entire illicit drug supply in British Columbia,but rather provides a snapshot of the drug supply based on voluntary submissions.
+
+For more information visit the BCCSU's Drug Sense website by clicking the button below:
+            """,
+            "link": "https://drugsense.bccsu.ubc.ca/",
+            "last_updated": last_updated,
+            "data_until": data_until
+        },
+        "data": {
+            "counts": {},
+            "rates": {}
+        },
+        "visual_options":{
+            "rates-title": "Percent of Submitted Samples Containing Opioid Types by Year as per Voluntary Drug Testing Results",
+            "counts-title": "Number of Submitted Samples Containing Opioid Types by Year as per Voluntary Drug Testing Results",
+            "table-title": "Presence of Opioid Types in Submitted Samples by Year",
+            "rates-y-axis-title": "Percent of Samples Containing Opioid Types",
+            "counts-y-axis-title": "Number of Samples Containing Opioid Types",
+            "table-rates-row": "Percent of Samples Pos. for replace_me",
+            "table-counts-row": "Number of Samples Pos. for replace_me",
+        },
+        "additional_rows": {
+            "Total Opioid Samples": [],
+            "Total Samples": []
+        }
+    }
+
+    opioid_types_by_year["data"]["counts"]["x"] = [year for year in data_by_year.keys()]
+    opioid_types_by_year["data"]["rates"]["x"] = [year for year in data_by_year.keys()]
+    opioid_types_by_year["additional_rows"]["Total Samples"] = []
+    opioid_categories = ["Codeine", "Fentanyl", "Heroin", "Hydrocodone", "Hydromorphone", "Methadone", "Morphine", "Oxycodone", "Buprenorphine"]
+    for category in opioid_categories:
+        opioid_types_by_year["data"]["counts"][category] = []
+        opioid_types_by_year["data"]["rates"][category] = []
+    for year, data in data_by_year.items():
+        # Add the total number of samples to the total samples row
+        opioid_types_by_year["additional_rows"]["Total Samples"].append(len(data))
+        # Filter the data for opioid samples
+        opioid_data = data.loc[data["Category"] == "Opioid"].fillna("No Data")
+        opioid_types_by_year["additional_rows"]["Total Opioid Samples"].append(len(opioid_data))
+        for category in opioid_categories:
+            type_data = opioid_data.loc[opioid_data["Spectrometer"].str.contains(category, case=False)]
+            opioid_types_by_year["data"]["counts"][category].append(len(type_data))
+            opioid_types_by_year["data"]["rates"][category].append(round((len(type_data)/len(opioid_data) * 100), 2))
+
     # Compile all the data to a single dictionary for export
     bc_data = {
         "drug_death_heatmap": heatmap_data,
         "deaths_by_sex_line": death_by_sex_data,
         "drug_supply_by_year": drug_supply_by_year,
         "fent_benz_by_year": fent_benz_by_year,
-        "opioid_types_by_year": None,
-        "toxicity_deaths_per_drug_by_year": None,
+        "opioid_types_by_year": opioid_types_by_year,
+        "toxicity_deaths_per_drug_by_year": drug_toxicity_deaths_by_type,
+        "drug_toxicity_deaths_by_age": drug_toxicity_deaths_by_age
     }
     return bc_data
 
@@ -693,7 +859,6 @@ def export_data_json():
     data = {
         "british-columbia": v1_BC_export_clean()
     }
-
     # Write the data to a json file
     with open(os.path.join(os.path.abspath(os.path.dirname(__file__)), "static/js/visual_data.json"), "w") as file:
         json.dump(data, file, indent=4)
