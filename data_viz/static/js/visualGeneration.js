@@ -425,9 +425,7 @@ async function createVisualMap(province, currentVisual, geojson, mapOptions) {
           console.error("No second level visual exists for this visual");
         } else {
           let location = data.points[0].location; // Get the clicked location
-          console.log(currentVisual, location)
           let secondLevelData = getSecondLevelData(province, currentVisual, location);
-          console.log(secondLevelData)
           let backButton = document.getElementById("back-button");
           backButton.classList.remove("d-none");
           backButton.onclick = function () {
@@ -443,7 +441,6 @@ async function createVisualMap(province, currentVisual, geojson, mapOptions) {
               createVisualLine(province, secondLevelData["data"], currentVisual, "counts", secondLevelData["data_source"], secondLevelData["visual_options"], secondLevelData["additional_rows"] || null, dataTypes);
               break;
             case "pie":
-              console.log(secondLevelData)
               createVisualPie(province, secondLevelData["data"], currentVisual, secondLevelData["data_source"], secondLevelData["visual_options"], secondLevelData["tabular_data"], location);
               break;
             // Add more cases for other visual types as the need arises
@@ -829,8 +826,6 @@ async function createVisualPie(province, pieData, currentVisual, pieSource, visu
   // Create the pie chart data with a slider for each year
   let years = Object.keys(pieData["counts"])
   for (let year of years){
-    console.log(year)
-    console.log(pieData["counts"][year])
     let chartData = {
       type: "pie",
       labels: Object.keys(pieData["counts"][year]),
@@ -945,7 +940,6 @@ async function createVisualPie(province, pieData, currentVisual, pieSource, visu
   aboutDataDiv.innerHTML = aboutHTML;
 
   // Replace the tabular section with table data for this vis
-  console.log(tabularData)
   table.setAttribute(
     "class",
     "mb-0 table table-striped table-bordered table-hover"
