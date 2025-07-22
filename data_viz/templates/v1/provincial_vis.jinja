@@ -72,7 +72,7 @@
     <!-- This is the data table that will be rendered below the visualizations -->
     <div class="row  justify-content-center align-items-center pb-3">
         <div class="col">
-            <div class="card pe-3">
+            <div class="card">
                 <div class="card-body overflow-scroll">
                     <h4 class="card-title" id="table-title"></h4>
                     <div id="data-table" class="text-center">
@@ -99,10 +99,28 @@
     <script type="text/javascript">
         document.addEventListener('DOMContentLoaded', async function () {
             let province = "{{province}}";
-            let currentVisual = "drug_death_heatmap";
+            let currentVisual = visuals["default-visuals"][province];
             createMenu(province)
             await fetchRegionData(province);
-            await createVisualMap(province, currentVisual, currentGeojson, currentData["drug_death_heatmap"]["data"]["counts"], currentData["drug_death_heatmap"]["data_source"], null)
+            console.log(currentVisual)
+            console.log(visuals[province][currentVisual]["type"]);
+            switch (visuals[province][currentVisual]["type"]) {
+                case "heatmap":
+                    await createVisualHeatMap(province, currentVisual, currentGeojson, currentData["drug_death_heatmap"]["data"]["counts"], currentData["drug_death_heatmap"]["data_source"], null);
+                    break;
+                case "line":
+                    await createVisualLineChart(province, currentVisual, currentData[currentVisual]["data"], currentData[currentVisual]["data_source"]);
+                    break;
+                case "pie":
+                    await createVisualPieChart(province, currentVisual, currentData[currentVisual]["data"], currentData[currentVisual]["data_source"], currentData[currentVisual]["visual_options"], currentData[currentVisual]["tabular_data"]);
+                    break;
+                case "map":
+                    await createVisualMap(province, currentVisual, geojson, mapOptions);
+                    break;
+                case "bar":
+                    await createVisualBarChart(province, currentVisual, currentData[currentVisual]["data"], currentData[currentVisual]["data_source"]);
+                    break;
+            }
         });
     </script>
 </div>

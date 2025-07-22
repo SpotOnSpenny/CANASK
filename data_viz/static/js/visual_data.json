@@ -2186,6 +2186,813 @@
                     "428"
                 ]
             }
+        },
+        "drug_supply_geographically": {
+            "visual_options": {
+                "title": "Health Authorities in British Columbia",
+                "click_line": "Click on a health authority to view detailed data for that area."
+            }
+        },
+        "geographical_drug_supply_pie": {
+            "data_source": {
+                "name": "British Columbia Centre for Substance Use (BCCSU)",
+                "about": "\nThis data is collected from the British Columbia Centre on Substance Use (BCCSU) and is based on voluntary drug testing results.The data is collected from samples provided by individuals and organizations in British Columbia.The data is collected to help inform the public about the drug supply in British Columbia and to help inform harm reduction strategies.Please note that this data is not representative of the entire illicit drug supply in British Columbia,but rather provides a snapshot of the drug supply based on voluntary submissions.\n\nFor more information visit the BCCSU's Drug Sense website by clicking the button below:\n            ",
+                "link": "https://drugsense.bccsu.ubc.ca/",
+                "last_updated": "July 07, 2025",
+                "data_until": "June 30, 2025"
+            },
+            "data": {
+                "counts": {
+                    "Interior": {
+                        "2018": {
+                            "Opioid": 8,
+                            "Psychedelic": 103,
+                            "Unknown": 19,
+                            "Depressant": 1,
+                            "Stimulant": 28,
+                            "Other": 0,
+                            "Polysubstance": 0
+                        },
+                        "2019": {
+                            "Opioid": 147,
+                            "Psychedelic": 160,
+                            "Unknown": 63,
+                            "Depressant": 16,
+                            "Stimulant": 171,
+                            "Other": 2,
+                            "Polysubstance": 0
+                        },
+                        "2020": {
+                            "Opioid": 368,
+                            "Psychedelic": 161,
+                            "Unknown": 93,
+                            "Depressant": 17,
+                            "Stimulant": 226,
+                            "Other": 4,
+                            "Polysubstance": 3
+                        },
+                        "2021": {
+                            "Opioid": 920,
+                            "Psychedelic": 436,
+                            "Unknown": 179,
+                            "Depressant": 34,
+                            "Stimulant": 433,
+                            "Other": 7,
+                            "Polysubstance": 17
+                        },
+                        "2022": {
+                            "Opioid": 1402,
+                            "Psychedelic": 2996,
+                            "Unknown": 774,
+                            "Depressant": 103,
+                            "Stimulant": 1340,
+                            "Other": 20,
+                            "Polysubstance": 19
+                        },
+                        "2023": {
+                            "Opioid": 1660,
+                            "Psychedelic": 3736,
+                            "Unknown": 818,
+                            "Depressant": 138,
+                            "Stimulant": 1722,
+                            "Other": 9,
+                            "Polysubstance": 24
+                        },
+                        "2024": {
+                            "Opioid": 1810,
+                            "Psychedelic": 4333,
+                            "Unknown": 1073,
+                            "Depressant": 155,
+                            "Stimulant": 1920,
+                            "Other": 26,
+                            "Polysubstance": 33
+                        },
+                        "2025": {
+                            "Opioid": 956,
+                            "Psychedelic": 296,
+                            "Unknown": 250,
+                            "Depressant": 40,
+                            "Stimulant": 607,
+                            "Other": 21,
+                            "Polysubstance": 8
+                        }
+                    },
+                    "Fraser": {
+                        "2018": {
+                            "Opioid": 394,
+                            "Psychedelic": 112,
+                            "Unknown": 51,
+                            "Depressant": 3,
+                            "Stimulant": 83,
+                            "Other": 1,
+                            "Polysubstance": 7
+                        },
+                        "2019": {
+                            "Opioid": 390,
+                            "Psychedelic": 15,
+                            "Unknown": 38,
+                            "Depressant": 4,
+                            "Stimulant": 56,
+                            "Other": 4,
+                            "Polysubstance": 2
+                        },
+                        "2020": {
+                            "Opioid": 131,
+                            "Psychedelic": 0,
+                            "Unknown": 4,
+                            "Depressant": 3,
+                            "Stimulant": 10,
+                            "Other": 1,
+                            "Polysubstance": 1
+                        },
+                        "2021": {
+                            "Opioid": 129,
+                            "Psychedelic": 3,
+                            "Unknown": 21,
+                            "Depressant": 5,
+                            "Stimulant": 22,
+                            "Other": 2,
+                            "Polysubstance": 0
+                        },
+                        "2022": {
+                            "Opioid": 903,
+                            "Psychedelic": 75,
+                            "Unknown": 189,
+                            "Depressant": 25,
+                            "Stimulant": 289,
+                            "Other": 7,
+                            "Polysubstance": 11
+                        },
+                        "2023": {
+                            "Opioid": 2497,
+                            "Psychedelic": 111,
+                            "Unknown": 419,
+                            "Depressant": 75,
+                            "Stimulant": 823,
+                            "Other": 13,
+                            "Polysubstance": 3
+                        },
+                        "2024": {
+                            "Opioid": 3193,
+                            "Psychedelic": 196,
+                            "Unknown": 317,
+                            "Depressant": 115,
+                            "Stimulant": 802,
+                            "Other": 33,
+                            "Polysubstance": 18
+                        },
+                        "2025": {
+                            "Opioid": 1316,
+                            "Psychedelic": 61,
+                            "Unknown": 219,
+                            "Depressant": 66,
+                            "Stimulant": 279,
+                            "Other": 12,
+                            "Polysubstance": 5
+                        }
+                    },
+                    "Vancouver Coastal": {
+                        "2018": {
+                            "Opioid": 2367,
+                            "Psychedelic": 456,
+                            "Unknown": 323,
+                            "Depressant": 32,
+                            "Stimulant": 724,
+                            "Other": 10,
+                            "Polysubstance": 8
+                        },
+                        "2019": {
+                            "Opioid": 2387,
+                            "Psychedelic": 514,
+                            "Unknown": 237,
+                            "Depressant": 106,
+                            "Stimulant": 593,
+                            "Other": 11,
+                            "Polysubstance": 9
+                        },
+                        "2020": {
+                            "Opioid": 3549,
+                            "Psychedelic": 2044,
+                            "Unknown": 550,
+                            "Depressant": 613,
+                            "Stimulant": 1686,
+                            "Other": 230,
+                            "Polysubstance": 12
+                        },
+                        "2021": {
+                            "Opioid": 4988,
+                            "Psychedelic": 3541,
+                            "Unknown": 1331,
+                            "Depressant": 1277,
+                            "Stimulant": 2880,
+                            "Other": 439,
+                            "Polysubstance": 19
+                        },
+                        "2022": {
+                            "Opioid": 6474,
+                            "Psychedelic": 5232,
+                            "Unknown": 2730,
+                            "Depressant": 1303,
+                            "Stimulant": 3689,
+                            "Other": 493,
+                            "Polysubstance": 15
+                        },
+                        "2023": {
+                            "Opioid": 6456,
+                            "Psychedelic": 5941,
+                            "Unknown": 3916,
+                            "Depressant": 1604,
+                            "Stimulant": 4676,
+                            "Other": 545,
+                            "Polysubstance": 30
+                        },
+                        "2024": {
+                            "Opioid": 7702,
+                            "Psychedelic": 5613,
+                            "Unknown": 3291,
+                            "Depressant": 1532,
+                            "Stimulant": 4483,
+                            "Other": 724,
+                            "Polysubstance": 14
+                        },
+                        "2025": {
+                            "Opioid": 3298,
+                            "Psychedelic": 1802,
+                            "Unknown": 1144,
+                            "Depressant": 427,
+                            "Stimulant": 1560,
+                            "Other": 255,
+                            "Polysubstance": 20
+                        }
+                    },
+                    "Northern": {
+                        "2018": {
+                            "Opioid": 0,
+                            "Psychedelic": 0,
+                            "Unknown": 0,
+                            "Depressant": 0,
+                            "Stimulant": 0,
+                            "Other": 0,
+                            "Polysubstance": 0
+                        },
+                        "2019": {
+                            "Opioid": 0,
+                            "Psychedelic": 0,
+                            "Unknown": 0,
+                            "Depressant": 0,
+                            "Stimulant": 0,
+                            "Other": 0,
+                            "Polysubstance": 0
+                        },
+                        "2020": {
+                            "Opioid": 0,
+                            "Psychedelic": 0,
+                            "Unknown": 0,
+                            "Depressant": 0,
+                            "Stimulant": 0,
+                            "Other": 0,
+                            "Polysubstance": 0
+                        },
+                        "2021": {
+                            "Opioid": 0,
+                            "Psychedelic": 0,
+                            "Unknown": 0,
+                            "Depressant": 0,
+                            "Stimulant": 0,
+                            "Other": 0,
+                            "Polysubstance": 0
+                        },
+                        "2022": {
+                            "Opioid": 217,
+                            "Psychedelic": 37,
+                            "Unknown": 29,
+                            "Depressant": 2,
+                            "Stimulant": 94,
+                            "Other": 1,
+                            "Polysubstance": 2
+                        },
+                        "2023": {
+                            "Opioid": 249,
+                            "Psychedelic": 36,
+                            "Unknown": 27,
+                            "Depressant": 4,
+                            "Stimulant": 105,
+                            "Other": 2,
+                            "Polysubstance": 0
+                        },
+                        "2024": {
+                            "Opioid": 467,
+                            "Psychedelic": 29,
+                            "Unknown": 55,
+                            "Depressant": 13,
+                            "Stimulant": 132,
+                            "Other": 2,
+                            "Polysubstance": 2
+                        },
+                        "2025": {
+                            "Opioid": 232,
+                            "Psychedelic": 58,
+                            "Unknown": 26,
+                            "Depressant": 6,
+                            "Stimulant": 91,
+                            "Other": 5,
+                            "Polysubstance": 2
+                        }
+                    },
+                    "Island": {
+                        "2018": {
+                            "Opioid": 0,
+                            "Psychedelic": 14,
+                            "Unknown": 2,
+                            "Depressant": 1,
+                            "Stimulant": 12,
+                            "Other": 0,
+                            "Polysubstance": 0
+                        },
+                        "2019": {
+                            "Opioid": 0,
+                            "Psychedelic": 0,
+                            "Unknown": 0,
+                            "Depressant": 0,
+                            "Stimulant": 0,
+                            "Other": 0,
+                            "Polysubstance": 0
+                        },
+                        "2020": {
+                            "Opioid": 37,
+                            "Psychedelic": 1,
+                            "Unknown": 1,
+                            "Depressant": 0,
+                            "Stimulant": 6,
+                            "Other": 0,
+                            "Polysubstance": 1
+                        },
+                        "2021": {
+                            "Opioid": 269,
+                            "Psychedelic": 17,
+                            "Unknown": 12,
+                            "Depressant": 3,
+                            "Stimulant": 58,
+                            "Other": 0,
+                            "Polysubstance": 1
+                        },
+                        "2022": {
+                            "Opioid": 166,
+                            "Psychedelic": 28,
+                            "Unknown": 12,
+                            "Depressant": 17,
+                            "Stimulant": 73,
+                            "Other": 1,
+                            "Polysubstance": 0
+                        },
+                        "2023": {
+                            "Opioid": 1223,
+                            "Psychedelic": 89,
+                            "Unknown": 87,
+                            "Depressant": 32,
+                            "Stimulant": 347,
+                            "Other": 4,
+                            "Polysubstance": 1
+                        },
+                        "2024": {
+                            "Opioid": 1220,
+                            "Psychedelic": 147,
+                            "Unknown": 136,
+                            "Depressant": 46,
+                            "Stimulant": 373,
+                            "Other": 5,
+                            "Polysubstance": 7
+                        },
+                        "2025": {
+                            "Opioid": 416,
+                            "Psychedelic": 65,
+                            "Unknown": 36,
+                            "Depressant": 19,
+                            "Stimulant": 135,
+                            "Other": 0,
+                            "Polysubstance": 2
+                        }
+                    }
+                }
+            },
+            "visual_options": {
+                "visual-title": "Category of Voluntarily Submitted Drug Samples in the replace_with_health_authority Health Authority by Year",
+                "table-title": "Category of Voluntarily Submitted Drug Samples in the replace_with_health_authority Health Authority by Year",
+                "table-counts-row": "Samples Classified as replace_me",
+                "table-rates-row": "Percent of Samples Classified as replace_me"
+            },
+            "tabular_data": {
+                "Interior": {
+                    "Opioid": [
+                        8,
+                        147,
+                        368,
+                        920,
+                        1402,
+                        1660,
+                        1810,
+                        956
+                    ],
+                    "Psychedelic": [
+                        103,
+                        160,
+                        161,
+                        436,
+                        2996,
+                        3736,
+                        4333,
+                        296
+                    ],
+                    "Unknown": [
+                        19,
+                        63,
+                        93,
+                        179,
+                        774,
+                        818,
+                        1073,
+                        250
+                    ],
+                    "Depressant": [
+                        1,
+                        16,
+                        17,
+                        34,
+                        103,
+                        138,
+                        155,
+                        40
+                    ],
+                    "Stimulant": [
+                        28,
+                        171,
+                        226,
+                        433,
+                        1340,
+                        1722,
+                        1920,
+                        607
+                    ],
+                    "Other": [
+                        0,
+                        2,
+                        4,
+                        7,
+                        20,
+                        9,
+                        26,
+                        21
+                    ],
+                    "Polysubstance": [
+                        0,
+                        0,
+                        3,
+                        17,
+                        19,
+                        24,
+                        33,
+                        8
+                    ],
+                    "Total Samples": [
+                        159,
+                        559,
+                        872,
+                        2026,
+                        6654,
+                        8107,
+                        9350,
+                        2178
+                    ]
+                },
+                "Fraser": {
+                    "Opioid": [
+                        394,
+                        390,
+                        131,
+                        129,
+                        903,
+                        2497,
+                        3193,
+                        1316
+                    ],
+                    "Psychedelic": [
+                        112,
+                        15,
+                        0,
+                        3,
+                        75,
+                        111,
+                        196,
+                        61
+                    ],
+                    "Unknown": [
+                        51,
+                        38,
+                        4,
+                        21,
+                        189,
+                        419,
+                        317,
+                        219
+                    ],
+                    "Depressant": [
+                        3,
+                        4,
+                        3,
+                        5,
+                        25,
+                        75,
+                        115,
+                        66
+                    ],
+                    "Stimulant": [
+                        83,
+                        56,
+                        10,
+                        22,
+                        289,
+                        823,
+                        802,
+                        279
+                    ],
+                    "Other": [
+                        1,
+                        4,
+                        1,
+                        2,
+                        7,
+                        13,
+                        33,
+                        12
+                    ],
+                    "Polysubstance": [
+                        7,
+                        2,
+                        1,
+                        0,
+                        11,
+                        3,
+                        18,
+                        5
+                    ],
+                    "Total Samples": [
+                        651,
+                        509,
+                        150,
+                        182,
+                        1499,
+                        3941,
+                        4674,
+                        1958
+                    ]
+                },
+                "Vancouver Coastal": {
+                    "Opioid": [
+                        2367,
+                        2387,
+                        3549,
+                        4988,
+                        6474,
+                        6456,
+                        7702,
+                        3298
+                    ],
+                    "Psychedelic": [
+                        456,
+                        514,
+                        2044,
+                        3541,
+                        5232,
+                        5941,
+                        5613,
+                        1802
+                    ],
+                    "Unknown": [
+                        323,
+                        237,
+                        550,
+                        1331,
+                        2730,
+                        3916,
+                        3291,
+                        1144
+                    ],
+                    "Depressant": [
+                        32,
+                        106,
+                        613,
+                        1277,
+                        1303,
+                        1604,
+                        1532,
+                        427
+                    ],
+                    "Stimulant": [
+                        724,
+                        593,
+                        1686,
+                        2880,
+                        3689,
+                        4676,
+                        4483,
+                        1560
+                    ],
+                    "Other": [
+                        10,
+                        11,
+                        230,
+                        439,
+                        493,
+                        545,
+                        724,
+                        255
+                    ],
+                    "Polysubstance": [
+                        8,
+                        9,
+                        12,
+                        19,
+                        15,
+                        30,
+                        14,
+                        20
+                    ],
+                    "Total Samples": [
+                        3920,
+                        3857,
+                        8684,
+                        14475,
+                        19936,
+                        23168,
+                        23359,
+                        8506
+                    ]
+                },
+                "Northern": {
+                    "Opioid": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        217,
+                        249,
+                        467,
+                        232
+                    ],
+                    "Psychedelic": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        37,
+                        36,
+                        29,
+                        58
+                    ],
+                    "Unknown": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        29,
+                        27,
+                        55,
+                        26
+                    ],
+                    "Depressant": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        2,
+                        4,
+                        13,
+                        6
+                    ],
+                    "Stimulant": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        94,
+                        105,
+                        132,
+                        91
+                    ],
+                    "Other": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        1,
+                        2,
+                        2,
+                        5
+                    ],
+                    "Polysubstance": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        2,
+                        0,
+                        2,
+                        2
+                    ],
+                    "Total Samples": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        382,
+                        423,
+                        700,
+                        420
+                    ]
+                },
+                "Island": {
+                    "Opioid": [
+                        0,
+                        0,
+                        37,
+                        269,
+                        166,
+                        1223,
+                        1220,
+                        416
+                    ],
+                    "Psychedelic": [
+                        14,
+                        0,
+                        1,
+                        17,
+                        28,
+                        89,
+                        147,
+                        65
+                    ],
+                    "Unknown": [
+                        2,
+                        0,
+                        1,
+                        12,
+                        12,
+                        87,
+                        136,
+                        36
+                    ],
+                    "Depressant": [
+                        1,
+                        0,
+                        0,
+                        3,
+                        17,
+                        32,
+                        46,
+                        19
+                    ],
+                    "Stimulant": [
+                        12,
+                        0,
+                        6,
+                        58,
+                        73,
+                        347,
+                        373,
+                        135
+                    ],
+                    "Other": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        1,
+                        4,
+                        5,
+                        0
+                    ],
+                    "Polysubstance": [
+                        0,
+                        0,
+                        1,
+                        1,
+                        0,
+                        1,
+                        7,
+                        2
+                    ],
+                    "Total Samples": [
+                        29,
+                        0,
+                        46,
+                        360,
+                        297,
+                        1783,
+                        1934,
+                        673
+                    ]
+                }
+            }
         }
     }
 }

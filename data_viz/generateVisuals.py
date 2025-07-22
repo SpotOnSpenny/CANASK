@@ -793,7 +793,7 @@ For more information visit the BCCSU's Drug Sense website by clicking the button
 
     # ---- Clean Data for Opioid Types by Year ----
     opioid_types_by_year = {
-                "data_source": {
+            "data_source": {
             "name": "British Columbia Centre for Substance Use (BCCSU)",
             "about": """
 This data is collected from the British Columbia Centre on Substance Use (BCCSU) and is based on voluntary drug testing results.The data is collected from samples provided by individuals and organizations in British Columbia.The data is collected to help inform the public about the drug supply in British Columbia and to help inform harm reduction strategies.Please note that this data is not representative of the entire illicit drug supply in British Columbia,but rather provides a snapshot of the drug supply based on voluntary submissions.
@@ -841,6 +841,68 @@ For more information visit the BCCSU's Drug Sense website by clicking the button
             opioid_types_by_year["data"]["counts"][category].append(len(type_data))
             opioid_types_by_year["data"]["rates"][category].append(round((len(type_data)/len(opioid_data) * 100), 2))
 
+    # ----- Geographic Map Setup -----
+    geographic_map = {
+        "visual_options":{
+            "title": "Health Authorities in British Columbia",
+            "click_line": "Click on a health authority to view detailed data for that area.",
+        }
+    }
+
+    # ----- Clean Data for Drug Supply Geographically Pie Charts
+    geographical_drug_supply_pie = {
+        "data_source": {
+            "name": "British Columbia Centre for Substance Use (BCCSU)",
+            "about": """
+This data is collected from the British Columbia Centre on Substance Use (BCCSU) and is based on voluntary drug testing results.The data is collected from samples provided by individuals and organizations in British Columbia.The data is collected to help inform the public about the drug supply in British Columbia and to help inform harm reduction strategies.Please note that this data is not representative of the entire illicit drug supply in British Columbia,but rather provides a snapshot of the drug supply based on voluntary submissions.
+
+For more information visit the BCCSU's Drug Sense website by clicking the button below:
+            """,
+            "link": "https://drugsense.bccsu.ubc.ca/",
+            "last_updated": last_updated,
+            "data_until": data_until
+        },
+        "data": {
+            "counts": {}
+        },
+        "visual_options":{
+            "visual-title": "Category of Voluntarily Submitted Drug Samples in the replace_with_health_authority Health Authority by Year",
+            "table-title": "Category of Voluntarily Submitted Drug Samples in the replace_with_health_authority Health Authority by Year",
+            "table-counts-row": "Samples Classified as replace_me",
+            "table-rates-row": "Percent of Samples Classified as replace_me",
+        },
+        "tabular_data": {}
+    }
+
+    # Split the data into each unique health authority
+    bc_drug_sense = bc_drug_sense.loc[bc_drug_sense["Health Authority"].notna()]
+    health_authorities = bc_drug_sense["Health Authority"].unique()
+    for health_authority in health_authorities:
+        ha_title = health_authority.replace(" Health", "")
+        # Filter the data for the health authority
+        ha_data = bc_drug_sense.loc[bc_drug_sense["Health Authority"] == health_authority]
+        # Create a dictionary for the health authority
+        geographical_drug_supply_pie["data"]["counts"][ha_title] = {}
+        geographical_drug_supply_pie["tabular_data"][ha_title] = {}
+        for drug in drug_categories:
+            geographical_drug_supply_pie["tabular_data"][ha_title][drug] = []
+        geographical_drug_supply_pie["tabular_data"][ha_title]["Total Samples"] = []
+        # Iterate over each year in the data
+        for year in range_years:
+            # Filter the data for the year
+            year_data = ha_data.loc[ha_data["Visit Date"].str.contains(str(year))]
+            # Create a dictionary for the year
+            geographical_drug_supply_pie["data"]["counts"][ha_title][str(year)] = {}
+            geographical_drug_supply_pie["tabular_data"][ha_title]["Total Samples"].append(len(year_data))
+            # Iterate over each drug category in the data
+            for drug in drug_categories:
+                # Filter the data for the drug category
+                drug_data = year_data.loc[year_data["Category"] == drug]
+                # Add the count of samples to the dictionary
+                geographical_drug_supply_pie["data"]["counts"][ha_title][str(year)][drug] = len(drug_data)
+                # Add the count of samples to the tabular data
+                geographical_drug_supply_pie["tabular_data"][ha_title][drug].append(len(drug_data))
+
     # Compile all the data to a single dictionary for export
     bc_data = {
         "drug_death_heatmap": heatmap_data,
@@ -849,7 +911,9 @@ For more information visit the BCCSU's Drug Sense website by clicking the button
         "fent_benz_by_year": fent_benz_by_year,
         "opioid_types_by_year": opioid_types_by_year,
         "toxicity_deaths_per_drug_by_year": drug_toxicity_deaths_by_type,
-        "drug_toxicity_deaths_by_age": drug_toxicity_deaths_by_age
+        "drug_toxicity_deaths_by_age": drug_toxicity_deaths_by_age,
+        "drug_supply_geographically": geographic_map,
+        "geographical_drug_supply_pie": geographical_drug_supply_pie,
     }
     return bc_data
 

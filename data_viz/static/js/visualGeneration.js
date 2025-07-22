@@ -1,7 +1,11 @@
-// TODO Create a total deaths line for the bar chart
+// TODO - Consolidate sources out of the individual visuals into a single source file that we can reference
+// TODO - Create a Pie Chart function that's clickable and loads a third level visual
 
 // Dictionary of visuals that each province has
 const visuals = {
+  "default-visuals": {
+    "british-columbia": "drug_death_heatmap"
+  },
   "british-columbia": {
     "drug_death_heatmap": {
       "type": "heatmap",
@@ -43,6 +47,17 @@ const visuals = {
       "parent": "Deaths and Demographics",
       "menu-name": "Unregulated Drug Toxicity Deaths by Age Group",
       "data-types": ["counts", "rates"],
+    },
+    "drug_supply_geographically": {
+      "type": "map",
+      "parent": "Drug Supply",
+      "menu-name": "Drug Supply by Health Authority",
+      "second-level": {
+        "geographical_drug_supply_pie": {
+          "type": "pie", 
+          "data-types": ["counts"],
+        }
+      }
     }
   },
 }
@@ -76,7 +91,7 @@ function createMenu(province) {
     li.appendChild(ul);
     menu.appendChild(li);
   }
- 
+
   for (const [visual, details] of Object.entries(visuals[province])) {
     // Create a new list item for each visual
     let li = document.createElement("li");
@@ -111,14 +126,22 @@ function createMenu(province) {
           resetVisualControl();
           currentVisual = visual;
           createVisualBar(province, currentData[currentVisual]['data'], currentVisual, "counts", currentData[currentVisual]['data_source'], currentData[currentVisual]['visual_options']);
-        }
+        };
+        break;
+      case "map":
+        a.onclick = function () {
+          resetVisualControl();
+          currentVisual = visual;
+          createVisualMap(province, currentVisual, currentGeojson, currentData[currentVisual]["visual_options"]);
+        };
         break;
     }
     
     // append the menu item to the appropriate parent category
     document.getElementById(`${details["parent"].toLowerCase().replace(/ /g, "-")}-dropdown-menu`).appendChild(li);
   }
-    // Add a disabled class to the parent categories that have no visuals
+
+  // Add a disabled class to the parent categories that have no visuals
   for (const parent of parentCategories) {
     let dropdownMenu = document.getElementById(`${parent.toLowerCase().replace(/ /g, "-")}-dropdown-menu`);
     if (dropdownMenu.children.length === 0) {
@@ -157,7 +180,6 @@ async function createVisualHeatMap(province, currentVisual, geojson, mapData, ma
   let tableDiv = document.getElementById("data-table");
   let table = document.createElement("table");
   let tableTitle = document.getElementById("table-title");
-  let countRateToggle = document.getElementById("data-type-toggle");
   let dataSlider = [];
   let steps = [];
   
@@ -333,6 +355,107 @@ async function createVisualHeatMap(province, currentVisual, geojson, mapData, ma
   }
 }
 
+// Function to generate interactive maps
+async function createVisualMap(province, currentVisual, geojson, mapOptions) {
+  // take the provided geojson and create a map using Plotly
+  let visDiv = document.getElementById("vis-div");
+  let aboutDataDiv = document.getElementById("about-data");
+  let tableDiv = document.getElementById("data-table");
+  let tableTitle = document.getElementById("table-title");
+
+  // remove the active class from other visuals and add it to the current visual
+  setActiveVisual(province, currentVisual);
+  
+  // create a data array of 0s for each location in the geojson
+  let data_array = [];
+  for (let loc_index = 0; loc_index < geojson.features.length; loc_index++) {
+    data_array.push(0);
+  };
+
+  mapData = {
+    type: "choropleth",
+    geojson: geojson,
+    locations: geojson.features.map(feature => feature.properties.ENGNAME),
+    featureidkey: "properties.ENGNAME",
+    showscale: false,
+    z: data_array,
+    hoverinfo: "location",
+  };
+
+  // Create the layout for the map from the mapOptions object
+  let layout = {
+    geo: {
+      fitbounds: "locations",
+      showcoastlines: false,
+      showlakes: false,
+    },
+    width: $("#viz-card").width(),
+    height:
+      window.innerWidth > 768
+        ? $("#viz-card").height()
+        : $("#viz-card").height(),
+    hoverlabel: {
+      namelength: -1,
+    },
+    title: mapOptions["title"]
+  };
+
+  // Insert the about this data line, into the aboutDataDiv and the tableDiv
+  let header = `<h4 class="card-title text-center">${mapOptions["click_line"]}</h4>`;
+  aboutDataDiv.innerHTML = header;
+  tableDiv.innerHTML = header;
+  tableTitle.innerText = ""
+
+  // Insert the visual and define the callback for click events
+  visDiv.innerHTML = "";
+  Plotly.purge(visDiv); // Clear any previous Plotly plots
+  let vis = Plotly.react(
+    visDiv,
+    [mapData],
+    layout,
+    (config = {
+      displaylogo: false,
+      responsive: false,
+    })
+  ).then(() => {
+    visDiv.on("plotly_click", function (data) {
+      if (data && data.points.length > 0) {
+        // check if second level data exists for the current visual
+        if (!visuals[province][currentVisual]["second-level"]) {
+          console.error("No second level visual exists for this visual");
+        } else {
+          let location = data.points[0].location; // Get the clicked location
+          console.log(currentVisual, location)
+          let secondLevelData = getSecondLevelData(province, currentVisual, location);
+          console.log(secondLevelData)
+          let backButton = document.getElementById("back-button");
+          backButton.classList.remove("d-none");
+          backButton.onclick = function () {
+            // Reset the visual control
+            resetVisualControl();
+            // Recreate the map visual
+            createVisualMap(province, currentVisual, geojson, mapOptions);
+          };
+          switch (secondLevelData["type"]) {
+            case "line":
+              // pull the data types for the second level visual
+              let dataTypes = Object.keys(secondLevelData["data"]);
+              createVisualLine(province, secondLevelData["data"], currentVisual, "counts", secondLevelData["data_source"], secondLevelData["visual_options"], secondLevelData["additional_rows"] || null, dataTypes);
+              break;
+            case "pie":
+              console.log(secondLevelData)
+              createVisualPie(province, secondLevelData["data"], currentVisual, secondLevelData["data_source"], secondLevelData["visual_options"], secondLevelData["tabular_data"], location);
+              break;
+            // Add more cases for other visual types as the need arises
+            default:
+              console.error("Unsupported visual type:", secondLevelData["type"]);
+          }
+        };
+      }
+    });
+  });
+};
+
 // create line chart
 async function createVisualLine(province, lineData, currentVisual, countsOrRates, lineSource, visualOptions, additionalRows = null, dataTypes = null){
   let dataTypeToggle = document.getElementById("data-type-toggle");
@@ -383,12 +506,12 @@ async function createVisualLine(province, lineData, currentVisual, countsOrRates
     }
   }
 
+  visDiv.innerHTML = "";
   Plotly.purge(visDiv); // Clear any previous Plotly plots
   let vis = Plotly.react(
     visDiv,
     traces,
     (layout = {
-      dragmode: "pan",
       yaxis: {
         fixedrange: true,
         title: {
@@ -691,6 +814,174 @@ async function createVisualBar(province, barData, currentVisual, dataType, barSo
   aboutDataDiv.innerHTML = aboutHTML;
 }
 
+async function createVisualPie(province, pieData, currentVisual, pieSource, visualOptions, tabularData, location = null) {
+  // Setup the map container and other elements
+  let visDiv = document.getElementById("vis-div");
+  let aboutDataDiv = document.getElementById("about-data");
+  let tableDiv = document.getElementById("data-table");
+  let table = document.createElement("table");
+  let tableTitle = document.getElementById("table-title");
+  let dataSlider = [];
+  
+  // remove the active class from other visuals and add it to the current visual
+  setActiveVisual(province, currentVisual);
+
+  // Create the pie chart data with a slider for each year
+  let years = Object.keys(pieData["counts"])
+  for (let year of years){
+    console.log(year)
+    console.log(pieData["counts"][year])
+    let chartData = {
+      type: "pie",
+      labels: Object.keys(pieData["counts"][year]),
+      values: Object.values(pieData["counts"][year]),
+      textinfo: "label",
+      hoverinfo: "label+value+percent",
+      visible: year === years[0],
+      noValueFlag: false, // Flag to indicate if there are no values for this year
+    }
+    // If the values are all 0 for the year, display a warning and increase the visible year by one unless it's the last year
+    if (Object.values(pieData["counts"][year]).every(value => value === 0)) {
+      chartData["values"] = [1]; // Set a dummy value to display the pie
+      chartData["noValueFlag"] = true;
+      // don't display the % for this year
+      chartData["textinfo"] = "label";
+      chartData["showlegend"] = false;
+      chartData["labels"] = [`No data available for ${year}`];
+      chartData["hoverinfo"] = "none";
+      chartData["marker"] = {
+        colors: ["#d3d3d3"], // Light gray color for no data
+      };
+    }
+    dataSlider.push(chartData);
+  }
+
+  let activeStep = 0;
+  // loop through each chart and set the visible property to false except for the first chart with actual data
+  for (let i = 0; i < dataSlider.length; i++) {
+    if (dataSlider[i]["noValueFlag"] != true && i > 0) {
+      dataSlider[0]["visible"] = false;
+      dataSlider[i]["visible"] = true;
+      activeStep = i; // Set the active step to the first chart with actual data
+      break; // Stop at the first chart with actual data
+    } else if (dataSlider[i]["noValueFlag"] != true && i === 0) {
+      break;
+    }
+  }
+  let steps = [];
+  for (let i = 0; i < dataSlider.length; i++) {
+    let step = {
+      method: "restyle",
+      args: ["visible", Array(dataSlider.length).fill(false)],
+      label: years[i],
+    };
+    step.args[1][i] = true;
+    steps.push(step);
+  }
+  // Create the layout for the pie chart
+  let layout = {
+    title: visualOptions["visual-title"].replace("replace_with_health_authority", visualOptions["location"].toTitleCase()),
+    width: $("#viz-card").width(),
+    height:
+      window.innerWidth > 768
+        ? $("#viz-card").height()
+        : $("#viz-card").height(),
+    hoverlabel: {
+      namelength: -1,
+    },
+    sliders: [
+      {
+        active: activeStep,
+        steps: steps,
+        x: 0.5, 
+        xanchor: "center",
+        len: 0.95,
+        y: 0,
+        yanchor: "top",
+        pad: { t: 0, b: 10 },
+        currentvalue: {
+          visible: true,
+          prefix: "Year: ",
+          xanchor: "right",
+          font: {
+            size: 20,
+            color: "#666",
+          },
+        },
+      },
+    ],
+    margin: window.innerWidth > 768 ? { l: 0 } : { b: 20, r: 0, l: 20, autoexpand: true },
+  };
+
+  // Insert the visual and define the callback for click events
+  visDiv.innerHTML = ""; // Clear the previous content
+  Plotly.purge(visDiv); // Clear any previous Plotly plots
+  let vis = Plotly.react(
+    visDiv,
+    dataSlider,
+    layout,
+    (config = {
+      displaylogo: false,
+      responsive: false,
+    })
+  ).then(() => {
+  });
+
+  //Generate the About these Data section and insert the html
+  let header =`<h4 class="card-title text-center"> About these Data</h4>
+  <hr />
+  <h5 class="text-center">This data set was last updated in ${pieSource["last_updated"] + " "} and contains data up until ${pieSource["data_until"]}.</h5>
+  `;
+  let button = `<div class="text-center pb-3">
+    <a target="_blank" href="${pieSource["link"]}" role="button"
+          class="btn btn-primary">${pieSource["name"]}</a>
+  </div>
+  `;
+  let aboutHTML = `${header}
+  ${pieSource["about"]}
+  <br></br>
+  ${button}
+  `;
+  aboutDataDiv.innerHTML = aboutHTML;
+
+  // Replace the tabular section with table data for this vis
+  console.log(tabularData)
+  table.setAttribute(
+    "class",
+    "mb-0 table table-striped table-bordered table-hover"
+  );
+  let cols = [""].concat(years);
+  let tr = table.insertRow(-1);
+  cols.forEach((headerText) => {
+    let th = document.createElement("th"); // Create a new header cell
+    th.innerText = headerText; // Set the text of the header cell
+    tr.appendChild(th); // Add the header cell to the row
+  });
+  tableDiv.innerHTML = "";
+  tableDiv.appendChild(table);
+  tableTitle.innerText = visualOptions["table-title"].replace("replace_with_health_authority", location);
+
+  // check for a specific location, if it exists, use that to filter the data
+  if (location) {
+    tabularData = tabularData[location]
+  }
+  
+  for (const [key, value] of Object.entries(tabularData)){
+    let tr = table.insertRow(-1);
+    tr.setAttribute("class", "align-middle");
+    let tabCell = tr.insertCell(-1);
+    if (key.toLowerCase().includes("total")){
+      tabCell.innerText = key.toTitleCase();
+    } else{
+      tabCell.innerText = visualOptions[`table-counts-row`].replace("replace_me", key.toTitleCase());
+    }
+    value.forEach((element) => {
+      let tabCell = tr.insertCell(-1);
+      tabCell.innerText = element;
+    });
+  }
+}
+
 // Helper function to get the data for the secondary level of the visual
 function getSecondLevelData(province, visual, location = null) {
   // Find the second level of the visual from the object
@@ -698,7 +989,7 @@ function getSecondLevelData(province, visual, location = null) {
     let secondLevel = visuals[province][visual]["second-level"];
     let secondLevelObject= currentData[Object.keys(secondLevel)[0]];
     let visualType = secondLevel[Object.keys(secondLevel)[0]]["type"];
-    
+
     // separate out the second level data into the data source, and actual data
     let secondLevelDataSource = secondLevelObject["data_source"]
     let secondLevelData = secondLevelObject["data"]
@@ -708,13 +999,14 @@ function getSecondLevelData(province, visual, location = null) {
       returnObject = {
         "type": visualType,
         "data_source": secondLevelDataSource,
-        "data": {
-          "rates": secondLevelData["rates"][location],
-          "counts": secondLevelData["counts"][location],
-        }, 
-        "visual_options": secondLevelObject["visual_options"] || {}
+        "data": { }, 
+        "visual_options": secondLevelObject["visual_options"] || {},
+        "tabular_data": secondLevelObject["tabular_data"] || {},
       }
       returnObject["visual_options"]["location"] = location.toTitleCase();
+      for (const [key, value] of Object.entries(secondLevelData)){
+        returnObject["data"][key] = value[location];
+      }
       return returnObject;
     } else {
       return secondLevelData
