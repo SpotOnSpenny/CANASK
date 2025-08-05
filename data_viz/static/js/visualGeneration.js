@@ -114,7 +114,6 @@ async function fetchRegionData(province){
     currentGeojson = geojsonJson;
 }
 
-
 //Master function to initialize all visuals given the province and what the visual is
 function masterLoop(location = null){
   // Check the level, if 1, reset the route, if not, setup the back and reset buttons, and also pull data while looping
@@ -155,7 +154,6 @@ function masterLoop(location = null){
       break;
   }
 }
-
 
 // Function to generate heatmaps
 async function createVisualHeatMap(province, visualToGen, geojson, mapData, mapSource, mapOptions){
