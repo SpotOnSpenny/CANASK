@@ -55,7 +55,7 @@
                                 onclick="resetVisual()" title="Back to Visualizations">
                                 <i class="bi bi-arrow-left"></i>
                             </button>
-                            <button type="button" class="btn btn-secondary d-none" id="restart-button"
+                            <button type="button" class="btn btn-secondary d-none" id="reset-button"
                                 onclick="resetVisual()" title="Restart">
                                 <i class="bi bi-arrow-clockwise"></i>
                             </button>
@@ -98,12 +98,11 @@
     </div>
     <script type="text/javascript">
         document.addEventListener('DOMContentLoaded', async function () {
-            let province = "{{province}}";
-            let currentVisual = visuals["default-visuals"][province];
+            province = "{{province}}";
+            currentVisual = visuals["default-visuals"][province];
+            console.log(currentVisual);
             createMenu(province)
             await fetchRegionData(province);
-            console.log(currentVisual)
-            console.log(visuals[province][currentVisual]["type"]);
             switch (visuals[province][currentVisual]["type"]) {
                 case "heatmap":
                     await createVisualHeatMap(province, currentVisual, currentGeojson, currentData["drug_death_heatmap"]["data"]["counts"], currentData["drug_death_heatmap"]["data_source"], null);

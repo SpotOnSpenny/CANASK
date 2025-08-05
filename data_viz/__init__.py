@@ -40,6 +40,7 @@ assets.register(
         "js/main.js",
         "js/visualGeneration.js",
         "js/jquery-3.7.1.min.js",
+        "js/visuals.js",
         filters="jsmin",
         output="assets/main.js"
     )

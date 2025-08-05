@@ -1,71 +1,9 @@
-// TODO - Consolidate sources out of the individual visuals into a single source file that we can reference
-// TODO - Create a Pie Chart function that's clickable and loads a third level visual
-
-// Dictionary of visuals that each province has
-const visuals = {
-  "default-visuals": {
-    "british-columbia": "drug_death_heatmap"
-  },
-  "british-columbia": {
-    "drug_death_heatmap": {
-      "type": "heatmap",
-      "parent": "Deaths and Demographics",
-      "menu-name": "Drug Toxicity Deaths by Health Authority",
-      "second-level": {
-        "deaths_by_sex_line": {
-          "data-types": ["counts", "rates"],
-          "type": "line",
-        }
-      },
-    },
-    "drug_supply_by_year": {
-      "type": "line",
-      "parent": "Drug Supply",
-      "menu-name":"Drugs by Category",
-      "data-types": ["counts", "rates"],
-    },
-    "fent_benz_by_year": {
-      "type": "line",
-      "parent": "Drug Supply",
-      "menu-name": "Presence of Fentanly and Benzodiazepines",
-      "data-types": ["counts", "rates"],
-    },
-    "opioid_types_by_year": {
-      "type": "line",
-      "parent": "Drug Supply",
-      "menu-name": "Presence of Opioid Types",
-      "data-types": ["counts", "rates"],
-    },
-    "toxicity_deaths_per_drug_by_year": {
-      "type": "bar",
-      "parent": "Deaths and Demographics",
-      "menu-name": "Unregulated Drug Toxicity Deaths by Drug Type",
-      "data-types": ["counts", "rates", "percentages"],
-    },
-    "drug_toxicity_deaths_by_age": {
-      "type": "line",
-      "parent": "Deaths and Demographics",
-      "menu-name": "Unregulated Drug Toxicity Deaths by Age Group",
-      "data-types": ["counts", "rates"],
-    },
-    "drug_supply_geographically": {
-      "type": "map",
-      "parent": "Drug Supply",
-      "menu-name": "Drug Supply by Health Authority",
-      "second-level": {
-        "geographical_drug_supply_pie": {
-          "type": "pie", 
-          "data-types": ["counts"],
-        }
-      }
-    }
-  },
-}
-
 // Global variables to hold the current data and geojson
 let currentData;
 let currentGeojson;
 let currentVisual;
+let province;
+let route = [];
 
 // Function to dynamically create the menu based on the visuals object and current province
 function createMenu(province) {
@@ -93,6 +31,11 @@ function createMenu(province) {
   }
 
   for (const [visual, details] of Object.entries(visuals[province])) {
+    // ensure the visual is a 1st level visual
+    if (details["level"] !== 1) {
+      continue;
+    }
+
     // Create a new list item for each visual
     let li = document.createElement("li");
     li.className = "nav-item";
@@ -111,34 +54,33 @@ function createMenu(province) {
         a.onclick = function () {
           resetVisualControl();
           currentVisual = visual;
-          createVisualHeatMap(province, currentVisual, currentGeojson, currentData[currentVisual]["data"]["counts"], currentData[currentVisual]["data_source"], null);
+          masterLoop();
         };
         break;
       case "line":
         a.onclick = function () {
           resetVisualControl();
           currentVisual = visual;
-          createVisualLine(province, currentData[currentVisual]['data'], currentVisual, 'counts', currentData[currentVisual]['data_source'], currentData[currentVisual]['visual_options'], currentData[currentVisual]['additional_rows'] || null);
+          masterLoop();
         };
         break;
       case "bar":
         a.onclick = function () {
           resetVisualControl();
           currentVisual = visual;
-          createVisualBar(province, currentData[currentVisual]['data'], currentVisual, "counts", currentData[currentVisual]['data_source'], currentData[currentVisual]['visual_options']);
+          masterLoop();
         };
         break;
       case "map":
         a.onclick = function () {
-          resetVisualControl();
           currentVisual = visual;
-          createVisualMap(province, currentVisual, currentGeojson, currentData[currentVisual]["visual_options"]);
+          masterLoop();
         };
         break;
     }
     
     // append the menu item to the appropriate parent category
-    document.getElementById(`${details["parent"].toLowerCase().replace(/ /g, "-")}-dropdown-menu`).appendChild(li);
+    document.getElementById(`${details["menu-parent"].toLowerCase().replace(/ /g, "-")}-dropdown-menu`).appendChild(li);
   }
 
   // Add a disabled class to the parent categories that have no visuals
@@ -172,8 +114,51 @@ async function fetchRegionData(province){
     currentGeojson = geojsonJson;
 }
 
+
+//Master function to initialize all visuals given the province and what the visual is
+function masterLoop(location = null){
+  // Check the level, if 1, reset the route, if not, setup the back and reset buttons, and also pull data while looping
+  let visualData;
+  if (visuals[province][currentVisual]["level"] === 1) {
+    visualData = currentData[currentVisual];
+    resetVisualControl();
+    route = [];
+  } else if (visuals[province][currentVisual]["level"] === 2) {
+    setupBackButton();
+    visualData = getSecondLevelData(province, location);
+  } else {
+    setupBackButton();
+    setupResetButton();
+    visualData = getSecondLevelData(province, location);
+  }
+  let dataType;
+  if (visuals[province][currentVisual]["type"] !== "map") {
+    dataType = visuals[province][currentVisual]["data-types"][0];
+  }
+
+  //run the creation function for the visual based on its type
+  switch (visuals[province][currentVisual]["type"]) {
+    case "heatmap":
+      createVisualHeatMap(province, currentVisual, currentGeojson, currentData[currentVisual]["data"]["counts"], currentData[currentVisual]["data_source"], currentData[currentVisual]["visual_options"]);
+      break;
+    case "line":
+      createVisualLine(province, visualData["data"], currentVisual, dataType, currentData[currentVisual]['data_source'], currentData[currentVisual]['visual_options'], currentData[currentVisual]['additional_rows'] || null);
+      break;
+    case "bar":
+      createVisualBar(province, visualData["data"], currentVisual, dataType, currentData[currentVisual]['data_source'], currentData[currentVisual]['visual_options']);
+      break;
+    case "map":
+      createVisualMap(province, currentVisual, currentGeojson, currentData[currentVisual]["visual_options"]);
+      break;
+    case "pie":
+      createVisualPie(province, visualData['data'], currentVisual, currentData[currentVisual]['data_source'], currentData[currentVisual]['visual_options'], currentData[currentVisual]['tabular_data'], location);
+      break;
+  }
+}
+
+
 // Function to generate heatmaps
-async function createVisualHeatMap(province, currentVisual, geojson, mapData, mapSource, mapOptions){
+async function createVisualHeatMap(province, visualToGen, geojson, mapData, mapSource, mapOptions){
   // Setup the map container and other elements
   let visDiv = document.getElementById("vis-div");
   let aboutDataDiv = document.getElementById("about-data");
@@ -184,7 +169,7 @@ async function createVisualHeatMap(province, currentVisual, geojson, mapData, ma
   let steps = [];
   
   // remove the active class from other visuals and add it to the current visual
-  setActiveVisual(province, currentVisual);
+  setActiveVisual(province, visualToGen);
 
   // Create the map using the provided data and options and push them into the slider
   for (let year_index = 0; year_index < mapData[Object.keys(mapData)[0]]["x"].length; year_index++) {
@@ -278,32 +263,13 @@ async function createVisualHeatMap(province, currentVisual, geojson, mapData, ma
     })
   ).then(() => {
     visDiv.on("plotly_click", function (data) {
-      if (data && data.points.length > 0) {
-        // check if second level data exists for the current visual
-        if (!visuals[province][currentVisual]["second-level"]) {
-          console.error("No second level visual exists for this visual");
-        } else {
-          let location = data.points[0].location; // Get the clicked location
-          let secondLevelData = getSecondLevelData(province, currentVisual, location);
-          let backButton = document.getElementById("back-button");
-          backButton.classList.remove("d-none");
-          backButton.onclick = function () {
-            // Reset the visual control
-            resetVisualControl();
-            // Recreate the map visual
-            createVisualHeatMap(province, currentVisual, geojson, mapData, mapSource, mapOptions);
-          };
-          switch (secondLevelData["type"]) {
-            case "line":
-              // pull the data types for the second level visual
-              let dataTypes = Object.keys(secondLevelData["data"]);
-              createVisualLine(province, secondLevelData["data"], currentVisual, "counts", secondLevelData["data_source"], secondLevelData["visual_options"], secondLevelData["additional_rows"] || null, dataTypes);
-              break;
-            // Add more cases for other visual types as the need arises
-            default:
-              console.error("Unsupported visual type:", secondLevelData["type"]);
-          }
-        };
+      if (!visuals[province][visualToGen]["next-vis"]) {
+        console.error("No next visual exists for this visual");
+        return;
+      } else {
+        let location = data.points[0].location; // Get the clicked location
+        moveUpOneLevel(province);
+        masterLoop(location)     
       }
     });
   }
@@ -421,33 +387,13 @@ async function createVisualMap(province, currentVisual, geojson, mapOptions) {
     visDiv.on("plotly_click", function (data) {
       if (data && data.points.length > 0) {
         // check if second level data exists for the current visual
-        if (!visuals[province][currentVisual]["second-level"]) {
+        if (!visuals[province][currentVisual]["next-vis"]) {
           console.error("No second level visual exists for this visual");
         } else {
           let location = data.points[0].location; // Get the clicked location
-          let secondLevelData = getSecondLevelData(province, currentVisual, location);
-          let backButton = document.getElementById("back-button");
-          backButton.classList.remove("d-none");
-          backButton.onclick = function () {
-            // Reset the visual control
-            resetVisualControl();
-            // Recreate the map visual
-            createVisualMap(province, currentVisual, geojson, mapOptions);
-          };
-          switch (secondLevelData["type"]) {
-            case "line":
-              // pull the data types for the second level visual
-              let dataTypes = Object.keys(secondLevelData["data"]);
-              createVisualLine(province, secondLevelData["data"], currentVisual, "counts", secondLevelData["data_source"], secondLevelData["visual_options"], secondLevelData["additional_rows"] || null, dataTypes);
-              break;
-            case "pie":
-              createVisualPie(province, secondLevelData["data"], currentVisual, secondLevelData["data_source"], secondLevelData["visual_options"], secondLevelData["tabular_data"], location);
-              break;
-            // Add more cases for other visual types as the need arises
-            default:
-              console.error("Unsupported visual type:", secondLevelData["type"]);
-          }
-        };
+          moveUpOneLevel(province);
+          masterLoop(location);
+        }
       }
     });
   });
@@ -618,7 +564,7 @@ async function createVisualLine(province, lineData, currentVisual, countsOrRates
       // Add an event listener to the toggle
       toggle.onclick = function () {
         // Reset the count/rate toggle
-        resetVisualControl(true);
+        resetVisualControl();
         // Recreate the line visual with the selected data type
         createVisualLine(province, lineData, currentVisual, dataType, lineSource, visualOptions, additionalRows, dataTypes);
       };
@@ -920,6 +866,16 @@ async function createVisualPie(province, pieData, currentVisual, pieSource, visu
       responsive: false,
     })
   ).then(() => {
+    visDiv.on("plotly_click", function (data) {
+      if (!visuals[province][visualToGen]["next-vis"]) {
+        console.error("No next visual exists for this visual");
+        return;
+      } else {
+        let location = data.points[0].location; // Get the clicked location
+        moveUpOneLevel(province);
+        masterLoop(location)     
+      }
+    });
   });
 
   //Generate the About these Data section and insert the html
@@ -940,6 +896,8 @@ async function createVisualPie(province, pieData, currentVisual, pieSource, visu
   aboutDataDiv.innerHTML = aboutHTML;
 
   // Replace the tabular section with table data for this vis
+  console.log(tabularData, location)
+
   table.setAttribute(
     "class",
     "mb-0 table table-striped table-bordered table-hover"
@@ -976,13 +934,12 @@ async function createVisualPie(province, pieData, currentVisual, pieSource, visu
   }
 }
 
-// Helper function to get the data for the secondary level of the visual
-function getSecondLevelData(province, visual, location = null) {
+// Helper function to get the data for the next level of the visual
+function getSecondLevelData(province, location = null) {
   // Find the second level of the visual from the object
   try {
-    let secondLevel = visuals[province][visual]["second-level"];
-    let secondLevelObject= currentData[Object.keys(secondLevel)[0]];
-    let visualType = secondLevel[Object.keys(secondLevel)[0]]["type"];
+    let secondLevelObject = currentData[currentVisual];
+    let visualType = visuals[province][currentVisual]["type"];
 
     // separate out the second level data into the data source, and actual data
     let secondLevelDataSource = secondLevelObject["data_source"]
@@ -1012,20 +969,70 @@ function getSecondLevelData(province, visual, location = null) {
   }
 }
 
+// Helper function to move up one level in the visual hierarchy
+function moveUpOneLevel(province, prevLocation = null) {
+  // set the current visual to the next-level of the current visual
+  nextLevel = visuals[province][currentVisual]["next-vis"];
+
+  if (nextLevel == null) {
+    console.error("No next level visual exists for this visual");
+    return;
+  }
+  if (prevLocation != null) {
+    route.push(`${currentVisual}/${prevLocation}`);
+  } else {
+    route.push(currentVisual);
+  }
+  currentVisual = visuals[province][currentVisual]["next-vis"];
+}
+
 // Helper function to reset the count/rates toggle
-function resetVisualControl(toggleOnly = false) {
+function resetVisualControl() {
   let dataTypeToggle = document.getElementById("data-type-toggle");
   // reset the count/rate toggle so that 
   dataTypeToggle.innerHTML = "";
   // remove the back button if it exists and toggle only is false
-  let backButton = document.getElementById("back-button");
-  if (backButton != null && !toggleOnly) {
-    backButton.classList.add("d-none");
+  if (route.length == 0){
+    let backButton = document.getElementById("back-button");
+    let resetButton = document.getElementById("reset-button");
+    if (backButton.classList.contains("d-none") != true) {
+      backButton.classList.add("d-none");
+    }
+    if (resetButton.classList.contains("d-none") != true) {
+      resetButton.classList.add("d-none");
+    }
   }
+}
+
+// Helper function to setup the back button
+function setupBackButton() {
+  console.log("Setting up back button");
+  let backButton = document.getElementById("back-button");
+  backButton.classList.remove("d-none");
+  backButton.onclick = function () {
+    currentVisual = route.pop();
+    console.log(currentVisual, route)
+    masterLoop();
+  };
+}
+
+// Helper function to setup the reset button
+function setupResetButton() {
+  let resetButton = document.getElementById("reset-button");
+  resetButton.classList.remove("d-none");
+  resetButton.onclick = function () {
+    visualToGenerate = route[0];
+    masterLoop();
+  };
 }
 
 // Function to set the active visual in the menu
 function setActiveVisual(province, currentVisual) {
+  // If the visual is not a first level, no change in menu is needed
+  if (visuals[province][currentVisual]["level"] != 1) {
+    return;
+  }
+
   // Remove the active class from all visuals
   Array.from(document.querySelectorAll(".nav-link")).forEach((element) => {
     element.classList.remove("active");
@@ -1040,10 +1047,13 @@ function setActiveVisual(province, currentVisual) {
   }
 
   // Add the active class to the parent dropdown if it exists
-  let parentElement = document.querySelector(`#${visuals[province][currentVisual]["parent"].toLowerCase().replace(/ /g, "-")}-dropdown`);
-  if (parentElement) {
+  if (route.length > 0) {
+    let parentElement = document.querySelector(`#${route[0].toLowerCase().replace(/ /g, "-")}-dropdown`);
     parentElement.classList.add("active");
-    }
+  } else {
+    let parentElement = document.querySelector(`#${visuals[province][currentVisual]["menu-parent"].toLowerCase().replace(/ /g, "-")}-dropdown`);
+    parentElement.classList.add("active");
+  }
 }
 
 // Function to convert titles to sentence case
@@ -1056,4 +1066,3 @@ String.prototype.toTitleCase = function () {
     return txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase();
   });
 }
-
