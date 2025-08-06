@@ -126,6 +126,8 @@ def feedback():
 def v1_province(province, htmx_flag):
     if not htmx_flag:
         return render_template("index.jinja", dash_template="v1/provincial_vis.jinja", province=province)
+    else:
+        return render_template("v1/provincial_vis.jinja", province=province)
 
 
 ################################# Test Code Below ######################################

@@ -4,6 +4,7 @@ let currentGeojson;
 let currentVisual;
 let province;
 let route = [];
+let lastLocation = null;
 
 // Function to dynamically create the menu based on the visuals object and current province
 function createMenu(province) {
@@ -115,20 +116,22 @@ async function fetchRegionData(province){
 }
 
 //Master function to initialize all visuals given the province and what the visual is
-function masterLoop(location = null){
+function masterLoop(location = null, year = null, category = null) {
   // Check the level, if 1, reset the route, if not, setup the back and reset buttons, and also pull data while looping
   let visualData;
   if (visuals[province][currentVisual]["level"] === 1) {
     visualData = currentData[currentVisual];
-    resetVisualControl();
+    lastLocation = null;
     route = [];
+    resetVisualControl();
   } else if (visuals[province][currentVisual]["level"] === 2) {
     setupBackButton();
     visualData = getSecondLevelData(province, location);
   } else {
     setupBackButton();
     setupResetButton();
-    visualData = getSecondLevelData(province, location);
+    lastLocation = location;
+    visualData = getSecondLevelData(province, location, year, category);
   }
   let dataType;
   if (visuals[province][currentVisual]["type"] !== "map") {
@@ -150,7 +153,7 @@ function masterLoop(location = null){
       createVisualMap(province, currentVisual, currentGeojson, currentData[currentVisual]["visual_options"]);
       break;
     case "pie":
-      createVisualPie(province, visualData['data'], currentVisual, currentData[currentVisual]['data_source'], currentData[currentVisual]['visual_options'], currentData[currentVisual]['tabular_data'], location);
+      createVisualPie(province, visualData['data'], currentData[currentVisual]['data_source'], currentData[currentVisual]['visual_options'], currentData[currentVisual]['tabular_data'], location);
       break;
   }
 }
@@ -613,6 +616,7 @@ async function createVisualBar(province, barData, currentVisual, dataType, barSo
       let trace = {
         x: traceData["x"],
         y: value,
+        hoverinfo: visualOptions["hover-info"],
         name: key.replaceAll("_y", "").toSentenceCase(),
         type: "bar",
         marker: {
@@ -630,6 +634,9 @@ async function createVisualBar(province, barData, currentVisual, dataType, barSo
     visDiv,
     traces,
     (layout = {
+      hoverlabel: {
+        namelength: -1,
+      },
       dragmode: "pan",
       yaxis: {
         fixedrange: true,
@@ -648,14 +655,14 @@ async function createVisualBar(province, barData, currentVisual, dataType, barSo
         },
         constrain: "domain",
       },
-      hovermode: "x unified",
+      hovermode: visualOptions["hover-type"],
       autosize: false,
       width: $("#viz-card").width(),
       height:
         window.innerWidth > 768
           ? $("#viz-card").height()
           : $("#viz-card").height(),
-      title: visualOptions[`${dataType}-title`],
+      title: visualOptions[`${dataType}-title`].replace("replace_with_health_authority", visualOptions["location"] || "").replace("replace_with_category", visualOptions["category"] || ""),
       legend:
         window.innerWidth > 768
           ? {}
@@ -688,7 +695,7 @@ async function createVisualBar(province, barData, currentVisual, dataType, barSo
   });
   tableDiv.innerHTML = "";
   tableDiv.appendChild(table);
-  tableTitle.innerText = visualOptions["table-title"];
+  tableTitle.innerText = visualOptions["table-title"].replace("replace_with_health_authority", visualOptions["location"] || "").replace("replace_with_category", visualOptions["category"] || "");
   for (const [key, value] of Object.entries(barData)) {
     for (const [subKey, subValue] of Object.entries(value)) {
       if (subKey != "x") {
@@ -755,7 +762,7 @@ async function createVisualBar(province, barData, currentVisual, dataType, barSo
   aboutDataDiv.innerHTML = aboutHTML;
 }
 
-async function createVisualPie(province, pieData, currentVisual, pieSource, visualOptions, tabularData, location = null) {
+async function createVisualPie(province, pieData, pieSource, visualOptions, tabularData, location = null) {
   // Setup the map container and other elements
   let visDiv = document.getElementById("vis-div");
   let aboutDataDiv = document.getElementById("about-data");
@@ -771,6 +778,7 @@ async function createVisualPie(province, pieData, currentVisual, pieSource, visu
   let years = Object.keys(pieData["counts"])
   for (let year of years){
     let chartData = {
+      name: `${year}/${location}`,
       type: "pie",
       labels: Object.keys(pieData["counts"][year]),
       values: Object.values(pieData["counts"][year]),
@@ -779,18 +787,25 @@ async function createVisualPie(province, pieData, currentVisual, pieSource, visu
       visible: year === years[0],
       noValueFlag: false, // Flag to indicate if there are no values for this year
     }
-    // If the values are all 0 for the year, display a warning and increase the visible year by one unless it's the last year
-    if (Object.values(pieData["counts"][year]).every(value => value === 0)) {
-      chartData["values"] = [1]; // Set a dummy value to display the pie
-      chartData["noValueFlag"] = true;
-      // don't display the % for this year
-      chartData["textinfo"] = "label";
-      chartData["showlegend"] = false;
-      chartData["labels"] = [`No data available for ${year}`];
-      chartData["hoverinfo"] = "none";
-      chartData["marker"] = {
-        colors: ["#d3d3d3"], // Light gray color for no data
-      };
+    if (Object.values(pieData["counts"][year]).some(value => value === 0)) { //remove key pair from the chartData values and lables if value is 0
+      for (let i = 0; i < chartData["values"].length; i++) {
+        if (chartData["values"][i] === 0) {
+          chartData["values"].splice(i, 1);
+          chartData["labels"].splice(i, 1);
+          i--; // Adjust index after removal
+        }
+      }
+      if (chartData["values"].length === 0) {
+        chartData["noValueFlag"] = true; // Set flag if no values remain
+        chartData["values"] = [1]; // Set a dummy value to display the pie
+        chartData["textinfo"] = "label";
+        chartData["showlegend"] = false;
+        chartData["labels"] = [`No data available for ${year}`];
+        chartData["hoverinfo"] = "none";
+        chartData["marker"] = {
+          colors: ["#d3d3d3"], // Light gray color for no data
+        };
+      }
     }
     dataSlider.push(chartData);
   }
@@ -865,13 +880,19 @@ async function createVisualPie(province, pieData, currentVisual, pieSource, visu
     })
   ).then(() => {
     visDiv.on("plotly_click", function (data) {
-      if (!visuals[province][visualToGen]["next-vis"]) {
+      if (!visuals[province][currentVisual]["next-vis"]) {
         console.error("No next visual exists for this visual");
         return;
+      } else if (data.points[0]["fullData"]["labels"][0].includes("No data available for ")) {
+        // If the clicked pie chart has no data, do nothing
+        console.warn("No data available for this year");
+        return;
       } else {
-        let location = data.points[0].location; // Get the clicked location
+        let year = data.points[0]["fullData"]["name"].split("/")[0]; // Get the clicked year
+        let location = data.points[0]["fullData"]["name"].split("/")[1]; // Get the clicked location
+        let category = data.points[0]["label"]; // Get the clicked category
         moveUpOneLevel(province);
-        masterLoop(location)     
+        masterLoop(location, year, category)     
       }
     });
   });
@@ -892,9 +913,6 @@ async function createVisualPie(province, pieData, currentVisual, pieSource, visu
   ${button}
   `;
   aboutDataDiv.innerHTML = aboutHTML;
-
-  // Replace the tabular section with table data for this vis
-  console.log(tabularData, location)
 
   table.setAttribute(
     "class",
@@ -933,7 +951,7 @@ async function createVisualPie(province, pieData, currentVisual, pieSource, visu
 }
 
 // Helper function to get the data for the next level of the visual
-function getSecondLevelData(province, location = null) {
+function getSecondLevelData(province, location = null, year = null, category = null) {
   // Find the second level of the visual from the object
   try {
     let secondLevelObject = currentData[currentVisual];
@@ -943,8 +961,9 @@ function getSecondLevelData(province, location = null) {
     let secondLevelDataSource = secondLevelObject["data_source"]
     let secondLevelData = secondLevelObject["data"]
 
-    // if there's a specific location, pull the data from that location
-    if (location != null){
+    let returnObject;
+    // if there's a specific location, pull  the data from that location
+    if (location != null && currentVisual != "regional_drug_supply_breakdown"){
       returnObject = {
         "type": visualType,
         "data_source": secondLevelDataSource,
@@ -957,12 +976,27 @@ function getSecondLevelData(province, location = null) {
         returnObject["data"][key] = value[location];
       }
       return returnObject;
+    } else if (location != null && currentVisual == "regional_drug_supply_breakdown") { //Find a way to consolidate this else if!
+      returnObject = {
+        "type": visualType,
+        "data_source": secondLevelDataSource,
+        "data": { }, 
+        "visual_options": secondLevelObject["visual_options"] || {},
+        "tabular_data": secondLevelObject["tabular_data"] || {},
+      }
+      returnObject["visual_options"]["location"] = location.toTitleCase();
+      returnObject["visual_options"]["category"] = category.toTitleCase();
+      returnObject["visual_options"]["year"] = year;
+      returnObject["data"]["counts"] = secondLevelData["counts"][location][year][category];
+      returnObject["data"]["counts"]["x"] = [year]
+      return returnObject;
+
     } else {
-      return secondLevelData
+      return secondLevelData;
     }
   }
   catch {
-    console.log("No second level visual exists");
+    console.warn("No second level visual exists");
     return null;
   }
 }
@@ -1004,13 +1038,11 @@ function resetVisualControl() {
 
 // Helper function to setup the back button
 function setupBackButton() {
-  console.log("Setting up back button");
   let backButton = document.getElementById("back-button");
   backButton.classList.remove("d-none");
   backButton.onclick = function () {
     currentVisual = route.pop();
-    console.log(currentVisual, route)
-    masterLoop();
+    masterLoop(lastLocation);
   };
 }
 
@@ -1019,7 +1051,7 @@ function setupResetButton() {
   let resetButton = document.getElementById("reset-button");
   resetButton.classList.remove("d-none");
   resetButton.onclick = function () {
-    visualToGenerate = route[0];
+    currentVisual = route[0];
     masterLoop();
   };
 }

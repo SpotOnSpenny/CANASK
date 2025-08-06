@@ -97,29 +97,22 @@
         </div>
     </div>
     <script type="text/javascript">
-        document.addEventListener('DOMContentLoaded', async function () {
+    (async function() {
+        try{
             province = "{{province}}";
             currentVisual = visuals["default-visuals"][province];
-            console.log(currentVisual);
-            createMenu(province)
+            createMenu(province);
             await fetchRegionData(province);
-            switch (visuals[province][currentVisual]["type"]) {
-                case "heatmap":
-                    await createVisualHeatMap(province, currentVisual, currentGeojson, currentData["drug_death_heatmap"]["data"]["counts"], currentData["drug_death_heatmap"]["data_source"], null);
-                    break;
-                case "line":
-                    await createVisualLineChart(province, currentVisual, currentData[currentVisual]["data"], currentData[currentVisual]["data_source"]);
-                    break;
-                case "pie":
-                    await createVisualPieChart(province, currentVisual, currentData[currentVisual]["data"], currentData[currentVisual]["data_source"], currentData[currentVisual]["visual_options"], currentData[currentVisual]["tabular_data"]);
-                    break;
-                case "map":
-                    await createVisualMap(province, currentVisual, geojson, mapOptions);
-                    break;
-                case "bar":
-                    await createVisualBarChart(province, currentVisual, currentData[currentVisual]["data"], currentData[currentVisual]["data_source"]);
-                    break;
-            }
-        });
+            masterLoop();
+        } catch(error) {
+            document.addEventListener('DOMContentLoaded', async function () {
+                province = "{{province}}";
+                currentVisual = visuals["default-visuals"][province];
+                createMenu(province)
+                await fetchRegionData(province);
+                masterLoop();
+            });
+        }
+    })();
     </script>
 </div>

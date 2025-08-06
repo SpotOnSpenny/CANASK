@@ -83,7 +83,16 @@ const visuals = {
             "menu-name": null,
             "level": 2,
             "vis-parent": "drug_supply_geographically",
-            "next-vis": "placeholder",
+            "next-vis": "regional_drug_supply_breakdown",
+        }, 
+        "regional_drug_supply_breakdown":{
+            "type": "bar",
+            "data-types": ["counts"],
+            "menu-parent": null,
+            "menu-name": null,
+            "level": 3,
+            "vis-parent": "geographical_drug_supply_pie",
+            "next-vis": null,
         }
     },
 }

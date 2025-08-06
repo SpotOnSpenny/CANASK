@@ -607,6 +607,8 @@ For more information,visit the BCCS website by clicking the button below:
             "table-rates-row": "Unregulated Drug Deaths Caused by replace_me/100,000 Population",
             "table-percentages-row": "Percent of Unregulated Drug Deaths Caused by replace_me",
             "table-counts-row": "Unregulated Drug Deaths Caused by replace_me",
+            "hover-type": "x unified",
+            "hover-info": "default"
         }
 }
 
@@ -849,7 +851,7 @@ For more information visit the BCCSU's Drug Sense website by clicking the button
         }
     }
 
-    # ----- Clean Data for Drug Supply Geographically Pie Charts
+    # ----- Clean Data for Drug Supply Geographically Pie Charts AND Regional Breakdowns -----
     geographical_drug_supply_pie = {
         "data_source": {
             "name": "British Columbia Centre for Substance Use (BCCSU)",
@@ -874,6 +876,33 @@ For more information visit the BCCSU's Drug Sense website by clicking the button
         "tabular_data": {}
     }
 
+    regional_drug_supply_breakdown = {
+        "data_source": {
+            "name": "British Columbia Centre for Substance Use (BCCSU)",
+            "about": """
+This data is collected from the British Columbia Centre on Substance Use (BCCSU) and is based on voluntary drug testing results.The data is collected from samples provided by individuals and organizations in British Columbia.The data is collected to help inform the public about the drug supply in British Columbia and to help inform harm reduction strategies.Please note that this data is not representative of the entire illicit drug supply in British Columbia,but rather provides a snapshot of the drug supply based on voluntary submissions.
+
+For more information visit the BCCSU's Drug Sense website by clicking the button below:
+            """,
+            "link": "https://drugsense.bccsu.ubc.ca/",
+            "last_updated": last_updated,
+            "data_until": data_until
+        },
+        "data": {
+            "counts": {},
+            "rates": {}
+        },
+        "visual_options":{
+            "counts-title": "Spectrometer Determined Makeup of replace_with_category Samples in the replace_with_health_authority Health Authority",
+            "table-title": "Spectrometer Determined Makeup of replace_with_category Samples in the replace_with_health_authority Health Authority",
+            "counts-y-axis-title": "Number of Samples Positive for Substance",
+            "table-counts-row": "Spectrometer Positive for replace_me",
+            "hover-type": "default",
+            "hover-info": "name+y"
+        },
+        "tabular_data": {}
+    }
+
     # Split the data into each unique health authority
     bc_drug_sense = bc_drug_sense.loc[bc_drug_sense["Health Authority"].notna()]
     health_authorities = bc_drug_sense["Health Authority"].unique()
@@ -883,6 +912,8 @@ For more information visit the BCCSU's Drug Sense website by clicking the button
         ha_data = bc_drug_sense.loc[bc_drug_sense["Health Authority"] == health_authority]
         # Create a dictionary for the health authority
         geographical_drug_supply_pie["data"]["counts"][ha_title] = {}
+        regional_drug_supply_breakdown["data"]["counts"][ha_title] = {}
+        regional_drug_supply_breakdown["data"]["rates"][ha_title] = {}
         geographical_drug_supply_pie["tabular_data"][ha_title] = {}
         for drug in drug_categories:
             geographical_drug_supply_pie["tabular_data"][ha_title][drug] = []
@@ -893,6 +924,8 @@ For more information visit the BCCSU's Drug Sense website by clicking the button
             year_data = ha_data.loc[ha_data["Visit Date"].str.contains(str(year))]
             # Create a dictionary for the year
             geographical_drug_supply_pie["data"]["counts"][ha_title][str(year)] = {}
+            regional_drug_supply_breakdown["data"]["counts"][ha_title][str(year)] = {}
+            regional_drug_supply_breakdown["data"]["rates"][ha_title][str(year)] = {}
             geographical_drug_supply_pie["tabular_data"][ha_title]["Total Samples"].append(len(year_data))
             # Iterate over each drug category in the data
             for drug in drug_categories:
@@ -902,7 +935,11 @@ For more information visit the BCCSU's Drug Sense website by clicking the button
                 geographical_drug_supply_pie["data"]["counts"][ha_title][str(year)][drug] = len(drug_data)
                 # Add the count of samples to the tabular data
                 geographical_drug_supply_pie["tabular_data"][ha_title][drug].append(len(drug_data))
-
+                spectrometer_results = drug_data["Spectrometer"].dropna().str.cat(sep=", ").split(", ")
+                # Count the unique results in the spectrometer results
+                spectrometer_counts = {f"{result}_y": [spectrometer_results.count(result)] for result in set(spectrometer_results) if result != ""}
+                # Add the spectrometer counts to the regional breakdown
+                regional_drug_supply_breakdown["data"]["counts"][ha_title][str(year)][drug] = spectrometer_counts
     # Compile all the data to a single dictionary for export
     bc_data = {
         "drug_death_heatmap": heatmap_data,
@@ -914,6 +951,7 @@ For more information visit the BCCSU's Drug Sense website by clicking the button
         "drug_toxicity_deaths_by_age": drug_toxicity_deaths_by_age,
         "drug_supply_geographically": geographic_map,
         "geographical_drug_supply_pie": geographical_drug_supply_pie,
+        "regional_drug_supply_breakdown": regional_drug_supply_breakdown,
     }
     return bc_data
 
