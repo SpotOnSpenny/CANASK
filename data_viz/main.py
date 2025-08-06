@@ -46,9 +46,9 @@ def introduction(htmx_flag):
 @main_blueprint.route("/toxicity-deaths/<htmx_flag>")
 def toxicity_deaths(htmx_flag):
     if not htmx_flag:
-        return render_template("index.jinja", dash_template="toxicity_deaths.jinja")
+        return render_template("index.jinja", dash_template="v0/toxicity_deaths.jinja")
     else:
-        return render_template("toxicity_deaths.jinja")
+        return render_template("v0/toxicity_deaths.jinja")
 
 # Routes for Provincial Dashboards
 @main_blueprint.route("/province/british-columbia", defaults={"htmx_flag": None})

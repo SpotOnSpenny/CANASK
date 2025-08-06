@@ -28,6 +28,8 @@ def scrape_national_dashboard(driver):
     output_dir, needed_files, existing_files = checkup_output(["nationalHealthInfobase"])
     if existing_files != []:
         existing_file_updated = int(existing_files[0].split("_")[0])
+    
+    print(existing_file_updated)
 
     # Load the Coroners Report page and get to data, also check the date of the report against existing scrapes to see if we need to run 
     try:
@@ -44,13 +46,17 @@ def scrape_national_dashboard(driver):
         print("Download complete")
     data_response.release_conn()
 
+
     # check the contents of the zip file
     print("Checking the contents of the zip file...")
     with zipfile.ZipFile(raw_data_zip, 'r') as zip_ref:
-        zip_ref.printdir()
         for file in zip_ref.namelist():
             if ".csv" in file:
                 year, month, day, hour, minute, second = zip_ref.getinfo(file).date_time
+                if len(str(month)) == 1:
+                    month = f"0{month}"
+                if len(str(day)) == 1:
+                    day = f"0{day}"
                 new_last_updated = int(f"{year}{month}{day}")
                 if existing_files == []:
                     print(f"Extracting {file}...")
