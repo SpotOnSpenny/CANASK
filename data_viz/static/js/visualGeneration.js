@@ -84,21 +84,24 @@ function createMenu(province) {
     document.getElementById(`${details["menu-parent"].toLowerCase().replace(/ /g, "-")}-dropdown-menu`).appendChild(li);
   }
 
-  // Add a disabled class to the parent categories that have no visuals
   for (const parent of parentCategories) {
-    let dropdownMenu = document.getElementById(`${parent.toLowerCase().replace(/ /g, "-")}-dropdown-menu`);
-    if (dropdownMenu.children.length === 0) {
-      // remove the parent li item from the menu
-      let parentLi = document.querySelector(`li.dropdown > a#${parent.toLowerCase().replace(/ /g, "-")}-dropdown`);
-      parentLi.remove();
-      // add a new disabled a element to the menu
-      let disabledA = document.createElement("a");
-      disabledA.className = "nav-link disabled";
-      disabledA.href = "";
-      disabledA.textContent = `${parent}`;
-      menu.appendChild(disabledA);
-    }
+  let dropdownMenu = document.getElementById(`${parent.toLowerCase().replace(/ /g, "-")}-dropdown-menu`);
+  if (dropdownMenu.children.length === 0) {
+    // Find the parent li element
+    let parentLi = document.querySelector(`li.dropdown > a#${parent.toLowerCase().replace(/ /g, "-")}-dropdown`).parentElement;
+    
+    // Clear the li content and replace with a disabled link
+    parentLi.innerHTML = "";
+    parentLi.className = "nav-item"; // Remove dropdown class
+    
+    let disabledA = document.createElement("a");
+    disabledA.className = "nav-link disabled";
+    disabledA.href = "";
+    disabledA.textContent = `${parent}`;
+    
+    parentLi.appendChild(disabledA);
   }
+}
 }
 
 // Function to initialize the data by fetching provincial data
@@ -106,8 +109,8 @@ async function fetchRegionData(province){
     console.log(`Fetched data for ${province}`);
     //fetch the data and unpack it
     const [data, geojson] = await Promise.all([
-        fetch("/static/js/visual_data.json"),
-        fetch(`/static/assets/geojsons/${province.toLowerCase()}.geojson`),
+        fetch("/static/js/visual_data.json", {AbortSignal: AbortSignal.timeout(5000)}),
+        fetch(`/static/assets/geojsons/${province.toLowerCase()}.geojson`, {AbortSignal: AbortSignal.timeout(5000)}),
     ]);
     const dataJson = await data.json();
     const geojsonJson = await geojson.json();
@@ -401,7 +404,7 @@ async function createVisualMap(province, currentVisual, geojson, mapOptions) {
 };
 
 // create line chart
-async function createVisualLine(province, lineData, currentVisual, countsOrRates, lineSource, visualOptions, additionalRows = null, dataTypes = null){
+async function createVisualLine(province, lineData, currentVisual, dataType, lineSource, visualOptions, additionalRows = null, dataTypes = null){
   let dataTypeToggle = document.getElementById("data-type-toggle");
   let visDiv = document.getElementById("vis-div");
   let aboutDataDiv = document.getElementById("about-data");
@@ -415,16 +418,20 @@ async function createVisualLine(province, lineData, currentVisual, countsOrRates
   setActiveVisual(province, currentVisual);
 
   // Check to see if we have count or rate data, default to count if not specified
-  if (countsOrRates !== null){
-    traceData = lineData[countsOrRates];
+  // Check to see if we have count, percentage, or rate data, default to count if not specified
+  if (dataType !== null){
+    traceData = lineData[dataType];
   } else if (lineData["counts"]) {
     traceData = lineData["counts"];
-    countsOrRates = "counts";
+    dataType = "counts";
   } else if (lineData["rates"]) {
     traceData = lineData["rates"];
-    countsOrRates = "rates";
+    dataType = "rates";
+  } else if (lineData["percentages"]){
+    traceData = lineData["percentages"];
+    dataType = "percentages";
   } else {
-    console.error("No counts or rates data found in lineData");
+    console.error("No counts, percentages, or rates data found in lineData");
     return;
   }
   
@@ -460,7 +467,7 @@ async function createVisualLine(province, lineData, currentVisual, countsOrRates
         fixedrange: true,
         title: {
           standoff: 30,
-          text: countsOrRates == "counts" ? visualOptions["counts-y-axis-title"] : visualOptions["rates-y-axis-title"],
+          text: visualOptions[`${dataType}-y-axis-title`].replace("replace_with_health_authority", visualOptions["location"] || "").replace("replace_with_category", visualOptions["category"] || ""),
         },
       },
       xaxis: {
@@ -483,7 +490,7 @@ async function createVisualLine(province, lineData, currentVisual, countsOrRates
       autosize: false,
       width: $("#viz-card").width(),
       height: window.innerWidth > 768 ? $("#viz-card").height() : "auto",
-      title: countsOrRates == "counts" ? visualOptions["counts-title"].replace("replace_with_health_authority", location) : visualOptions["rates-title"].replace("replace_with_health_authority", location),
+      title: visualOptions[`${dataType}-title`].replace("replace_with_health_authority", visualOptions["location"] || "").replace("replace_with_category", visualOptions["category"] || ""),
       legend:
         window.innerWidth > 768
           ? {}
@@ -551,15 +558,15 @@ async function createVisualLine(province, lineData, currentVisual, countsOrRates
   }
 
   if (dataTypes.length > 1) {
-    for (const dataType of dataTypes) {
+    for (const type of dataTypes) {
       // Create a toggle for each data type
       let toggle = document.createElement("input");
       toggle.type = "radio";
       toggle.className = "btn-check";
       toggle.name = "data-toggle";
-      toggle.id = `${dataType}-toggle`;
+      toggle.id = `${type}-toggle`;
       toggle.autocomplete = "off";
-      if (dataType === countsOrRates) {
+      if (dataType === type) {
         toggle.checked = true;
       }
       // Add an event listener to the toggle
@@ -567,17 +574,34 @@ async function createVisualLine(province, lineData, currentVisual, countsOrRates
         // Reset the count/rate toggle
         resetVisualControl();
         // Recreate the line visual with the selected data type
-        createVisualLine(province, lineData, currentVisual, dataType, lineSource, visualOptions, additionalRows, dataTypes);
+        createVisualLine(province, lineData, currentVisual, type, lineSource, visualOptions, additionalRows, dataTypes);
       };
       let label = document.createElement("label");
       label.className = "btn btn-outline-primary";
-      label.setAttribute("for", `${dataType}-toggle`);
-      label.innerText = dataType.charAt(0).toUpperCase() + dataType.slice(1);
+      label.setAttribute("for", `${type}-toggle`);
+      label.innerText = type.charAt(0).toUpperCase() + type.slice(1);
       
       dataTypeToggle.appendChild(toggle);
       dataTypeToggle.appendChild(label);
     }
   }
+
+  // Generate the About these Data section and insert the html
+  let header = `<h4 class="card-title text-center"> About these Data</h4>
+  <hr />
+  <h5 class="text-center">This data set was last updated in ${lineSource["last_updated"] + " "} and contains data up until ${lineSource["data_until"]}.</h5>
+  `;
+  let button = `<div class="text-center pb-3">
+    <a target="_blank" href="${lineSource["link"]}" role="button"
+          class="btn btn-primary">${lineSource["name"]}</a>
+  </div>
+  `;
+  let aboutHTML = `${header}
+  ${lineSource["about"]}
+  <br></br>
+  ${button}
+  `;
+  aboutDataDiv.innerHTML = aboutHTML;
 }
 
 // Function to generate a bar chart
