@@ -829,15 +829,15 @@ def v1_clean_national_data(province):
     data_until = data["data_until"]
 
     # Grab the total opioid/stimulant deaths in the given province
-    total_opioid = dataframe[(dataframe["Region"] == province) & (dataframe["Substance"] == "Opioids") & (dataframe["Specific_Measure"] == "Overall numbers") & (dataframe["Time_Period"] == "By year") & (dataframe["Source"] == "Deaths") & (dataframe["Unit"] == "Number")]
-    total_stimulant = dataframe[(dataframe["Region"] == province) & (dataframe["Substance"] == "Stimulants") & (dataframe["Specific_Measure"] == "Overall numbers") & (dataframe["Time_Period"] == "By year") & (dataframe["Source"] == "Deaths") & (dataframe["Unit"] == "Number")]
+    total_opioid = dataframe[(dataframe["Region"] == province) & (dataframe["Substance"] == "Opioids") & (dataframe["Specific_Measure"] == "Overall numbers") & (dataframe["Time_Period"] == "By year") & (dataframe["Source"] == "Deaths") & (dataframe["Unit"] == "Number")].infer_objects(copy=False).fillna(0)
+    total_stimulant = dataframe[(dataframe["Region"] == province) & (dataframe["Substance"] == "Stimulants") & (dataframe["Specific_Measure"] == "Overall numbers") & (dataframe["Time_Period"] == "By year") & (dataframe["Source"] == "Deaths") & (dataframe["Unit"] == "Number")].infer_objects(copy=False).fillna(0)
 
     # Grab the population data for the given province
     population_data = pull_data(["nationalPopulationData"])
     population_data = filter_data(population_data, ["nationalPopulationData"])[0]["dataframe"]
     population_data = population_data.loc[population_data["GEO"] == province].set_index("REF_DATE")["VALUE"].to_dict()
 
-    # ----- Opioid Deaths by Age group -----
+    # ----- Opioid Deaths by Age group ----- TODO: Add stimulants to this
     opioid_deaths_by_age = {
         "data_source": {
             "name": "Health Infobase - Health data in Canada",
@@ -939,7 +939,6 @@ For more information visit the report directly by clicking the below:
         for drug_type in stimulant_drug_types:  
             # Filter the data for the drug type
             drug_type_data = percent_stimulant_deaths_by_drug[percent_stimulant_deaths_by_drug["Disaggregator"] == drug_type].fillna(0)
-            print(drug_type_data)
             # Get the year and percentage of deaths for the drug type
             years = [str(year).replace(u"\xa0", "") for year in drug_type_data["Year_Quarter"].unique()]
             if "x" not in deaths_by_drug_type["data"]["percentages"]:
@@ -1007,33 +1006,116 @@ For more information visit the report directly by clicking the below:
             deaths_by_sex["data"]["counts"][f"{sex} Opioid_y"] = [round((int(deaths_by_sex["data"]["percentages"][f"{sex} Opioid_y"][index]) / 100) * total_deaths) for index in range(len(years))]
 
     percentages = dataframe[(dataframe["Region"] == province) & (dataframe["Substance"] == "Stimulants") & (dataframe["Specific_Measure"] == "Sex") & (dataframe["Time_Period"] == "By year") & (dataframe["Source"] == "Deaths") & (dataframe["Unit"] == "Percent")].infer_objects(copy=False).fillna(0)
-    rates = dataframe[(dataframe["Region"] == province) & (dataframe["Substance"] == "Opioids") & (dataframe["Specific_Measure"] == "Sex") & (dataframe["Time_Period"] == "By year") & (dataframe["Source"] == "Deaths") & (dataframe["Unit"] == "Crude rate")].infer_objects(copy=False).fillna(0)
+    rates = dataframe[(dataframe["Region"] == province) & (dataframe["Substance"] == "Stimulants") & (dataframe["Specific_Measure"] == "Sex") & (dataframe["Time_Period"] == "By year") & (dataframe["Source"] == "Deaths") & (dataframe["Unit"] == "Crude rate")].infer_objects(copy=False).fillna(0)
+    stimulant_years = list(rates["Year_Quarter"].unique())
+    more_opioid_than_stimulant = len(years) - len(stimulant_years)
+    if more_opioid_than_stimulant < 0:
+        more_opioid_than_stimulant = 0
     if any(value != 0 for value in list(percentages["Value"])): # Need this check because Alberta specifically doesn't have any stimulant data
         sexes = percentages["Disaggregator"].unique()
         for sex in sexes:
             # Filter the data for the current sex
             sex_percents = percentages[percentages["Disaggregator"] == sex]
-            deaths_by_sex["data"]["percentages"][f"{sex} Stimulant_y"] = sex_percents["Value"].tolist()
+            deaths_by_sex["data"]["percentages"][f"{sex} Stimulant_y"] = ["0"] * more_opioid_than_stimulant + sex_percents["Value"].tolist()
             sex_rates = rates[rates["Disaggregator"] == sex]
-            deaths_by_sex["data"]["rates"][f"{sex} Stimulant_y"]  = sex_rates["Value"].tolist()
+            deaths_by_sex["data"]["rates"][f"{sex} Stimulant_y"]  = ["0"] * more_opioid_than_stimulant +sex_rates["Value"].tolist()
             # Multiply the percentages by the total opioid deaths to get the counts
             for index, year in enumerate(years):
                 total_deaths = int(list(total_opioid["Value"])[index])
                 deaths_by_sex["data"]["counts"][f"{sex} Stimulant_y"] = [round((int(deaths_by_sex["data"]["percentages"][f"{sex} Stimulant_y"][index]) / 100) * total_deaths) for index in range(len(years))]
 
-    return opioid_deaths_by_age, deaths_by_drug_type, deaths_by_sex
+    # ----- Deaths by Manner of Death -----
+    deaths_by_manner = {
+        "data_source": {
+            "name": "Health Infobase - Health data in Canada",
+            "about": """
+This data was collected from Canada's Health Infobase Opioid- and Stimulant-related Harms in Canada dataset, a report published quarterly on providing information on opioid and stimulant-related deaths and overdoses in Canada in collaboration with Chief Coroners, Chief Medical Examiners, Public Health agencies, and Emergency Medical Services from individual provinces and territories.
+
+For more information visit the report directly by clicking the below:
+            """,
+            "link": "https://health-infobase.canada.ca/substance-related-harms/opioids-stimulants/",
+            "last_updated": last_updated,
+            "data_until": data_until
+        },
+        "data": {
+            "counts": {},
+            "rates": {},
+            "percentages": {},
+        },
+        "visual_options":{
+            "counts-title": f"Unregulated Drug Toxicity Deaths in {province} by Manner of Death",
+            "rates-title": f"Unregulated Drug Toxicity Deaths in {province} per 100,000 Population by Manner of Death",
+            "percentages-title": f"Percent of Total Unregulated Drug Toxicity Deaths in {province} by Manner of Death",
+            "table-title": f"Unregulated Drug Toxicity Deaths in {province} by Manner of Death",
+            "counts-y-axis-title": "Number of Unregulated Drug Toxicity Deaths",
+            "rates-y-axis-title": "Unregulated Drug Deaths/100,000 Population",
+            "percentages-y-axis-title": "Percent of Total Unregulated Drug Toxicity Deaths",
+            "table-percentages-row": "Percent of Total Unregulated Drug Toxicity Deaths that were replace_me",
+            "table-rates-row": "Unregulated Drug Toxicity Deaths/100,000 Population that were replace_me",
+            "table-counts-row": "Unregulated Drug Toxicity Deaths that were replace_me",
+        }
+    }
+
+    opioid_percentages = dataframe[(dataframe["Region"] == province) & (dataframe["Substance"] == "Opioids") & (dataframe["Specific_Measure"] == "Manner of death") & (dataframe["Time_Period"] == "By year") & (dataframe["Source"] == "Deaths") & (dataframe["Unit"] == "Percent")].infer_objects(copy=False).fillna(0)
+    stimulant_percentages = dataframe[(dataframe["Region"] == province) & (dataframe["Substance"] == "Stimulants") & (dataframe["Specific_Measure"] == "Manner of death") & (dataframe["Time_Period"] == "By year") & (dataframe["Source"] == "Deaths") & (dataframe["Unit"] == "Percent")].infer_objects(copy=False).fillna(0)
+    types_of_deaths = [f"{type} Opioid Deaths" for type in opioid_percentages["Disaggregator"].unique()] + [f"{type} Stimulant Deaths" for type in stimulant_percentages["Disaggregator"].unique()]
+    opioid_years = list(opioid_percentages["Year_Quarter"].unique())
+    stimulant_years = list(stimulant_percentages["Year_Quarter"].unique())
+    more_opioid_than_stim = (len(opioid_years)) - (len(stimulant_years))
+    deaths_by_manner["data"]["counts"]["x"] = years
+    deaths_by_manner["data"]["percentages"]["x"] = years
+    deaths_by_manner["data"]["rates"]["x"] = years
+    # Ignore Stimulants if we're in alberta
+    if all(value == 0 for value in list(stimulant_percentages["Value"])): # Need this check because Alberta specifically doesn't have any stimulant data
+        types_of_deaths = [type for type in types_of_deaths if "stimulant" not in type.lower()]
+    for type in types_of_deaths:
+        if "opioid" in type.lower():
+            # Filter the data for the current manner of death
+            manner_percents = opioid_percentages[opioid_percentages["Disaggregator"] == type.replace(" Opioid Deaths", "")]
+            deaths_by_manner["data"]["percentages"][type] = manner_percents["Value"].tolist()
+            # if there are less years than opioid years, then add prepending 0s to data
+            if more_opioid_than_stim < 0:
+                deaths_by_manner["data"]["percentages"][type] = ["0"] * (more_opioid_than_stim * -1) + deaths_by_manner["data"]["percentages"][type]
+        if "stimulant" in type.lower():
+            manner_percents = stimulant_percentages[stimulant_percentages["Disaggregator"] == type.replace(" Stimulant Deaths", "")]
+            deaths_by_manner["data"]["percentages"][type] = manner_percents["Value"].tolist()
+            # if there are less years than opioid years, then add prepending 0s to data
+            if more_opioid_than_stim > 0:
+                deaths_by_manner["data"]["percentages"][type] = ["0"] * more_opioid_than_stim + deaths_by_manner["data"]["percentages"][type]
+        # Multiply the percentages by the total opioid deaths to get the counts
+        for index, year in enumerate(years):
+            total_deaths = int(list(total_opioid["Value"])[index])
+            deaths_by_manner["data"]["counts"][type] = [round((int(deaths_by_manner["data"]["percentages"][type][index]) / 100) * total_deaths) for index in range(len(years))]
+            population = population_data[int(year)]
+            deaths_by_manner["data"]["rates"][type] = [round((deaths_by_manner["data"]["counts"][type][index] / population) * 100000, 2) for index in range(len(years))]
+
+    return opioid_deaths_by_age, deaths_by_drug_type, deaths_by_sex, deaths_by_manner
 
 def v1_AB_export_clean():
     # ----- Cleaned data from national health infobase -----
-    opioid_deaths_by_age, deaths_by_drug_type, deaths_by_sex = v1_clean_national_data("Alberta")
+    opioid_deaths_by_age, deaths_by_drug_type, deaths_by_sex, deaths_by_manner = v1_clean_national_data("Alberta")
 
     # ----- Aggregate all data for export -----
     ab_data = {
         "opioid_deaths_by_age": opioid_deaths_by_age,
         "deaths_by_drug_type": deaths_by_drug_type,
         "deaths_by_sex": deaths_by_sex,
+        "deaths_by_manner": deaths_by_manner
     }
     return ab_data
+
+def v1_MB_export_clean():
+    # ----- Cleaned data from national health infobase -----
+    deaths_by_age, deaths_by_drug_type, deaths_by_sex, deaths_by_manner = v1_clean_national_data("Manitoba")
+
+    # ----- Aggregate all data for export -----
+    mb_data = {
+        "deaths_by_age": deaths_by_age,
+        "deaths_by_drug_type": deaths_by_drug_type,
+        "deaths_by_sex": deaths_by_sex,
+        "deaths_by_manner": deaths_by_manner
+    }
+    return mb_data
 
 # Export all data to a json file, using URL friendly province names as keys
 # These keys will be passed as parameters to javascript so that we can pull the right data for each page
@@ -1041,6 +1123,7 @@ def export_data_json():
     data = {
         "british-columbia": v1_BC_export_clean(),
         "alberta": v1_AB_export_clean(),
+        "manitoba": v1_MB_export_clean()
     }
     # Write the data to a json file
     with open(os.path.join(os.path.abspath(os.path.dirname(__file__)), "static/js/visual_data.json"), "w") as file:
