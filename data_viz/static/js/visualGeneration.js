@@ -441,19 +441,25 @@ async function createVisualLine(province, lineData, currentVisual, dataType, lin
   for (const [key, value] of Object.entries(traceData)) {
     // create a trace for each y value in the lineData object entry
     if (key != "x"){
-      let trace = {
-        x: traceData["x"],
-        y: value,
-        name: key.replaceAll("_y", "").toSentenceCase(),
-        type: "scatter",
-        mode: "lines+markers",
-        stackgroup: totalPresent && key.replaceAll("_y", "").toSentenceCase() != "Total" ? "one" : undefined, // fill if total is present and not the total line
-        line: {
-          width: 2,
-          smoothing: 1,
-        },
-      };
-      traces.push(trace);
+
+      let filteredData = filterLeadingZeros(traceData["x"], value);
+      console.log(filteredData)
+
+      if (filteredData.x.length > 0) {
+        let trace = {
+          x: filteredData.x,
+          y: filteredData.y,
+          name: key.replaceAll("_y", "").toSentenceCase(),
+          type: "scatter",
+          mode: "lines+markers",
+          stackgroup: totalPresent && key.replaceAll("_y", "").toSentenceCase() != "Total" ? "one" : undefined, // fill if total is present and not the total line
+          line: {
+            width: 2,
+            smoothing: 1,
+          },
+        };
+        traces.push(trace);
+      }
     }
   }
 
@@ -531,9 +537,9 @@ async function createVisualLine(province, lineData, currentVisual, dataType, lin
         tr.setAttribute("class", "align-middle");
         let tabCell = tr.insertCell(-1);
         tabCell.innerText = visualOptions[`table-${key}-row`].replace("replace_me", subKey.replaceAll("_y", "").toTitleCase());
-        subValue.forEach((element) => {
+        subValue.forEach((element, index) => {
           let tabCell = tr.insertCell(-1);
-          tabCell.innerText = element;
+          tabCell.innerText = formatTableValue(element, index, subValue);
         });
         }
     }
@@ -545,9 +551,9 @@ async function createVisualLine(province, lineData, currentVisual, dataType, lin
       tr.setAttribute("class", "align-middle");
       let tabCell = tr.insertCell(-1);
       tabCell.innerText = key;
-      value.forEach((element) => {
+      value.forEach((element, index) => {
         let tabCell = tr.insertCell(-1);
-        tabCell.innerText = element;
+        tabCell.innerText = formatTableValue(element, index, value);
       });
     }
   }
@@ -1078,6 +1084,30 @@ function setupResetButton() {
     currentVisual = route[0];
     masterLoop();
   };
+}
+
+// Helper function to remove leading zeros and return filtered data
+function filterLeadingZeros(xArray, yArray) {
+  let firstNonZeroIndex = yArray.findIndex(value => value !== 0 && value !== "0");
+  if (firstNonZeroIndex === -1) {
+    // All values are zero, return empty arrays
+    return { x: [], y: [] };
+  }
+  return {
+    x: xArray.slice(firstNonZeroIndex),
+    y: yArray.slice(firstNonZeroIndex)
+  };
+}
+
+//Helper function to convert leading zeroes in table data to "No Data Available"
+function formatTableValue(value, index, array){
+  //first non-zero index finder
+  let firstNonZero = array.findIndex(val => val !== 0 && val !== "0");
+  if (index < firstNonZero){
+    return "No Data";
+  } else {
+    return value;
+  }
 }
 
 // Function to set the active visual in the menu
