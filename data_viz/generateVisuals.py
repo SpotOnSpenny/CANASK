@@ -1117,13 +1117,27 @@ def v1_MB_export_clean():
     }
     return mb_data
 
+def v1_NB_export_clean():
+        # ----- Cleaned data from national health infobase -----
+    opioid_deaths_by_age, deaths_by_drug_type, deaths_by_sex, deaths_by_manner = v1_clean_national_data("New Brunswick")
+
+    # ----- Aggregate all data for export -----
+    nb_data = {
+        "opioid_deaths_by_age": opioid_deaths_by_age,
+        "deaths_by_drug_type": deaths_by_drug_type,
+        "deaths_by_sex": deaths_by_sex,
+        "deaths_by_manner": deaths_by_manner
+    }
+    return nb_data
+
 # Export all data to a json file, using URL friendly province names as keys
 # These keys will be passed as parameters to javascript so that we can pull the right data for each page
 def export_data_json():
     data = {
         "british-columbia": v1_BC_export_clean(),
         "alberta": v1_AB_export_clean(),
-        "manitoba": v1_MB_export_clean()
+        "manitoba": v1_MB_export_clean(),
+        "new-brunswick": v1_NB_export_clean()
     }
     # Write the data to a json file
     with open(os.path.join(os.path.abspath(os.path.dirname(__file__)), "static/js/visual_data.json"), "w") as file:
@@ -1133,5 +1147,6 @@ def export_data_json():
 if __name__ == '__main__':
     #data = v1_BC_export_clean()
     #v1_AB_export_clean()
-    #v1_clean_national_data("Alberta")
+    # data = v1_clean_national_data("New Brunswick")
+    # print(data)
     export_data_json()
