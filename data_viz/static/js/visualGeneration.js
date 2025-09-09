@@ -443,7 +443,6 @@ async function createVisualLine(province, lineData, currentVisual, dataType, lin
     if (key != "x"){
 
       let filteredData = filterLeadingZeros(traceData["x"], value);
-      console.log(filteredData)
 
       if (filteredData.x.length > 0) {
         let trace = {
@@ -1099,7 +1098,7 @@ function filterLeadingZeros(xArray, yArray) {
   };
 }
 
-//Helper function to convert leading zeroes in table data to "No Data Available"
+//Helper function to convert leading zeroes in table data to "No Data"
 function formatTableValue(value, index, array){
   //first non-zero index finder
   let firstNonZero = array.findIndex(val => val !== 0 && val !== "0");
