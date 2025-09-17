@@ -3,6 +3,7 @@ const visuals = {
     "default-visuals": {
         "british-columbia": "drug_death_heatmap",
         "alberta": "opioid_deaths_by_age",
+        "saskatchewan": "opioid_deaths_by_age",
         "manitoba": "deaths_by_age",
         "new-brunswick": "opioid_deaths_by_age"
         },
@@ -109,6 +110,44 @@ const visuals = {
             "next-vis": null
         },
         "deaths_by_drug_type": {
+            "type": "bar",
+            "data-types": ["counts", "rates", "percentages"],
+            "menu-parent": "Deaths and Demographics",
+            "menu-name": "Opioid Deaths by Drug Type",
+            "level": 1,
+            "vis-parent": null,
+            "next-vis": null
+        },
+        "deaths_by_sex": {
+            "type": "line",
+            "data-types": ["counts", "rates", "percentages"],
+            "menu-parent": "Deaths and Demographics",
+            "menu-name": "Opioid Deaths by Sex",
+            "level": 1,
+            "vis-parent": null,
+            "next-vis": null
+        },
+        "deaths_by_manner": {
+            "type": "line",
+            "data-types": ["counts", "rates", "percentages"],
+            "menu-parent": "Deaths and Demographics",
+            "menu-name": "Unregulated Drug Toxicity Deaths by Manner of Death",
+            "level": 1,
+            "vis-parent": null,
+            "next-vis": null
+        }
+    },
+    "saskatchewan": {
+        "opioid_deaths_by_age": {
+            "type": "line",
+            "data-types": ["counts", "percentages"],
+            "menu-parent": "Deaths and Demographics",
+            "menu-name": "Opioid Deaths by Age Group",
+            "level": 1,
+            "vis-parent": null,
+            "next-vis": null
+        },
+        "deaths_by_opioid_type": {
             "type": "bar",
             "data-types": ["counts", "rates", "percentages"],
             "menu-parent": "Deaths and Demographics",

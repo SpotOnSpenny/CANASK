@@ -1,4 +1,5 @@
 # Python Standard Library Imports
+import re
 import sys
 import os
 import shutil
@@ -41,7 +42,7 @@ from checkUps import checkup_output
 # searches for the titles of tables that we expect to see in the report. This means   #
 # that the script will always be able to find the tables, and won't have an issue as  #
 # new years/months are updated and added. However, the tradeoff here is that the      #
-# script will need to be updated with new titles and new ruels when new tables are    #
+# script will need to be updated with new titles and new rules when new tables are    #
 # added. In order to watch for this, the script will first check how many pages are   #
 # in the report, to see if it matches what we expect to see. If there are more tables #
 # then there will be more pages, and the script will spit out a warning stating this. #
@@ -81,6 +82,7 @@ def sk_pubcentre_scrape(driver, expected_pages):
     reader = PdfReader(raw_data_file)
     date_of_report = str(reader.metadata.creation_date).split(" ")[0].replace("-", "")
     pages = len(reader.pages)
+
     # Check if the current data is already up to date
     if date_of_report == date_scraped:
         print("The data is already up to date.")
@@ -96,20 +98,23 @@ def sk_pubcentre_scrape(driver, expected_pages):
         print("The raw data will not be deleted from the output directory for follow up use.")
         dont_delete = True
     # Look for the table titles in the pages of the report
+    # Set the enabled/disabled flag to pull additional titles
     titles =[
-        "Confirmed & Suspected Drug Toxicity Deaths by Manner of Death", 
-        "Depricated Table Not in Use", #1
-        "Breakdown of Opioid Drugs Identified in Confirmed Drug Toxicity Deaths by Manner of Death", #2
-        "Breakdown of Benzodiazepine Drugs Identified in Confirmed Drug Toxicity Deaths by Manner of Death", #3
-        "Confirmed Drug Toxicity Deaths Involving Opioid Drugs by Manner of Death, Sex and Race", #4
-        "Confirmed Drug Toxicity Deaths Involving Opioid Drugs by Manner of Death, Sex and Age Group", #5
-        "Confirmed Drug Toxicity Deaths Involving Fentanyl by Manner of Death, Sex and Race", #6
-        "Confirmed Drug Toxicity Deaths Involving Fentanyl by Manner of Death, Sex and Age Group", #7
-        "Confirmed Drug Toxicity Deaths Involving Benzodiazepines", #8 Not in cleaned report
-        "Confirmed Drug Toxicity Deaths by Place of Death", #9
-        "Number of Confirmed Deaths Where Methamphetamine Toxicity was Part of the Cause of Death", #10
-        "Number of Confirmed Deaths Where Xylazine Toxicity was Part of the Cause of Death", #11
+        {"title": "Confirmed & Suspected Drug Toxicity Deaths by Manner of Death", "enabled": True, "handler": "handle_confirmed_suspected_deaths"}, #0
+        {"title": "Breakdown of Opioid Drugs Identified in Confirmed Drug Toxicity Deaths by Manner of Death", "enabled": True, "handler": "handle_manner_breakdown"}, #2
+        {"title": "Breakdown of Benzodiazepine Drugs Identified in Confirmed Drug Toxicity Deaths by Manner of Death", "enabled": False, "handler": "handle_manner_breakdown"}, #3
+        {"title": "Confirmed Drug Toxicity Deaths Involving Opioid Drugs by Manner of Death, Sex and Race", "enabled": False, "handler": "handle_death_sex_race"}, #4
+        {"title": "Confirmed Drug Toxicity Deaths Involving Opioid Drugs by Manner of Death, Sex and Age Group", "enabled": False, "handler": "handle_death_sex_age"}, #5
+        {"title": "Confirmed Drug Toxicity Deaths Involving Fentanyl by Manner of Death, Sex and Race", "enabled": False, "handler": "handle_death_sex_race"}, #6
+        {"title": "Confirmed Drug Toxicity Deaths Involving Fentanyl by Manner of Death, Sex and Age Group", "enabled": False, "handler": "handle_death_sex_age"}, #7
+        {"title": "Confirmed Drug Toxicity Deaths Involving Benzodiazepines", "enabled": False, "handler": "handle_benzo_death"}, #8
+        {"title": "Confirmed Drug Toxicity Deaths by Place of Death", "enabled": True, "handler": "handle_place_of_death"}, #9
+        {"title": "Number of Confirmed Deaths Where Methamphetamine Toxicity was Part of the Cause of Death", "enabled": False, "handler": "handle_meth_death"}, #10
+        {"title": "Breakdown of Fentanyl (F), Carfentanyl (C), Acetylfentanyl (A), Furanylfentanyl (FF), Para-fluorofentanyl (PF) & Methylfentanyl (MF) Identified in Confirmed Drug Toxicity Deaths by Place of Death", "enabled": False, "handler": "handle_place_of_death"}, 
+        {"title": "Number of Confirmed Deaths Where Xylazine Toxicity was Part of the Cause of Death", "enabled": False, "handler": "handle_xylazine_death"}, #11
     ]
+    enabled_lookup = {title["title"].lower().replace(" ", ""): {"title": title["title"], "handler": title["handler"]} for title in titles if title["enabled"]}
+
     # Instantiate a list of data frames to hold the tables
     report_tables = {}
 
@@ -122,7 +127,6 @@ def sk_pubcentre_scrape(driver, expected_pages):
     searching = True
     join_with_next = False
     header = ""
-    spaceless_titles = [title.lower().replace(" ", "") for title in titles]
     end_of_table = ["", " ", "  ", "   ", "/n"]
     table_footnotes = ["Please note", "This current table includes"]
     non_title_indicators = ["updated", "statistics", "shown"]
@@ -138,18 +142,18 @@ def sk_pubcentre_scrape(driver, expected_pages):
         spaceless_line = line.lower().replace(" ", "")
         skip_line = False
         # If we find a title, start a new dataframe, also check to ensure the title is not just in a line of other text
-        if any(title in spaceless_line for title in spaceless_titles) and searching and not any(indicator in spaceless_line for indicator in non_title_indicators):
+        matched_key = next((key for key in enabled_lookup if key in spaceless_line), None)
+        if matched_key and searching and not any(indicator in spaceless_line for indicator in non_title_indicators):
             table = pandas.DataFrame({})
             searching = False
-            spaceless_title = spaceless_line
-            title = line
+            spaceless_match = spaceless_line
+            title = enabled_lookup[matched_key]["title"]
+            handler = enabled_lookup[matched_key]["handler"]
         elif not searching and line not in end_of_table and not any(footnote in line for footnote in table_footnotes):
             # Add the line to the dataframe until we find the end of the table
             # Check the case for the current title as well and apply the given rules to the data
-            match title:
-                case title if spaceless_titles[0] in spaceless_title and "breakdown" not in spaceless_title:
-                    print(title + "Found")
-                    print(line)
+            match handler:
+                case "handle_confirmed_suspected_deaths":
                     # Strip out leading/trailg whitespace and doublespaces
                     line = line.strip().replace("  ", " ")
                     # If the first character is a number, it's the year row so insert a label
@@ -170,49 +174,42 @@ def sk_pubcentre_scrape(driver, expected_pages):
                         line=line.replace(reason, f"{reason}-Confirmed")
                     elif line.startswith("Suspected"):
                         line = line.replace("Suspected Cases", "").strip()
-                case title if spaceless_titles[1] in spaceless_title:
-                    print(title + "Found")
-                    # Set the title to something more general
-                    if title != titles[1]:
-                        title = titles[1]
-                    # Strip out leading/trailg whitespace and doublespaces
-                    line = line.strip()
-                    while "  " in line:
-                        line = line.replace("  ", " ")
-                    # If the line doesn't start with "Total", it's not a data row
-                    if not line.startswith("Total") and not table.empty:
-                        # Remove spaces and take the last 4 characters as the year for the next line
-                        year = line.replace(" ", "")[-4:]
-                        skip_line = True
-                    # If the line starts with "Total", it's a data row so we should replace "total" with the year
-                    elif line.startswith("Total") and not table.empty:
-                        line = line.replace("Total", year).replace("*", "")
-                    # If the line is a data row but the table is empty, it's the first line and we need to add the year from the title
-                    elif line.startswith("Total") and table.empty:
-                        line = line.replace("Total", spaceless_title[-4:]).replace("*", "")
-                # Table 3 and 4 are the same format, so we can double up on the case
-                case title if spaceless_titles[2] in spaceless_title or spaceless_titles[3] in spaceless_title:
-                    print(title + "Found")
+                case "handle_manner_breakdown":
                     # Strip out leading/trailg whitespace and doublespaces
                     line = line.strip().replace("  ", " ")
                     # Consolidate all the drug lines into one line
                     if not any(manner in line for manner in ["Accident", "Suicide", "Homicide", "Undetermined"]):
                         header = header + line
                         skip_line = True
-                    # If it's the first row, add the header, and then the row as is
+                    # If it's the first row, clean and add the header, and then the row as is
                     elif any(manner in line for manner in ["Accident", "Suicide", "Homicide", "Undetermined"]) and table.empty:
+                        # Separate the header by capital letters
+                        exceptions = ["Opioid(Unknown)", "FuranylFentanyl", "FuranylUF-17"]
+                        def split_on_caps(header):
+                            return re.findall(r'[A-Z][a-z0-9\-\(\)\*]*', header)
+                        clean_header_cols = []
+                        for col in header.split(" "):
+                            if not any(exception in col for exception in exceptions):
+                                clean_header_cols.extend(split_on_caps(col))
+                            else:
+                                while any(exception in col for exception in exceptions):
+                                    for exception in exceptions:
+                                        if exception in col:
+                                            col = col.replace(exception, "")
+                                            clean_header_cols.append(exception)
+                                clean_header_cols.extend(split_on_caps(col))
+                        header = " ".join(clean_header_cols)
                         header = "Year MannerOfDeath " + header.replace(" -", "")
                         table = table._append(pandas.Series(header.split(" ")), ignore_index=True)
                         header = ""
-                        year = line[:4]                        
+                        year = line[:4]                       
                     # If it's not the first data row and a year is there, set the year as that
                     elif any(manner in line for manner in ["Accident", "Suicide", "Homicide", "Undetermined"]) and not table.empty and line[0].isnumeric():
                         year = line[:4]
                     # If it's not the first data row and the year is not there, set the year as the most recent year
                     elif any(manner in line for manner in ["Accident", "Suicide", "Homicide", "Undetermined"]) and not table.empty and not line[0].isnumeric():
                         line = f"{year} {line}"
-                case title if spaceless_titles[4] in spaceless_title or spaceless_titles[6] in spaceless_title:
-                    print(title + "Found")
+                case "handle_death_sex_race":
                     # Basic Cleaning  
                     line = line.strip().replace("non -s", "nonS")
                     while "  " in line: 
@@ -248,8 +245,7 @@ def sk_pubcentre_scrape(driver, expected_pages):
                                 break
                             else:
                                 start = f"{start}{character}"
-                case title if spaceless_titles[5] in spaceless_title or spaceless_titles[7] in spaceless_title:
-                    print(title + "Found")
+                case "handle_death_sex_age":
                     # Basic cleaning
                     line = line.strip()
                     while "  " in line:
@@ -282,10 +278,9 @@ def sk_pubcentre_scrape(driver, expected_pages):
                         join_with_next = False                        
                     else:
                         line = f"{manner} {sex} {line.replace(' – ', '-').replace(' +', '+').replace(' - ', '-')}"
-                case title if spaceless_titles[8] in spaceless_title and "age" not in spaceless_title:
-                    print(title + "Found")
+                case "handle_benzo_death":
                     if title_set == False:
-                        title = "Confirmed Drug Toxicity Deaths Involving Benzodiazepines by Manner of Death, Sed and Race"
+                        title = "Confirmed Drug Toxicity Deaths Involving Benzodiazepines by Manner of Death, Sex and Race"
                         title_set = True
                     # Basic cleaning
                     while "  " in line:
@@ -328,31 +323,7 @@ def sk_pubcentre_scrape(driver, expected_pages):
                                 break
                             else:
                                 start = f"{start}{character}"
-                case title if spaceless_titles[8] and "age" in spaceless_title:
-                    print(title + "Found")
-                    # Basic cleaning
-                    line = line.strip()
-                    while "  " in line:
-                        line = line.replace("  ", " ")
-                    # If the line is leftover from the title, skip it
-                    if line.startswith("Group"):
-                        skip_line = True
-                    # If the line is the years row, add some labels
-                    elif line.startswith("2024"):
-                        line = f"Manner Sex AgeGroup {line}" 
-                    elif line.startswith("Male") or line.startswith("Female"):
-                        sex = line.split(" ")[0]
-                        line = f"{manner} {line.replace(' – ', '-').replace(' +', '+')}"
-                    elif line.startswith("Total"):
-                        line = f"{manner} Male&Female {line.replace(' – ', '-').replace(' +', '+')}"                        
-                    elif not line[0].isnumeric():
-                        manner = line.split(" ")[0]
-                        sex = line.split(" ")[1]
-                        line = line.replace(" – ", "-").replace(" +", "+")
-                    else:
-                        line = f"{manner} {sex} {line.replace(' – ', '-').replace(' +', '+').replace(' - ', '-')}"
-                case title if spaceless_titles[9] in spaceless_title and "breakdown" not in spaceless_title:
-                    print(title + "Found")
+                case "handle_place_of_death" if "breakdown" not in spaceless_match:
                     # Basic cleaning
                     line = line.strip()
                     while "  " in line:
@@ -369,8 +340,10 @@ def sk_pubcentre_scrape(driver, expected_pages):
                                 break
                             else:
                                 start = f"{start}{character}"
-                case title if spaceless_titles[9] and "breakdown" in spaceless_title:
-                    print(title + "Found")
+                case "handle_place_of_death" if "breakdown" in spaceless_match:
+                    if title_set == False:
+                        title = "Breakdown of Fentanyl (F), Carfentanyl (C), Acetylfentanyl (A), Furanylfentanyl (FF), Para-fluorofentanyl (PF) & Methylfentanyl (MF) Identified in Confirmed Drug Toxicity Deaths by Place of Death"
+                        title_set = True
                     # Basic cleaning
                     line = line.strip()
                     while "  " in line:
@@ -399,8 +372,7 @@ def sk_pubcentre_scrape(driver, expected_pages):
                                 break
                             else:
                                 start = f"{start}{character}"
-                case title if spaceless_titles[10] in spaceless_title:
-                    print(title + "Found")
+                case "meth_death":
                     # Basic cleaning
                     line = line.strip()
                     while "  " in line:
@@ -423,8 +395,7 @@ def sk_pubcentre_scrape(driver, expected_pages):
                     # If the row date is the current year, it's the end of the table, and we need to insert a table end indicator line in the lines list
                     elif line.startswith(str(datetime.datetime.now().year)):
                         save_table = True
-                case title if spaceless_titles[11] in spaceless_title:
-                    print(title + "Found") 
+                case "xylazine_death":
                     # Basic cleaning
                     line = line.strip()
                     while "  " in line:
@@ -451,7 +422,7 @@ def sk_pubcentre_scrape(driver, expected_pages):
                 # add the table to the list of tables
                 report_tables[title.replace(" ", "").replace("–", "-")] = table
             # If the titles do match, and the table is the place of death breakdown, then we need to actually remove the first two rows as headers
-            elif previous_title.strip().replace(" ", "").replace("–", "-") == title.strip().replace(" ", "").replace("–", "-") and (spaceless_titles[9] and "breakdown" in spaceless_title) and ("byplaceofdeath" in spaceless_title):
+            elif previous_title.strip().replace(" ", "").replace("–", "-") == title.strip().replace(" ", "").replace("–", "-") and (handler =="handle_place_of_death" and "breakdown" in spaceless_match):
                 report_tables[title.replace(" ", "").replace("–", "-")] = pandas.concat([report_tables[title.replace(" ", "").replace("–", "-")], table.iloc[2:]], ignore_index=True)
             # If the titles do match, then instead concatinate the new table and the last table in the list
             else:
@@ -480,13 +451,13 @@ def sk_pubcentre_scrape(driver, expected_pages):
             table.columns = cols
             table.columns.name = None
         else:
-            print(table)
             table.columns = ["Year", "Suspected Deaths"]
         report_tables[title].columns = pandas.MultiIndex.from_product([[title], table.columns])
 
     # Save the dataframes to an excel file
     print("Saving the data to an excel file...")
-    with pandas.ExcelWriter(os.path.join(output_dir, f"{date_of_report}_skPubCentre.xlsx")) as writer:
+    today = datetime.date.today().strftime("%Y%m%d")
+    with pandas.ExcelWriter(os.path.join(output_dir, f"{today}_{date_of_report}_skPubCentre.xlsx")) as writer:
         for index, table in enumerate(report_tables.values()):
             table.to_excel(writer, sheet_name=f"Table {index + 1}")
 

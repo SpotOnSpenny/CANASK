@@ -1117,6 +1117,157 @@ def v1_MB_export_clean():
     }
     return mb_data
 
+def v1_SK_export_clean():
+    # ----- Cleaned data from national health infobase -----
+    deaths_by_age, deaths_by_drug_type, deaths_by_sex, deaths_by_manner = v1_clean_national_data("Saskatchewan")
+
+    # ----- Pull and Filter the SK Data -----
+    to_filter = pull_data(["skPubCentre"])
+    sk_pub_centre = filter_data(to_filter, ["Confirmed&SuspectedDrugToxicityDeathsbyMannerofDeath","BreakdownofOpioidDrugsIdentifiedinConfirmedDrugToxicityDeathsbyMannerofDeath", "ConfirmedDrugToxicityDeathsbyPlaceofDeath"])
+    
+    # ----- Pull the total CONFIRMED deaths to use in other calculations -----
+    data = sk_pub_centre[0]["dataframe"]
+    # Drop the total and suspected rows
+    data = data[(data["Year"] != "Total") & (data["Year"] != "Suspected")]
+    # Convert all columns except MannerOfDeath to numeric, forcing errors to NaN then
+    data = data.replace("--", 0)
+    for col in data.columns:
+        if col != "Year":
+            data[col] = pandas.to_numeric(data[col], errors="coerce").fillna(0).astype(int)
+    # sum each column
+    total_dict = data.sum(numeric_only=True).to_dict()
+    total_list = data.sum(numeric_only=True).to_list()
+
+    # ----- Deaths by Place of Death -----
+    data = sk_pub_centre[2]["dataframe"]
+    last_updated = sk_pub_centre[2]["date_updated"]
+    data_until = sk_pub_centre[2]["data_until"]
+    sk_report_deaths_by_place = { 
+        "data_source": {
+            "name": "Saskatchewan Coroners Service",
+            "about": """
+This data has been collected by the Saskatchewan Coroners Service (SKCS), and is based on toxicology reports from individuals who have died in Saskatchewan where the cause of death was confirmed, or suspected to be,drug toxicity.The data is updated monthly by the SKCS
+
+For more information,visit the SKCS website to view the PDF report by clicking the button below:
+            """,
+            "link": "https://publications.saskatchewan.ca/#/products/90505",
+            "last_updated": last_updated,
+            "data_until": data_until
+        },
+        "data": {
+            "counts": {},
+            "rates": {}
+        },
+        "visual_options": {
+            "heatmap-title": "Unregulated Drug Deaths in Saskatchewan by Health Authority",
+            "table-title": "Unregulated Drug Deaths in replace_with_health_authority Health Authority",
+            "table-row-title": "replace_location",
+        }
+    }
+    years = data.columns[1:].to_list()
+    sk_report_deaths_by_place["data"]["counts"]["x"] = years
+    population_data = pull_data(["nationalPopulationData"])
+    population_data = filter_data(population_data, ["nationalPopulationData"])[0]["dataframe"]
+    population_data = population_data.loc[population_data["GEO"] == "Saskatchewan"].set_index("REF_DATE")["VALUE"].to_dict()
+    pop_years = list(population_data.keys())
+    sk_report_deaths_by_place["data"]["rates"]["x"] = [year for year in pop_years if f"{year}" in years]
+    locations = data["Location"].tolist()[:-1]
+    #Load the key
+    filepath = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static/js/SK_HA_key.json")
+    print(filepath)
+    with open(filepath, "r") as file:
+        ha_key = json.load(file)
+    ha_key_locations = [loc for ha in ha_key for loc in ha_key[ha]]    
+    print(ha_key_locations)
+    for location in locations:
+        if location not in ha_key_locations:
+            print(location)
+    
+
+    # ----- Deaths by Opioid Type -----
+    data = sk_pub_centre[1]["dataframe"]
+    last_updated = sk_pub_centre[1]["date_updated"]
+    data_until = sk_pub_centre[1]["data_until"]
+    sk_report_deaths_by_type = {
+        "data_source": {
+            "name": "Saskatchewan Coroners Service",
+            "about": """
+This data has been collected by the Saskatchewan Coroners Service (SKCS), and is based on toxicology reports from individuals who have died in Saskatchewan where the cause of death was confirmed, or suspected to be,drug toxicity.The data is updated monthly by the SKCS
+
+For more information,visit the SKCS website to view the PDF report by clicking the button below:
+            """,
+            "link": "https://publications.saskatchewan.ca/#/products/90505",
+            "last_updated": last_updated,
+            "data_until": data_until
+        },
+        "data": {
+            "counts": {},
+            "rates": {},
+            "percentages": {},
+        },
+        "visual_options":{
+            "counts-title": f"Deaths in Saskatchewan Attributed to Unregulated Drugs by Drug Type",
+            "percentages-title": f"Percent of Total Unregulated Drug Deaths in Saskatchewan by Drug Type",
+            "rates-title": f"Unregulated Drug Deaths per 100,000 Population in Saskatchewan by Drug Type",
+            "table-title": f"Unregulated Drug Deaths in Saskatchewan by Drug Type",
+            "counts-y-axis-title": "Number of Unregulated Drug Deaths",
+            "percentages-y-axis-title": "Percent of Total Unregulated Drug Deaths",
+            "rates-y-axis-title": "Unregulated Drug Deaths per 100,000 Population",
+            "table-percentages-row": "Percent of Total Unregulated Drug Deaths Attributed to replace_me",
+            "table-counts-row": "Unregulated Drug Deaths Attributed to replace_me",
+            "table-rates-row": "Unregulated Drug Deaths Attributed to replace_me/100,000 Population",
+            "hover-type": "x unified",
+            "hover-info": "default"
+        }
+    }
+    # Because of the way these show up in the PDF we have to do a little extra cleaning
+    # Remove the manner of death column
+    data = data.drop(columns=["MannerOfDeath"])
+    drug_types = data.columns[1:].to_list()
+    for index, drug in enumerate(drug_types): 
+        if drug == "FuranylFentanyl":
+            drug_types[index] = "Furanyl Fentanyl"
+        elif drug == "FuranylUF-17":
+            drug_types[index] = "Furanyl UF-17"
+        elif drug == "Opioid(Unknown)":
+            drug_types[index] = "Opioid (Unknown)"
+    # Reset the columns to their new names
+    data.columns = ["Year"] + drug_types
+    # Replace all the "--" with 0 values
+    data = data.replace("--", 0)
+    for col in data.columns:
+        if col != "Year":
+            data[col] = pandas.to_numeric(data[col], errors="coerce").fillna(0).astype(int)
+    data = data.groupby("Year", as_index=False).sum(numeric_only=True)
+    
+    # Clean the data and separate it into dicts for the generation of visuals
+    years = data["Year"].tolist()
+    sk_report_deaths_by_type["data"]["counts"]["x"] = years
+    sk_report_deaths_by_type["data"]["percentages"]["x"] = years
+    population_data = pull_data(["nationalPopulationData"])
+    population_data = filter_data(population_data, ["nationalPopulationData"])[0]["dataframe"]
+    population_data = population_data.loc[population_data["GEO"] == "Saskatchewan"].set_index("REF_DATE")["VALUE"].to_dict()
+    pop_years = list(population_data.keys())
+    sk_report_deaths_by_type["data"]["rates"]["x"] = [year for year in pop_years if f"{year}" in years]
+    for drug in drug_types:
+        counts = data[drug].tolist()
+        sk_report_deaths_by_type["data"]["counts"][f"{drug}_y"] = counts
+        percentages = []
+        for index, count in enumerate(counts):
+            percentages.append(round((count / total_list[index]) * 100, 2) if total_list[index] != 0 else 0)
+        sk_report_deaths_by_type["data"]["percentages"][f"{drug}_y"] = percentages
+        rates = [round((count / population_data[int(year)]) * 100000, 2) if population_data[int(year)] != 0 else 0 for index, (year, count) in enumerate(zip(sk_report_deaths_by_type["data"]["rates"]["x"], counts))]
+        sk_report_deaths_by_type["data"]["rates"][f"{drug}_y"] = rates
+
+    # ----- Aggregate all data for export -----
+    sk_data = {
+        "opioid_deaths_by_age": deaths_by_age,
+        "deaths_by_opioid_type": sk_report_deaths_by_type,
+        "deaths_by_sex": deaths_by_sex,
+        "deaths_by_manner": deaths_by_manner
+    }
+    return sk_data
+
 def v1_NB_export_clean():
         # ----- Cleaned data from national health infobase -----
     opioid_deaths_by_age, deaths_by_drug_type, deaths_by_sex, deaths_by_manner = v1_clean_national_data("New Brunswick")
@@ -1136,6 +1287,7 @@ def export_data_json():
     data = {
         "british-columbia": v1_BC_export_clean(),
         "alberta": v1_AB_export_clean(),
+        "saskatchewan": v1_SK_export_clean(),
         "manitoba": v1_MB_export_clean(),
         "new-brunswick": v1_NB_export_clean()
     }
@@ -1145,8 +1297,7 @@ def export_data_json():
 
 # Test code below
 if __name__ == '__main__':
-    #data = v1_BC_export_clean()
-    #v1_AB_export_clean()
+    data = v1_SK_export_clean()
     # data = v1_clean_national_data("New Brunswick")
     # print(data)
     export_data_json()
