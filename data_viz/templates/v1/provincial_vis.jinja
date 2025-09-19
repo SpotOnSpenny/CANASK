@@ -100,11 +100,8 @@
     (async function() {
         try{
             province = "{{province}}";
-            console.log(visuals["default-visuals"], province)
             currentVisual = visuals["default-visuals"][province];
-            console.log("creating createMenu")
             createMenu(province);
-            console.log("getting data")
             await fetchRegionData(province);
             masterLoop();
         } catch(error) {
@@ -112,7 +109,6 @@
             province = "{{province}}";
             currentVisual = visuals["default-visuals"][province];
             createMenu(province);
-            console.log("getting data")
             await fetchRegionData(province);
             masterLoop();
             });

@@ -8,6 +8,7 @@ let lastLocation = null;
 
 // Function to dynamically create the menu based on the visuals object and current province
 function createMenu(province) {
+  console.log(`Creating menu for ${province}`);
   // Create the menu and add all parent categories
   let menu = document.getElementById("vis-selection-menu");
   menu.innerHTML = ""; // Clear existing menu items
@@ -180,6 +181,7 @@ async function createVisualHeatMap(province, visualToGen, geojson, mapData, mapS
   for (let year_index = 0; year_index < mapData[Object.keys(mapData)[0]]["x"].length; year_index++) {
     let values = {};
     for (let loc_index = 0; loc_index < geojson.features.length; loc_index++) {
+      console.log(geojson.features[loc_index].properties.ENGNAME);
       values[geojson.features[loc_index].properties.ENGNAME] = mapData[geojson.features[loc_index].properties.ENGNAME]["y"][year_index];
     }
     let chartData = {

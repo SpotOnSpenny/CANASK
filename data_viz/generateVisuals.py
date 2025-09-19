@@ -1140,6 +1140,7 @@ def v1_SK_export_clean():
 
     # ----- Deaths by Place of Death -----
     data = sk_pub_centre[2]["dataframe"]
+    data = data.replace("-", 0)
     last_updated = sk_pub_centre[2]["date_updated"]
     data_until = sk_pub_centre[2]["data_until"]
     sk_report_deaths_by_place = { 
@@ -1156,7 +1157,6 @@ For more information,visit the SKCS website to view the PDF report by clicking t
         },
         "data": {
             "counts": {},
-            "rates": {}
         },
         "visual_options": {
             "heatmap-title": "Unregulated Drug Deaths in Saskatchewan by Health Authority",
@@ -1165,24 +1165,36 @@ For more information,visit the SKCS website to view the PDF report by clicking t
         }
     }
     years = data.columns[1:].to_list()
-    sk_report_deaths_by_place["data"]["counts"]["x"] = years
-    population_data = pull_data(["nationalPopulationData"])
-    population_data = filter_data(population_data, ["nationalPopulationData"])[0]["dataframe"]
-    population_data = population_data.loc[population_data["GEO"] == "Saskatchewan"].set_index("REF_DATE")["VALUE"].to_dict()
-    pop_years = list(population_data.keys())
-    sk_report_deaths_by_place["data"]["rates"]["x"] = [year for year in pop_years if f"{year}" in years]
-    locations = data["Location"].tolist()[:-1]
     #Load the key
     filepath = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static/js/SK_HA_key.json")
-    print(filepath)
     with open(filepath, "r") as file:
         ha_key = json.load(file)
-    ha_key_locations = [loc for ha in ha_key for loc in ha_key[ha]]    
-    print(ha_key_locations)
-    for location in locations:
-        if location not in ha_key_locations:
-            print(location)
-    
+    # Instantiate a dict of health authorities with empty lists to hold deaths in each
+    health_authorities = {ha: [0] * len(years) for ha in ha_key.keys()}
+    def get_key_from_value(dict, value):
+        for key, values in dict.items():
+            if value in values:
+                return key
+        return None
+    for index, row in data.iterrows():
+        location = row["Location"]
+        health_authority = get_key_from_value(ha_key, location)
+        if health_authority:
+            for index, year in enumerate(years):
+                health_authorities[health_authority][index] += int(row[year])
+        elif location.lower() == "total":
+            #Add this to a total row eventually
+            health_authorities["Saskatchewan"] = [int(row[year]) for year in years]
+        else:
+            if "Unknown" not in health_authorities:
+                health_authorities["Unknown"] = [0] * len(years)
+            for index, year in enumerate(years):
+                health_authorities["Unknown"][index] += int(row[year])
+    for health_authority, counts in health_authorities.items():
+        if health_authority not in sk_report_deaths_by_place["data"]["counts"].keys():
+            sk_report_deaths_by_place["data"]["counts"][f"{health_authority}"] = {}
+        sk_report_deaths_by_place["data"]["counts"][f"{health_authority}"]["y"] = counts
+        sk_report_deaths_by_place["data"]["counts"][f"{health_authority}"]["x"] = years
 
     # ----- Deaths by Opioid Type -----
     data = sk_pub_centre[1]["dataframe"]
@@ -1264,7 +1276,8 @@ For more information,visit the SKCS website to view the PDF report by clicking t
         "opioid_deaths_by_age": deaths_by_age,
         "deaths_by_opioid_type": sk_report_deaths_by_type,
         "deaths_by_sex": deaths_by_sex,
-        "deaths_by_manner": deaths_by_manner
+        "deaths_by_manner": deaths_by_manner,
+        "drug_death_heatmap": sk_report_deaths_by_place
     }
     return sk_data
 
@@ -1297,7 +1310,7 @@ def export_data_json():
 
 # Test code below
 if __name__ == '__main__':
-    data = v1_SK_export_clean()
+    #data = v1_SK_export_clean()
     # data = v1_clean_national_data("New Brunswick")
     # print(data)
     export_data_json()

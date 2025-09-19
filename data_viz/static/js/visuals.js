@@ -1,4 +1,3 @@
-// Dictionary of visuals that each province has
 const visuals = {
     "default-visuals": {
         "british-columbia": "drug_death_heatmap",
@@ -147,6 +146,15 @@ const visuals = {
             "vis-parent": null,
             "next-vis": null
         },
+        "drug_death_heatmap": {
+            "type": "heatmap",
+            "data-types": ["counts"],
+            "menu-parent": "Deaths and Demographics",
+            "menu-name": "Drug Toxicity Deaths by Health Authority",
+            "level": 1,
+            "vis-parent": null,
+            "next-vis": null
+        },
         "deaths_by_opioid_type": {
             "type": "bar",
             "data-types": ["counts", "rates", "percentages"],
@@ -251,4 +259,4 @@ const visuals = {
             "next-vis": null
         }
     }
-}
+};

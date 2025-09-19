@@ -1,5 +1,5 @@
 {
-    "NorthWest":[
+    "North West":[
         "Aquadeo",
         "Battleford",
         "Beauval",
@@ -95,7 +95,7 @@
         "Wilkie",
         "WitchekanLake"
     ],
-    "NorthEast":[
+    "North East":[
         "AhtahkakoopCreeNation",
         "AirRonge",
         "Albertville",
@@ -202,7 +202,7 @@
         "WollastonLake",
         "ZenonPark"
     ],
-    "SouthWest":[
+    "South West":[
         "Abbey",
         "Assiniboia",
         "Avonlea",
@@ -323,7 +323,7 @@
         "WoodMountain",
         "Zealandia"
         ],
-    "SouthEast":[
+    "South East":[
         "Antler",
         "Abernethy",
         "Alameda",
@@ -544,7 +544,7 @@
         "Young",
         "Zelma"
         ],
-    "Athabasca":[
+    "Far North":[
         "BlackLake",
         "FondduLac",
         "FondduLac",
