@@ -2,12 +2,13 @@
 
 
 # External Dependency Imports
-from flask import Flask, redirect
+from flask import Flask, redirect, current_app
 from flask_assets import Environment, Bundle
+from flask_simplelogin import SimpleLogin
 
 # Internal Dependency Imports
 from data_viz.config import configure
-from data_viz.main import main_blueprint
+from data_viz.main import main_blueprint, login_manager
 
 #######################################################################################
 #                                        Notes:                                       #
@@ -48,6 +49,9 @@ assets.register(
 
 # Register the blueprints for the application
 app.register_blueprint(main_blueprint)
+
+# Initialize simplelogin for the application
+login_manager.init_app(app)
 
 # Error handling for 404 errors
 @app.errorhandler(404)

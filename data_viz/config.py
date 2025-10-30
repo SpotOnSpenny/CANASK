@@ -18,6 +18,11 @@ class ProductionConfig():
     SECRET_KEY = os.environ["SECRET_KEY"]
     DEBUG = False
     ASSET_DEBUG = False
+    SESSION_COOKIE_SAMESITE = "Lax"
+    SIMPLELOGIN_LOGIN_URL = os.environ.get("SIMPLELOGIN_LOGIN_URL")
+    SIMPLELOGIN_HOME_URL = os.environ.get("SIMPLELOGIN_HOME_URL")
+    SIMPLELOGIN_USERNAME = os.environ.get("SIMPLELOGIN_USERNAME")
+    SIMPLELOGIN_PASSWORD = os.environ.get("SIMPLELOGIN_PASSWORD")
     # Add more configuration settings here as the need arises
 
 class DevelopmentConfig(ProductionConfig):

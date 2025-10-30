@@ -1,6 +1,6 @@
 <div id="desktop-nav" class="d-flex flex-column flex-shrink-0 p-3 text-white bg-dark"
     style="width: 250px; height: 100vh;">
-    <p hx-get="/introduction/htmx" hx-trigger="click" hx-target="#content-div" hx-swap="innerHTML swap:1s settle:1s"
+    <p hx-get="/" hx-trigger="click" hx-target="#content-div" hx-swap="innerHTML swap:1s settle:1s"
         class="d-flex mb-3 mb-md-0 me-md-auto text-white text-decoration-none htmx-element" hx-push-url="/">
         CANASK | Canadian Alliance for Substance Knowledge
     </p>
@@ -16,7 +16,7 @@
             <div id="flush-collapseOne" class="accordion-collapse collapse" aria-labelledby="flush-headingOne"
                 data-bs-parent="#accordionFlushMenu">
                 <div class="accordion-body bg-transparent">
-                    <p hx-get="/toxicity-deaths/htmx" hx-trigger="click" hx-target="#content-div"
+                    <p hx-get="/toxicity-deaths" hx-trigger="click" hx-target="#content-div"
                         hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/toxicity-deaths"
                         class="nav-link text-white htmx-element accordion-innard" aria-current="page">
                         Total Toxicity Deaths
@@ -35,32 +35,32 @@
             <div id="flush-collapseProvinces" class="accordion-collapse collapse" aria-labelledby="flush-headingOne"
                 data-bs-parent="#accordionFlushMenu">
                 <div class="accordion-body bg-transparent">
-                    <p hx-get="/v1/province/british-columbia/htmx" hx-trigger="click" hx-target="#content-div"
+                    <p hx-get="/v1/province/british-columbia" hx-trigger="click" hx-target="#content-div"
                         hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/v1/province/british-columbia"
                         class="nav-link text-white htmx-element accordion-innard" aria-current="page">
                         British Columbia
                     </p>
-                    <p hx-get="/v1/province/alberta/htmx" hx-trigger="click" hx-target="#content-div"
+                    <p hx-get="/v1/province/alberta" hx-trigger="click" hx-target="#content-div"
                         hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/v1/province/alberta"
                         class="nav-link text-white htmx-element accordion-innard" aria-current="page">
                         Alberta
                     </p>
-                    <p hx-get="/v1//province/saskatchewan/htmx" hx-trigger="click" hx-target="#content-div"
+                    <p hx-get="/v1//province/saskatchewan" hx-trigger="click" hx-target="#content-div"
                         hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/v1/province/saskatchewan"
                         class="nav-link text-white htmx-element accordion-innard" aria-current="page">
                         Saskatchewan
                     </p>
-                    <p hx-get="/v1/province/manitoba/htmx" hx-trigger="click" hx-target="#content-div"
+                    <p hx-get="/v1/province/manitoba" hx-trigger="click" hx-target="#content-div"
                         hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/v1/province/manitoba"
                         class="nav-link text-white htmx-element accordion-innard" aria-current="page">
                         Manitoba
                     </p>
-                    <p hx-get="/province/ontario/htmx" hx-trigger="click" hx-target="#content-div"
+                    <p hx-get="/province/ontario" hx-trigger="click" hx-target="#content-div"
                         hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/province/ontario"
                         class="nav-link text-white htmx-element accordion-innard" aria-current="page">
                         Ontario
                     </p>
-                    <p hx-get="/v1/province/new-brunswick/htmx" hx-trigger="click" hx-target="#content-div"
+                    <p hx-get="/v1/province/new-brunswick" hx-trigger="click" hx-target="#content-div"
                         hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/v1/province/new-brunswick"
                         class="nav-link text-white htmx-element accordion-innard" aria-current="page">
                         New Brunswick
@@ -78,34 +78,34 @@
             <span class="bar"></span>
             <span class="bar"></span>
         </a>
-        <h1 class="mobile-title" hx-get="/introduction/htmx" hx-trigger="click" hx-target="#content-div"
+        <h1 class="mobile-title" hx-get="/introduction" hx-trigger="click" hx-target="#content-div"
             hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/">
             CANASK | Canadian Alliance for Substance Knowledge
         </h1>
     </div>
     <div id="mobile-nav-link-container">
         <h2 class="nav-title">National Trends</h2>
-        <p hx-get="/toxicity-deaths/htmx" hx-trigger="click" hx-target="#content-div"
+        <p hx-get="/toxicity-deaths" hx-trigger="click" hx-target="#content-div"
             hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/toxicity-deaths"
             class="mobile-nav-link text-white htmx-element" aria-current="page">
             Total Toxicity Deaths
         <h2 class="nav-title">Provincial Trends</h2>
-        <p hx-get="/province/british-columbia/htmx" hx-trigger="click" hx-target="#content-div"
+        <p hx-get="/province/british-columbia" hx-trigger="click" hx-target="#content-div"
             hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/province/british-columbia"
             class="mobile-nav-link text-white htmx-element" aria-current="page">
             British Columbia
         </p>
-        <p hx-get="/province/alberta/htmx" hx-trigger="click" hx-target="#content-div"
+        <p hx-get="/province/alberta" hx-trigger="click" hx-target="#content-div"
             hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/province/alberta"
             class="mobile-nav-link text-white htmx-element" aria-current="page">
             Alberta
         </p>
-        <p hx-get="/province/saskatchewan/htmx" hx-trigger="click" hx-target="#content-div"
+        <p hx-get="/province/saskatchewan" hx-trigger="click" hx-target="#content-div"
             hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/province/saskatchewan"
             class="mobile-nav-link text-white htmx-element" aria-current="page">
             Saskatchewan
         </p>
-        <p hx-get="/province/ontario/htmx" hx-trigger="click" hx-target="#content-div"
+        <p hx-get="/province/ontario" hx-trigger="click" hx-target="#content-div"
             hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/province/ontario"
             class="mobile-nav-link text-white htmx-element" aria-current="page">
             Ontario

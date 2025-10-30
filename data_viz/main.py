@@ -1,13 +1,15 @@
 # Python Standard Library Dependencies
 import os
 import requests
+from functools import wraps
 
 # External Dependency Imports
-from flask import Blueprint, render_template, redirect, url_for, request, jsonify
+from flask import Blueprint, render_template, redirect, url_for, request, jsonify, views, current_app, session, flash, get_flashed_messages
 import pandas
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 import bleach
+from flask_simplelogin import SimpleLogin
 
 # Internal Dependency Imports
 from .generateVisuals import pull_data, filter_data
@@ -27,66 +29,75 @@ from .generateVisuals import pull_data, filter_data
 # Define the blueprint for the main application
 main_blueprint = Blueprint("main", __name__)
 
+# Init the login manager
+login_manager = SimpleLogin()
+login_check = login_manager._login_checker
+
+# require_auth decorator
+def require_auth(view):
+    @wraps(view)
+    def wrapped_view(**kwargs):
+        if session.get("simplelogin", False):
+            session["has_visited"] = True
+            return view(**kwargs)
+        elif not session.get("simplelogin", False):
+            if session.get("has_visited", False):
+                flash("Please login to access this page", "warning")
+            return render_template("base.jinja", include_partials="login")
+    return wrapped_view
+
 ##################################### ROUTES ###########################################
+# Route for the login page
+@main_blueprint.route("/v1/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        form_data = request.form
+        if login_check(form_data): 
+            session["simplelogin"] = True
+            if request.headers.get("HX-Request") == "true":
+                return render_template("index.jinja") 
+            else:
+                return render_template("base.jinja", include_partials="index", dash_template=None)
+        else:
+            flash("Invalid username or password", "danger")
+            return render_template("base.jinja", include_partials="login")
+    else:
+        return render_template("base.jinja", include_partials="login")
+
+
 # Routes for main index page
 @main_blueprint.route("/")
+@require_auth
 def index():
-    return render_template("index.jinja")
-
-@main_blueprint.route("/introduction", defaults={"htmx_flag": None})
-@main_blueprint.route("/introduction/<htmx_flag>")
-def introduction(htmx_flag):
-    if not htmx_flag:
-        return redirect(url_for("main.index"))
-    else:
+    if request.headers.get("HX-Request") == "true":
         return render_template("introduction.jinja")
+    else:
+        return render_template("base.jinja", include_partials="index")
 
 # Routes for National Trends
-@main_blueprint.route("/toxicity-deaths", defaults={"htmx_flag": None})
-@main_blueprint.route("/toxicity-deaths/<htmx_flag>")
-def toxicity_deaths(htmx_flag):
-    if not htmx_flag:
-        return render_template("index.jinja", dash_template="v0/toxicity_deaths.jinja")
-    else:
+@main_blueprint.route("/toxicity-deaths")
+@require_auth
+def toxicity_deaths():
+    if request.headers.get("HX-Request") == "true":
         return render_template("v0/toxicity_deaths.jinja")
+    else:
+        return render_template("base.jinja", include_partials="index", dash_template="v0/toxicity_deaths.jinja")
 
-# Routes for Provincial Dashboards
-@main_blueprint.route("/province/british-columbia", defaults={"htmx_flag": None})
-@main_blueprint.route("/province/british-columbia/<htmx_flag>")
-def bc(htmx_flag):
-    if not htmx_flag:
-        return render_template("index.jinja", dash_template="v0/provincial_bc.jinja")
-    else:
-        return render_template("v0/provincial_bc.jinja")
-
-@main_blueprint.route("/province/saskatchewan" , defaults={"htmx_flag": None})
-@main_blueprint.route("/province/saskatchewan/<htmx_flag>")
-def sk(htmx_flag):
-    if not htmx_flag:
-        return render_template("index.jinja", dash_template="v0/provincial_sask.jinja")
-    else:
-        return render_template("v0/provincial_sask.jinja")
-    
-@main_blueprint.route("/province/ontario" , defaults={"htmx_flag": None})
-@main_blueprint.route("/province/ontario/<htmx_flag>")
-def on(htmx_flag):
-    if not htmx_flag:
-        return render_template("index.jinja", dash_template="v0/provincial_on.jinja")
-    else:
+@main_blueprint.route("/province/ontario")
+@require_auth
+def ontario():
+    if request.headers.get("HX-Request") == "true":
         return render_template("v0/provincial_on.jinja")
-
-@main_blueprint.route("/province/alberta", defaults={"htmx_flag": None})
-@main_blueprint.route("/province/alberta/<htmx_flag>")
-def ab(htmx_flag):
-    if not htmx_flag:
-        return render_template("index.jinja", dash_template="no_data.jinja")
     else:
-        return render_template("no_data.jinja")
-    
+        return render_template("base.jinja", include_partials="index", dash_template="v0/provincial_on.jinja")
+
 # Routes for Error Pages
 @main_blueprint.route("/not-found")
 def page_not_found():
-    return render_template("index.jinja", dash_template="404.jinja"), 404
+    if request.headers.get("HX-Request") == "true":
+        return render_template("index.jinja", dash_template="404.jinja"), 404
+    else:
+        return render_template("base.jinja", include_partials="index", dash_template="404.jinja"), 404
 
 # Route for Feedback submission and recaptcha verification
 @main_blueprint.route("/feedback", methods=["POST"])
@@ -94,6 +105,7 @@ def feedback():
     # Get the form data
     feedback_data = request.form
     # Create POST request to send to the recaptcha verification server
+    print("sending recaptcha request")
     recaptcha_response = requests.post("https://www.google.com/recaptcha/api/siteverify", data={"secret": os.environ.get("RECAPTCHA_SECRET"), "response": feedback_data["g-recaptcha-response"]})
     if recaptcha_response.status_code != 200:
         return jsonify({"status": "error", "message": "Recaptcha verification failed"}), 500
@@ -116,18 +128,19 @@ def feedback():
             response = sg.send(message)
             print(response.status_code)
         except Exception as e:
+            print(e)
             return jsonify({"status": "error", "message": "Failed to send feedback email"}), 500
         # Return an OK response
         return jsonify({"status": "success"}), 200;
 
-# Rout for V1 data visuals
-@main_blueprint.route("/v1/province/<province>", defaults={"htmx_flag": None})
-@main_blueprint.route("/v1/province/<province>/<htmx_flag>")
-def v1_province(province, htmx_flag):
-    if not htmx_flag:
-        return render_template("index.jinja", dash_template="v1/provincial_vis.jinja", province=province)
-    else:
+# Route for V1 data visuals
+@main_blueprint.route("/v1/province/<province>")
+@require_auth
+def v1_province(province): 
+    if request.headers.get("HX-Request") == "true":
         return render_template("v1/provincial_vis.jinja", province=province)
+    else:
+        return render_template("base.jinja", include_partials="index", dash_template="v1/provincial_vis.jinja", province=province)
 
 
 ################################# Test Code Below ######################################
