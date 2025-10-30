@@ -6,8 +6,7 @@ from functools import wraps
 # External Dependency Imports
 from flask import Blueprint, render_template, redirect, url_for, request, jsonify, views, current_app, session, flash, get_flashed_messages
 import pandas
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail
+from mailersend import MailerSendClient, EmailBuilder
 import bleach
 from flask_simplelogin import SimpleLogin
 
@@ -112,21 +111,22 @@ def feedback():
     elif recaptcha_response.json()["success"] == False:
         return jsonify({"status": "error", "message": "Recaptcha verification failed"}), 403
     else:
-        # Make the email and send it via sendgrid
-        message = Mail(
-            from_email="spencer.fietz@ucalgary.ca",
-            to_emails="spencer.fietz@ucalgary.ca",
-            subject="Dashboard Feedback Received",
-            html_content=f"""
+        mailersend_client = MailerSendClient(os.environ.get("MAILERSEND_API_KEY"))
+        mail = (EmailBuilder()
+            .from_email("canask_feedback@test-65qngkd7jm8lwr12.mlsender.net")
+            .to("spencer.fietz@ucalgary.ca")
+            .subject("CANASK Feedback Received")
+            .html(f"""
             <h2>Name:</h2>{bleach.clean(feedback_data['name']) if feedback_data['name'] else "Anonymous"} </br>
             <h2>Feedback:</h2>{bleach.clean(feedback_data['feedback'])} </br>
             <h2>Reach them at:</h2>{bleach.clean(feedback_data['email'])}
             """
+            )
+            .build()
         )
+
         try:
-            sg = SendGridAPIClient(os.environ.get("SENDGRID_API_KEY"))
-            response = sg.send(message)
-            print(response.status_code)
+            response = mailersend_client.emails.send(mail)
         except Exception as e:
             print(e)
             return jsonify({"status": "error", "message": "Failed to send feedback email"}), 500
