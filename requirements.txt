@@ -12,9 +12,10 @@ Flask-Assets
 python-dotenv
 jsmin
 cssmin
-sendgrid
+mailersend
 bleach
 requests
 python-calamine
 #pantab
 openpyxl
+flask_simplelogin
