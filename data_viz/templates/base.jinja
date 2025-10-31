@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="overflow-y-hidden">
 
 <head>
     <title>CANASK | Login</title>
@@ -33,8 +33,8 @@
 
 </head>
 
-<body class="overflow-x-hidden">
-    <div class="bg-light position-absolute top-0 start-0 w-100 h-100 z-n1"></div>
+<body class="overflow-x-hidden overflow-y-hidden">
+    <div class="bg-light position-absolute top-0 start-0 w-100 z-n1"></div>
         {% if include_partials == "index" %}
             {% include 'index.jinja' %}
         {% elif include_partials == "login" %}
@@ -44,18 +44,9 @@
         {% block body_content %}
         {% endblock %}
     </div>
-        <footer>
-            <!-- place footer here -->
-        </footer>
-        {% assets "js_all" %}
-        <script type="text/javascript" src="{{ ASSET_URL }}"></script>
-        {% endassets %}
-        {% if include_partials == "index"%}
-        <script type="text/javascript">
-            initMobileNav()
-            initFeedback()
-        </script>
-        {% endif %}
+    {% assets "js_all" %}
+    <script type="text/javascript" src="{{ ASSET_URL }}"></script>
+    {% endassets %}
 </body>
 
 </html>

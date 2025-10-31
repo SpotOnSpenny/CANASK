@@ -50,9 +50,11 @@ def require_auth(view):
 @main_blueprint.route("/v1/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
+        print(f"Session will expire in: {current_app.config['PERMANENT_SESSION_LIFETIME']}")
         form_data = request.form
         if login_check(form_data): 
             session["simplelogin"] = True
+            session["permanent"] = True
             if request.headers.get("HX-Request") == "true":
                 return render_template("index.jinja") 
             else:

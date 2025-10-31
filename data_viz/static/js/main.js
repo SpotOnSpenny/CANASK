@@ -90,8 +90,8 @@ function generateODPRNToxAbout(lastUpdatedDate, dataUntil) {
   return html;
 }
 
+// Initiate the mobile nav when it's present on the page
 function toggleHamburger(e, navToggle, bars) {
-    console.log(navToggle, bars)
     bars.forEach((bar) => bar.classList.toggle("x"));
     navToggle.classList.toggle("menu-active");
     navLinks.forEach((link) => link.classList.toggle("visible"));
@@ -99,10 +99,8 @@ function toggleHamburger(e, navToggle, bars) {
     mobileTitle.classList.toggle("visible");
 }
 
-// for mobile nav
 function initMobileNav(){
   let navToggle = document.querySelector(".nav-toggle");
-  console.log(navToggle)
   let navLinks = document.querySelectorAll(".nav-title, .mobile-nav-link");
   let mobileTitle = document.querySelector(".mobile-title");
   let navLinkContainer = document.querySelector("#mobile-nav-link-container");
@@ -138,7 +136,7 @@ function initMobileNav(){
   });
 }
 
-// for feedback toggle
+// Initiate the feedback form when it's present on the page
 function initFeedback() {
   let feedbackToggle = document.querySelector(".feedback-toggle");
   let feedbackContent = document.querySelector(".feedback-content-container");
@@ -198,7 +196,6 @@ function feedbackSubmit(token) {
       })
       .then((data) => {
         let alertContainer = document.getElementById("form-alerts");
-        console.log(alertContainer);
         if (data["status"] == "success") {
           let feedbackAlert = `<div class="alert alert-success alert-dismissible fade show" role="alert">
           <p style="margin-bottom:0;"><strong style="margin-right: 2px;">Success! </strong> Your feedback has been submitted. Thank you for your input. </p>
@@ -227,6 +224,29 @@ function feedbackSubmit(token) {
       });
   }
 }
+
+// Watch for HTMX signals to know when to run the mobile nav and feedback init functions
+document.body.addEventListener("htmx:afterSettle", (event) => {
+  if (event.detail.target && event.detail.target.id == "page-container") {
+    let scriptContainer = document.querySelector("#template-scripts-signal");
+    if (scriptContainer.classList.contains("initialized")) {
+      return; 
+    } else {
+      initMobileNav();
+      initFeedback();
+      scriptContainer.classList.add("initialized");
+    }
+  }
+});
+
+document.addEventListener("DOMContentLoaded", (event) => {
+  let scriptContainer = document.querySelector("#template-scripts-signal");
+  if (scriptContainer && !scriptContainer.classList.contains("initialized")) {
+    initMobileNav();
+    initFeedback();
+    scriptContainer.classList.add("initialized");
+  }
+});
 
 // General functions to fetch data, create charts, etc. within the templates
 function fetchData(data_file, functionCallback = null) {
@@ -602,7 +622,12 @@ async function toxSetUp() {
       for (let i = 0; i < data.x_axes.can_line_x.length; i++) {
         let totalForYear = 0;
         for (const [key, value] of Object.entries(data.y_axes)) {
-          totalForYear += Number(value[i]);
+          toAdd = Number(value[i]);
+          if (isNaN(toAdd)) {
+            totalForYear += 0;
+          } else {
+            totalForYear += toAdd;
+          }
         }
         totals.push(totalForYear);
       }
@@ -778,8 +803,8 @@ async function toxSetUp() {
           height: window.innerWidth > 768 ? $("#viz-card").height() : "auto",
           title:
             window.innerWidth > 768
-              ? "Canadian Drug Toxicity Deaths Each Year by Province"
-              : "Canadian Drug Toxicity Deaths<br>Each Year by Province",
+              ? "Canadian Opioid Toxicity Deaths Each Year by Province"
+              : "Canadian Opioid Toxicity Deaths<br>Each Year by Province",
           legend:
             window.innerWidth > 768
               ? {}
@@ -869,8 +894,8 @@ function changeChartType(selector) {
             height: window.innerWidth > 768 ? $("#viz-card").height() : "auto",
             title:
               window.innerWidth > 768
-                ? "Canadian Drug Toxicity Deaths Each Year by Province"
-                : "Canadian Drug Toxicity<br>Deaths Each Year by<br>Province",
+                ? "Canadian Opioid Toxicity Deaths Each Year by Province"
+                : "Canadian Opioid Toxicity<br>Deaths Each Year by<br>Province",
             legend:
               window.innerWidth > 768
                 ? {}
@@ -936,8 +961,8 @@ function changeChartType(selector) {
             height: window.innerWidth > 768 ? $("#viz-card").height() : "auto",
             title:
               window.innerWidth > 768
-                ? "Canadian Drug Toxicity Deaths per 100,000 People Each Year by Province"
-                : "Canadian Drug Toxicity Deaths per 100,000<br>People Each Year by Province",
+                ? "Canadian Opioid Toxicity Deaths per 100,000 People Each Year by Province"
+                : "Canadian Opioid Toxicity Deaths per 100,000<br>People Each Year by Province",
             legend:
               window.innerWidth > 768
                 ? {}
@@ -1006,8 +1031,8 @@ function changeChartType(selector) {
             height: window.innerWidth > 768 ? $("#viz-card").height() : "auto",
             title:
               window.innerWidth > 768
-                ? "Canadian Drug Toxicity Deaths Each Year by Province"
-                : "Canadian Drug Toxicity Deaths<br>Each Year by Province",
+                ? "Canadian Opioid Toxicity Deaths Each Year by Province"
+                : "Canadian Opioid Toxicity Deaths<br>Each Year by Province",
             legend:
               window.innerWidth > 768
                 ? {}

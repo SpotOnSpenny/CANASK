@@ -1,4 +1,4 @@
-<div id="page-container">
+<div id="page-container" class="fade-me-out fade-me-in">
     {% include 'menu.jinja' %}
     <div id="content-div" class="flex-column container fade-me-out fade-me-in blue">
         <!-- If we don't have a province var, then we just render the intro template here -->
@@ -19,3 +19,7 @@
     CANASK | Home
     {% endif %}
 </title>
+
+<div id="template-scripts-signal">
+    <!-- This div serves as a signal to run initialization scripts for specific pages from main.js -->
+</div>

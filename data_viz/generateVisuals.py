@@ -88,6 +88,7 @@ def filter_data(data: dict, find_these: list, exact_match: bool = False):
     return dataframes
 
 # Restructured functions to generate the visual by page, not by graph
+# Note that we do have stimulant data here that we can expand this for in the future
 def export_nat_drug_toxicity_deaths():
     # Find what national data exists and clean it up to get what we need (toxicity deaths by province by year)
     national_raw = pull_data(["nationalHealthInfobase"])
@@ -95,9 +96,10 @@ def export_nat_drug_toxicity_deaths():
     raw_df = national_raw["nationalHealthInfobase"]["dataframe"]
     provinces = ["British Columbia", "Alberta", "Saskatchewan", "Manitoba", "Ontario", "Quebec", "New Brunswick", "Nova Scotia", "Prince Edward Island", "Newfoundland and Labrador"]
     deaths_filter = raw_df["Source"] == "Deaths"
-    stat_filter = raw_df["Type_Event"] == "Total apparent opioid toxicity deaths"
+    stat_filter = raw_df["Specific_Measure"] == "Overall numbers"
     period_filter = raw_df["Time_Period"] == "By year"
     unit_filter = raw_df["Unit"] == "Number"
+    substance_filter = raw_df["Substance"] == "Opioids"
     for province in provinces:
         province_filter = raw_df["Region"] == province
         provincial_dfs[province] = {}
@@ -106,40 +108,54 @@ def export_nat_drug_toxicity_deaths():
             "last_updated": national_raw["nationalHealthInfobase"]["date_updated"],
             "url": "https://health-infobase.canada.ca/substance-related-harms/opioids-stimulants/"
         }]
-        provincial_dfs[province]["data"] = raw_df[deaths_filter & stat_filter & period_filter & unit_filter & province_filter]
+        provincial_dfs[province]["data"] = raw_df[deaths_filter & stat_filter & period_filter & unit_filter & province_filter & substance_filter]
         # Limit the column to deaths and year
         provincial_dfs[province]["data"] = provincial_dfs[province]["data"][["Year_Quarter", "Value"]]
         provincial_dfs[province]["data"].rename(columns={"Year_Quarter": "Year"}, inplace=True)
+    
+    # Check the years to see if any provinces have a month range (usually the most recent year does), so that we can append that info to the about these data
+    provincial_month_ranges = {}
+    for province in provinces:
+        for index, row in provincial_dfs[province]["data"].iterrows():
+            if "to" in row["Year"]:
+                range = f"{row["Year"].split("(")[1].replace(")", "").strip()}_{row["Year"].split("(")[0].strip()}"
+                if range not in provincial_month_ranges.keys():
+                    provincial_month_ranges[range] = province
+                else:
+                    provincial_month_ranges[range] += f", {province}"
+                row["Year"] = row["Year"].split(" ")[0].strip()
 
-    # Replace national data with what provincial data we have and make note of the replaced data points for an about this data section
-    sask_raw = pull_data(["skPubCentre"])
-    sask_filtered = filter_data(sask_raw, ["ConfirmedDrugToxicityDeathsbyMannerofDeath"])
-    sask_total_deaths = sask_filtered[0]["dataframe"].loc[sask_filtered[0]["dataframe"]["Year"] == "Total"]
-    provincial_dfs["Saskatchewan"]["sources"] = [{
-        "name": "Saskatchewan Coroners Service",
-        "last_updated": sask_filtered[0]["date_updated"],
-        "url": "https://publications.saskatchewan.ca/#/products/90505"
-    }]
-    for column_name, column_data in sask_total_deaths.iloc[:, 1:].items():
-        column_value = column_data.to_list()[0]
-        mask = provincial_dfs["Saskatchewan"]["data"]["Year"].str.contains(re.escape(column_name), case=False, na=False)
-        provincial_dfs["Saskatchewan"]["data"].loc[mask, "Value"] = column_value
-        provincial_dfs["Saskatchewan"]["data"].loc[mask, "Year"] = column_name
+    # # Replace national data with what provincial data we have and make note of the replaced data points for an about this data section
+    # # Commenting this out for now, as we're not certain the definitions of "toxicity deaths" match between national and provincial sources
+    # # Work is being done among coroners services to harmonize these definitions, so it may be possible to reuse this in the future.
+    # sask_raw = pull_data(["skPubCentre"])
+    # sask_filtered = filter_data(sask_raw, ["ConfirmedDrugToxicityDeathsbyMannerofDeath"])
+    # sask_total_deaths = sask_filtered[0]["dataframe"].loc[sask_filtered[0]["dataframe"]["Year"] == "Total"]
+    # provincial_dfs["Saskatchewan"]["sources"] = [{
+    #     "name": "Saskatchewan Coroners Service",
+    #     "last_updated": sask_filtered[0]["date_updated"],
+    #     "url": "https://publications.saskatchewan.ca/#/products/90505"
+    # }]
+    # for column_name, column_data in sask_total_deaths.iloc[:, 1:].items():
+    #     column_value = column_data.to_list()[0]
+    #     mask = provincial_dfs["Saskatchewan"]["data"]["Year"].str.contains(re.escape(column_name), case=False, na=False)
+    #     provincial_dfs["Saskatchewan"]["data"].loc[mask, "Value"] = column_value
+    #     provincial_dfs["Saskatchewan"]["data"].loc[mask, "Year"] = column_name
 
-    bc_raw = pull_data(["bcCoronersReport"])
-    bc_filtered = filter_data(bc_raw, ["Unregulated Drug Deaths by Month"])
-    bc_total_deaths = bc_filtered[0]["dataframe"].iloc[-1]
-    provincial_dfs["British Columbia"]["sources"] = [{
-        "name": "BC Coroners Service",
-        "last_updated": bc_filtered[0]["date_updated"],
-        "url": "https://app.powerbi.com/view?r=eyJrIjoiM2Y5YzRjNzQtMzAyNS00NWFiLWI3MDktMzI5NWQ3YmVhNmZjIiwidCI6IjZmZGI1MjAwLTNkMGQtNGE4YS1iMDM2LWQzNjg1ZTM1OWFkYyJ9"
-    }]
-    provincial_dfs["British Columbia"]["data"]["Year"] = provincial_dfs["British Columbia"]["data"]["Year"].str.strip()
-    for column_name, column_data in bc_total_deaths.iloc[1:].items():
-        mask = provincial_dfs["British Columbia"]["data"]["Year"].str.contains(re.escape(column_name.strip()), case=False, na=False)
-        if mask.any():
-            provincial_dfs["British Columbia"]["data"].loc[mask, "Value"] = column_data
-            provincial_dfs["British Columbia"]["data"].loc[mask, "Year"] = column_name
+    # bc_raw = pull_data(["bcCoronersReport"])
+    # bc_filtered = filter_data(bc_raw, ["Unregulated Drug Deaths by Month"])
+    # bc_total_deaths = bc_filtered[0]["dataframe"].iloc[-1]
+    # provincial_dfs["British Columbia"]["sources"] = [{
+    #     "name": "BC Coroners Service",
+    #     "last_updated": bc_filtered[0]["date_updated"],
+    #     "url": "https://app.powerbi.com/view?r=eyJrIjoiM2Y5YzRjNzQtMzAyNS00NWFiLWI3MDktMzI5NWQ3YmVhNmZjIiwidCI6IjZmZGI1MjAwLTNkMGQtNGE4YS1iMDM2LWQzNjg1ZTM1OWFkYyJ9"
+    # }]
+    # provincial_dfs["British Columbia"]["data"]["Year"] = provincial_dfs["British Columbia"]["data"]["Year"].str.strip()
+    # for column_name, column_data in bc_total_deaths.iloc[1:].items():
+    #     mask = provincial_dfs["British Columbia"]["data"]["Year"].str.contains(re.escape(column_name.strip()), case=False, na=False)
+    #     if mask.any():
+    #         provincial_dfs["British Columbia"]["data"].loc[mask, "Value"] = column_data
+    #         provincial_dfs["British Columbia"]["data"].loc[mask, "Year"] = column_name
     
     # Export the lines in a json file which includes:
         # The date each data source was last edited
@@ -168,7 +184,7 @@ def export_nat_drug_toxicity_deaths():
         for source in provincial_dfs[province_data]["sources"]:
             if source["name"] not in [source["name"] for source in sources]:
                 if source["name"] == "Opioid- and Stimulant-related Harms in Canada":
-                    source["Province"] = "all other provincial"
+                    source["Province"] = "all provincial data"
                 else:
                     source["Province"] = province_data
                 sources.append(source)
@@ -178,7 +194,12 @@ def export_nat_drug_toxicity_deaths():
             longest_year_line = provincial_dfs[province_data]["data"]["Year"].to_list()
     total_tox_deaths_data["x_axes"]["can_line_x"] = [year.replace(u"\xa0", "") for year in longest_year_line]
     total_tox_deaths_data["sources"] = sources
-    total_tox_deaths_data["about_these_data"] = """These data are collected from provincial authorities when available, and supplemented with national reports to fill in unavailable provincial data. If you are aware of, or have access to, a provincial data source that can be used to supplement or replace national data, please contact us at email@email.com. Please also be aware that the most recent data points may be incomplete as a result of some provincial data being unpublished at this time. Kindly refer to the "last updated" date for information on when the data for each province was last published.
+    if len(provincial_month_ranges.keys()) > 0:
+        incomplete_message = "<br><br>Please note that at this time some reports are unpublished, or only contain partial data for some years. The following provinces have incomplete data:<br> "
+        for month_range, provinces_list in provincial_month_ranges.items():
+            incomplete_message += f"{provinces_list} contain data only for {month_range.split("_")[0]} in the year {month_range.split("_")[1]}."
+    total_tox_deaths_data["about_these_data"] = f"""These data are collected from the national Opioid- and Stimulant-related Harms in Canada, however, similar data is also available within provincial reports and reported on the provincial pages within this tool due to differing definitions of what constitutes a toxicity death among provincial coroners reports. Kindly refer to the "last updated" date for information on when the data for each source was last published. Additionally, some data from this source have been suppressed (in the tabular data below as "Suppr."), and appear as 0's within the visual above. For more information about what data has been suppressed and why, please visit the data source directly and review their Technical Notes.
+    {incomplete_message}<br><br>
     The data sources used in this visualization are as follows:"""
 
     # Create the statistics for the /100,000 population
@@ -190,9 +211,10 @@ def export_nat_drug_toxicity_deaths():
     # diivide each popululation by 100,000
     for province in provinces:
         for index, year in enumerate(total_tox_deaths_data["x_axes"]["can_line_x"]):
-            population = population_df.loc[population_df["GEO"] == province].loc[population_df["REF_DATE"] == int(year)]["VALUE"].values[0]
+            population = population_df.loc[population_df["GEO"] == province].loc[population_df["REF_DATE"] == int(year.split(" ")[0])]["VALUE"].values[0]
             hundred_k = population / 100000
-            total_tox_deaths_data["y_axes_per_100k"][f"{province_keys[province]}_line_y_per_100k"] = [round((float(value) / hundred_k), 2) for value in total_tox_deaths_data["y_axes"][f"{province_keys[province]}_line_y"]]
+            total_tox_deaths_data["y_axes_per_100k"][f"{province_keys[province]}_line_y_per_100k"] = [round((float(value) / hundred_k), 2) if value.isnumeric() else 0 for value in total_tox_deaths_data["y_axes"][f"{province_keys[province]}_line_y"]]
+   
     # Add population data to sources
     sources.append({
         "name": "Statistics Canada",
@@ -204,41 +226,6 @@ def export_nat_drug_toxicity_deaths():
     # Export the data to a json file
     with open(os.path.join(os.path.abspath(os.path.dirname(__file__)), "static/js/total_tox_deaths_data.json"), "w") as file:
         json.dump(total_tox_deaths_data, file)
-
-def sask_visual_data():
-    data = pull_data(["skPubCentre"])
-    sk_data = filter_data(data, ["ConfirmedDrugToxicityDeathsbyMannerofDeath,2016-2024", "Breakdown of Opioid Drugs Identified in Confirmed Drug Toxicity Deaths by Manner of Death, 2016 - 2024", "Breakdown of Benzodiazepine Drugs Identified in Confirmed Drug Toxicity Deaths by Manner of Death, 2024"])
-    death_df = sk_data[0]
-    drug_df = sk_data[1]
-    # Clean the data to get the aggregate values we need
-    drug_deaths = {}
-    drug_percents = {}
-    sk_raw_data = {}
-    years = [year for year in sk_data[0].columns if year != "Year"]
-    total_deaths = [deaths for deaths in death_df.loc[death_df["Year"]=="Total"].values[0] if deaths != "Total"]
-    drugs = ["Codeine", "Fentanyl", "Heroin", "Hydrocodone", "Hydromorphone", "Methadone", "Morphine", "Oxycodone", "Buprenorphine"]
-    drug_dict = {}
-    for index, row in drug_df.iterrows():
-        if row["Year"] not in drug_dict.keys():
-            drug_dict[row["Year"]] = {}
-        for drug in drugs:
-            if drug not in drug_dict[row["Year"]].keys():
-                drug_dict[row["Year"]][drug] = 0
-            if row[drug].isnumeric():
-                drug_dict[row["Year"]][drug] += int(row[drug])
-    for drug in drugs:
-        drug_deaths[drug] = [drug_dict[year][drug] for year in years]
-        sk_raw_data[f"Deaths Resulting From {drug}"] = [drug_dict[year][drug] for year in years]
-        sk_raw_data[f"Percent of Deaths Resulting From {drug}"] = [round(((int(drug_dict[year][drug]) / int(total_deaths[index])) * 100), 2) for index, year in enumerate(years)]
-    graph_data = {
-        "years": years,
-        "total_deaths": total_deaths,
-        "drug_deaths": drug_deaths,
-        "raw_data": sk_raw_data
-    }
-
-    with open("static/js/sask_vis.json", "w") as file:
-        json.dump(graph_data, file)
 
 def export_on_visual_data():
     data = pull_data(["onODPRN"])
@@ -929,7 +916,7 @@ For more information visit the report directly by clicking the below:
             deaths_by_drug_type["data"]["counts"][f"{drug_type}_y"] = [round((percentages[index] / 100) * int(list(total_opioid["Value"])[index])) for index in range(len(percentages))]
         # Calculate the rates of deaths per 100,000 population
         for index, year in enumerate(years):
-            population = population_data[int(year)]
+            population = population_data[int(year.split(" ")[0])]
             deaths_by_drug_type["data"]["rates"][f"{drug_type}_y"] = [round((deaths_by_drug_type["data"]["counts"][f"{drug_type}_y"][index] / population) * 100000, 2) for index in range(len(percentages))]
     
     # Add the stimulant data too, unless the province doesn't have any
@@ -952,7 +939,7 @@ For more information visit the report directly by clicking the below:
                 deaths_by_drug_type["data"]["counts"][f"{drug_type}_y"] = [round((percentages[index] / 100) * int(list(total_stimulant["Value"])[index])) for index in range(len(percentages))]
             # Calculate the rates of deaths per 100,000 population
             for index, year in enumerate(years):
-                population = population_data[int(year)]
+                population = population_data[int(year.split(" ")[0])]
                 deaths_by_drug_type["data"]["rates"][f"{drug_type}_y"] = [round((deaths_by_drug_type["data"]["counts"][f"{drug_type}_y"][index] / population) * 100000, 2) for index in range(len(percentages))]
     
     # ----- Deaths by Sex -----
@@ -1086,7 +1073,7 @@ For more information visit the report directly by clicking the below:
         for index, year in enumerate(years):
             total_deaths = int(list(total_opioid["Value"])[index])
             deaths_by_manner["data"]["counts"][type] = [round((int(deaths_by_manner["data"]["percentages"][type][index]) / 100) * total_deaths) for index in range(len(years))]
-            population = population_data[int(year)]
+            population = population_data[int(year.split(" ")[0])]
             deaths_by_manner["data"]["rates"][type] = [round((deaths_by_manner["data"]["counts"][type][index] / population) * 100000, 2) for index in range(len(years))]
 
     return opioid_deaths_by_age, deaths_by_drug_type, deaths_by_sex, deaths_by_manner
@@ -1304,6 +1291,10 @@ def export_data_json():
         "manitoba": v1_MB_export_clean(),
         "new-brunswick": v1_NB_export_clean()
     }
+
+    # Residual V0 data for other provinces not yet migrated to V1
+    export_nat_drug_toxicity_deaths()
+
     # Write the data to a json file
     with open(os.path.join(os.path.abspath(os.path.dirname(__file__)), "static/js/visual_data.json"), "w") as file:
         json.dump(data, file, indent=4)
