@@ -80,12 +80,16 @@ def ns_ratesfatalities_scrape(driver):
         data = pandas.DataFrame.from_records(data)
         # Collect the current date for filename
         date = datetime.now().strftime("%Y-%m-%d").replace("-", "")
+        # Pull the data up-to date by parsing date column for most recent entry
+        ns_total_rows = data[data["drug_type"] == "Total - all substances (plus suspect cases)"]
+        up_to_date = ns_total_rows["year_month"].max()
+        up_to_date = up_to_date.split("T")[0].replace("-", "")
         # Remove the existing file if there is one
         if existing_file is not None:
             os.remove(os.path.join(output_dir, existing_file))
             print(f"Old {source['source']} data removed from output directory!")
         # Save the data to a csv file in the output directory
-        data.to_csv(os.path.join(output_dir, f"{date}_{source['source']}.csv"), index=False)
+        data.to_csv(os.path.join(output_dir, f"{date}_{up_to_date}_{source['source']}.csv"), index=False)
         print(f"{source['source']} data saved to output directory!")
 
 # Test code below

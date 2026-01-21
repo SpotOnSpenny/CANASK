@@ -136,9 +136,13 @@ def feedback():
         return jsonify({"status": "success"}), 200;
 
 # Route for V1 data visuals
+# Could automate this "active provinces check" but honestly this is easier and works fine for now
+active_provinces = ["alberta", "british-columbia", "saskatchewan", "manitoba", "ontario", "new-brunswick", "nova-scotia"]
 @main_blueprint.route("/v1/province/<province>")
 @require_auth
 def v1_province(province): 
+    if province not in active_provinces:
+        return redirect(url_for("main.page_not_found"))
     if request.headers.get("HX-Request") == "true":
         return render_template("v1/provincial_vis.jinja", province=province)
     else:

@@ -33512,5 +33512,13 @@
                 "table-counts-row": "Unregulated Drug Toxicity Deaths that were replace_me"
             }
         }
-    }
+    },
+    "nova-scotia": {
+        "drug_supply_geographically":{
+            "visual_options": {
+                "title": "Health Authorities in British Columbia",
+                "click_line": "Click on a health authority to view detailed data for that area."
+            }
+        }
+    }    
 }

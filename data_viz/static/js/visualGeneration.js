@@ -123,6 +123,9 @@ async function fetchRegionData(province){
 function masterLoop(location = null, year = null, category = null) {
   // Check the level, if 1, reset the route, if not, setup the back and reset buttons, and also pull data while looping
   let visualData;
+  
+  console.log(currentData)
+  console.log(currentVisual)
 
   if (visuals[province][currentVisual]["level"] === 1) {
     visualData = currentData[currentVisual];

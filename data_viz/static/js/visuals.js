@@ -4,7 +4,8 @@ const visuals = {
         "alberta": "opioid_deaths_by_age",
         "saskatchewan": "opioid_deaths_by_age",
         "manitoba": "deaths_by_age",
-        "new-brunswick": "opioid_deaths_by_age"
+        "new-brunswick": "opioid_deaths_by_age",
+        "nova-scotia": "drug_supply_geographically"
         },
     "british-columbia": {
         "drug_death_heatmap": {
@@ -254,6 +255,17 @@ const visuals = {
             "data-types": ["counts", "rates", "percentages"],
             "menu-parent": "Deaths and Demographics",
             "menu-name": "Unregulated Drug Toxicity Deaths by Manner of Death",
+            "level": 1,
+            "vis-parent": null,
+            "next-vis": null
+        }
+    },
+    "nova-scotia": {
+        "drug_supply_geographically": {
+            "type": "map",
+            "data-types": null,
+            "menu-parent": "Drug Supply",
+            "menu-name": "Drug Supply by Health Authority",
             "level": 1,
             "vis-parent": null,
             "next-vis": null
