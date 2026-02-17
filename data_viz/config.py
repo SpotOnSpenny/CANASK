@@ -24,6 +24,8 @@ class ProductionConfig():
     SIMPLELOGIN_USERNAME = os.environ.get("SIMPLELOGIN_USERNAME")
     SIMPLELOGIN_PASSWORD = os.environ.get("SIMPLELOGIN_PASSWORD")
     PERMANENT_SESSION_LIFETIME = timedelta(hours=24)
+    SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URL")
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
     # Add more configuration settings here as the need arises
 
 class DevelopmentConfig(ProductionConfig):

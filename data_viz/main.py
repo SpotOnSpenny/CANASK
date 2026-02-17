@@ -12,6 +12,7 @@ from flask_simplelogin import SimpleLogin
 
 # Internal Dependency Imports
 from .generateVisuals import pull_data, filter_data
+from data_viz.auth import require_auth
 
 #######################################################################################
 #                                        Notes:                                       #
@@ -28,44 +29,7 @@ from .generateVisuals import pull_data, filter_data
 # Define the blueprint for the main application
 main_blueprint = Blueprint("main", __name__)
 
-# Init the login manager
-login_manager = SimpleLogin()
-login_check = login_manager._login_checker
-
-# require_auth decorator
-def require_auth(view):
-    @wraps(view)
-    def wrapped_view(**kwargs):
-        if session.get("simplelogin", False):
-            session["has_visited"] = True
-            return view(**kwargs)
-        elif not session.get("simplelogin", False):
-            if session.get("has_visited", False):
-                flash("Please login to access this page", "warning")
-            return render_template("base.jinja", include_partials="login")
-    return wrapped_view
-
 ##################################### ROUTES ###########################################
-# Route for the login page
-@main_blueprint.route("/v1/login", methods=["GET", "POST"])
-def login():
-    if request.method == "POST":
-        print(f"Session will expire in: {current_app.config['PERMANENT_SESSION_LIFETIME']}")
-        form_data = request.form
-        if login_check(form_data): 
-            session["simplelogin"] = True
-            session["permanent"] = True
-            if request.headers.get("HX-Request") == "true":
-                return render_template("index.jinja") 
-            else:
-                return render_template("base.jinja", include_partials="index", dash_template=None)
-        else:
-            flash("Invalid username or password", "danger")
-            return render_template("base.jinja", include_partials="login")
-    else:
-        return render_template("base.jinja", include_partials="login")
-
-
 # Routes for main index page
 @main_blueprint.route("/")
 @require_auth

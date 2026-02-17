@@ -8,7 +8,11 @@ from flask_simplelogin import SimpleLogin
 
 # Internal Dependency Imports
 from data_viz.config import configure
-from data_viz.main import main_blueprint, login_manager
+from data_viz.main import main_blueprint
+from data_viz.database import db, migrate
+from data_viz.auth import login_manager
+from data_viz.auth.auth import auth_blueprint
+from data_viz.cli import register_cli
 
 #######################################################################################
 #                                        Notes:                                       #
@@ -47,11 +51,20 @@ assets.register(
     )
 )
 
+# Database setup
+db.init_app(app)
+migrate.init_app(app, db)
+
+# Register the custom CLI commands for the application
+register_cli(app)
+
+# Initialize the login manager for the application
+login_manager.login_view = "auth.login"
+login_manager.init_app(app)
+
 # Register the blueprints for the application
 app.register_blueprint(main_blueprint)
-
-# Initialize simplelogin for the application
-login_manager.init_app(app)
+app.register_blueprint(auth_blueprint)
 
 # Error handling for 404 errors
 @app.errorhandler(404)

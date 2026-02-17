@@ -16,6 +16,9 @@ mailersend
 bleach
 requests
 python-calamine
-#pantab
 openpyxl
-flask_simplelogin
+flask-sqlalchemy
+flask-migrate
+psycopg2-binary
+bcrypt
+flask-login
