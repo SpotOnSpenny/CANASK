@@ -1,10 +1,13 @@
+# Standard library imports
+from functools import wraps
+
 # External imports
 from flask import Blueprint, request, render_template, flash, current_app
 from bcrypt import checkpw, gensalt
 from flask_login import login_user
 
 # Internal imports
-from data_viz import login_manager
+from data_viz.auth import login_manager
 from data_viz.database.models import User
 
 # Define the auth blueprint for authentication related routes

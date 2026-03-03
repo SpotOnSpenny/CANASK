@@ -53,7 +53,9 @@ assets.register(
 
 # Database setup
 db.init_app(app)
-migrate.init_app(app, db)
+app_folder = os.path.dirname(os.path.abspath(__file__))
+migrations_folder = os.path.join(app_folder, "database", "migrations")
+migrate.init_app(app, db, directory=migrations_folder)
 
 # Register the custom CLI commands for the application
 register_cli(app)

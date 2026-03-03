@@ -12,7 +12,7 @@ from flask_simplelogin import SimpleLogin
 
 # Internal Dependency Imports
 from .generateVisuals import pull_data, filter_data
-from data_viz.auth import require_auth
+from data_viz.auth.auth import require_auth
 
 #######################################################################################
 #                                        Notes:                                       #
