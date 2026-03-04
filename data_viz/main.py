@@ -9,6 +9,8 @@ import pandas
 from mailersend import MailerSendClient, EmailBuilder
 import bleach
 from flask_simplelogin import SimpleLogin
+import boto3
+from botocore.exceptions import ClientError
 
 # Internal Dependency Imports
 from .generateVisuals import pull_data, filter_data
@@ -77,26 +79,42 @@ def feedback():
     elif recaptcha_response.json()["success"] == False:
         return jsonify({"status": "error", "message": "Recaptcha verification failed"}), 403
     else:
-        mailersend_client = MailerSendClient(os.environ.get("MAILERSEND_API_KEY"))
-        mail = (EmailBuilder()
-            .from_email("canask_feedback@test-65qngkd7jm8lwr12.mlsender.net")
-            .to("spencer.fietz@ucalgary.ca")
-            .subject("CANASK Feedback Received")
-            .html(f"""
-            <h2>Name:</h2>{bleach.clean(feedback_data['name']) if feedback_data['name'] else "Anonymous"} </br>
-            <h2>Feedback:</h2>{bleach.clean(feedback_data['feedback'])} </br>
-            <h2>Reach them at:</h2>{bleach.clean(feedback_data['email'])}
-            """
-            )
-            .build()
-        )
-
         try:
-            response = mailersend_client.emails.send(mail)
+            ses_client = boto3.client(
+                "ses",
+                region_name=os.environ.get("AWS_REGION"),
+                aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID"),
+                aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY")
+            )
+            response = ses_client.send_email(
+                Source=os.environ.get("SES_SENDER_EMAIL"),
+                Destination = {
+                    "ToAddresses": ["spencer.fietz@gmail.com"]
+                },
+                Message = {
+                    "Subject": {
+                        "Data": "CANASK Feedback Received"
+                    },
+                    "Body": {
+                        "Html": {
+                            "Data": f"""
+                            <h2>Name:</h2>{bleach.clean(feedback_data['name']) if feedback_data['name'] else "Anonymous"} </br>
+                            <h2>Feedback:</h2>{bleach.clean(feedback_data['feedback'])} </br>
+                            <h2>Reach them at:</h2>{bleach.clean(feedback_data['email'])}
+                            """
+                        }
+                    }
+
+                }
+            )
+        except ClientError as e:
+            print(e.response['Error']['Message'])
+            return jsonify({"status": "error", "message": "Failed to send feedback email"})
         except Exception as e:
             print(e)
             return jsonify({"status": "error", "message": "Failed to send feedback email"}), 500
         # Return an OK response
+        print(response)
         return jsonify({"status": "success"}), 200;
 
 # Route for V1 data visuals

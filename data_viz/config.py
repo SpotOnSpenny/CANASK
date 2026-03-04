@@ -26,6 +26,7 @@ class ProductionConfig():
     PERMANENT_SESSION_LIFETIME = timedelta(hours=24)
     SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URL")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    WTF_CSRF_ENABLED = True
     # Add more configuration settings here as the need arises
 
 class DevelopmentConfig(ProductionConfig):

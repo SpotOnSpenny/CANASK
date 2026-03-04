@@ -1,3 +1,12 @@
+// CSRF token handling for htmx requests
+document.body.addEventListener('htmx:configRequest', (event) => {
+    event.detail.headers['X-CSRFToken'] = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+});
+
+//HTMX config to exclude history cache and require server request on back/forward
+htmx.config.historyCacheSize = 0;
+htmx.config.refreshOnHistoryMiss = true;
+
 // Set about data html strings
 let bccsu_html = `
 <h4 class="card-title text-center"> About these Data</h4>
@@ -181,8 +190,12 @@ function feedbackSubmit(token) {
     } catch {}
     // submit the form data with the recaptcha token
     feedbackData.append("recaptcha-token", token);
+    let alertContainer = document.getElementById("form-alerts");
     fetch("/feedback", {
       method: "POST",
+      headers:{
+        "X-CSRFToken": document.querySelector("meta[name='csrf-token']").getAttribute("content")
+      },
       body: feedbackData,
     })
       .then((response) => {
@@ -195,7 +208,6 @@ function feedbackSubmit(token) {
         }
       })
       .then((data) => {
-        let alertContainer = document.getElementById("form-alerts");
         if (data["status"] == "success") {
           let feedbackAlert = `<div class="alert alert-success alert-dismissible fade show" role="alert">
           <p style="margin-bottom:0;"><strong style="margin-right: 2px;">Success! </strong> Your feedback has been submitted. Thank you for your input. </p>

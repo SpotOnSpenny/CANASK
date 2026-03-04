@@ -7,6 +7,7 @@
     <!-- Required meta tags -->
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <meta name="csrf-token" content="{{ csrf_token() }}"
 
     <!-- Google reCaptcha-->
     <script src="https://www.google.com/recaptcha/api.js"></script>
@@ -46,12 +47,14 @@
 
 <body class="overflow-x-hidden overflow-y-hidden">
     <div class="bg-light position-absolute top-0 start-0 w-100 z-n1"></div>
+    <div id="partial-inclusions" class="fade-me-in fade-me-out-left">
         {% if include_partials == "index" %}
-            {% include 'index.jinja' %}
+        {% include 'index.jinja' %}
         {% elif include_partials == "login" %}
-            {% include 'v1/login.jinja' %}
+        {% include 'v1/login.jinja' %}
         {% endif %}
-
+    </div>
+    <div>
         {% block body_content %}
         {% endblock %}
     </div>

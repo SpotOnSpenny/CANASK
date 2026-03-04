@@ -1,10 +1,11 @@
 # Python Standard Library Dependencies
-
+import os
 
 # External Dependency Imports
-from flask import Flask, redirect, current_app
+from flask import Flask, redirect, current_app, request
 from flask_assets import Environment, Bundle
 from flask_simplelogin import SimpleLogin
+from flask_wtf.csrf import CSRFProtect
 
 # Internal Dependency Imports
 from data_viz.config import configure
@@ -51,11 +52,23 @@ assets.register(
     )
 )
 
+# Setup cache control headings
+@app.after_request
+def add_cache_control_headers(response):
+    if not request.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+    return response
+
 # Database setup
 db.init_app(app)
 app_folder = os.path.dirname(os.path.abspath(__file__))
 migrations_folder = os.path.join(app_folder, "database", "migrations")
 migrate.init_app(app, db, directory=migrations_folder)
+
+# Initialize CSRF protection for the application
+csrf = CSRFProtect()
+csrf.init_app(app)
 
 # Register the custom CLI commands for the application
 register_cli(app)

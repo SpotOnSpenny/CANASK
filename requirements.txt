@@ -22,3 +22,6 @@ flask-migrate
 psycopg2-binary
 bcrypt
 flask-login
+PyJWT
+flask-wtf
+boto3

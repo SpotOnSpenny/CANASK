@@ -68,6 +68,24 @@
                 </div>
             </div>
         </div>
+        <div class="accordion-item bg-dark text-light">
+            <h2 class="accordion-header" id="flush-headingOne">
+                <button class="accordion-button bg-dark text-light collapsed" type="button" data-bs-toggle="collapse"
+                    data-bs-target="#flush-collapseAccount" aria-expanded="true" aria-controls="flush-collapseAccount">
+                    Account
+                </button>
+            </h2>
+            <div id="flush-collapseAccount" class="accordion-collapse collapse" aria-labelledby="flush-headingAccount"
+                data-bs-parent="#accordionFlushMenu">
+                <div class="accordion-body bg-transparent">
+                    <p hx-post="/v1/logout" hx-trigger="click" hx-target="#partial-inclusions"
+                        hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/v1/login"
+                        class="nav-link text-white htmx-element accordion-innard" aria-current="page">
+                        Logout
+                    </p>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 

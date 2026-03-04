@@ -41,6 +41,11 @@ html {
   transform: translateX(100px);
   transition: opacity 1s, transform 1s;
 }
+.fade-me-out-left.htmx-swapping {
+  opacity: 0;
+  transform: translateX(-100px);
+  transition: opacity 1s, transform 1s;
+}
 
 .fade-me-in.htmx-added {
   opacity: 0;
