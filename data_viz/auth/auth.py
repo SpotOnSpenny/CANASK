@@ -11,6 +11,7 @@ from flask_login import login_user, current_user, logout_user
 from data_viz.auth import login_manager
 from data_viz.database import db
 from data_viz.database.models import User, Invites, Groups, UserGroups, UserActivity
+from data_viz.auth.account_helpers import get_user_groups, get_assignable_roles
 
 # Define the auth blueprint for authentication related routes
 auth_blueprint = Blueprint("auth", __name__)
@@ -28,6 +29,58 @@ def require_auth(view):
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
+
+# Require role decorator
+def require_role(role, group_id_source):
+    def decorator(view):
+        @wraps(view)
+        def wrapped_view(*args, **kwargs):
+            # Site admins bypass all role checks, can do and access everything
+            if current_user.site_admin:
+                return view(*args, **kwargs)
+            
+            # group ID from source specified
+            group_ids = None
+            if group_id_source == "form":
+                group_ids = [request.form.get("group_id")]
+            elif group_id_source == "url":
+                group_ids = [kwargs.get("group_id")]
+            elif group_id_source == "all_groups":
+                user_groups = get_user_groups(current_user.id)
+                group_ids = [group.group_id for group in user_groups]
+            
+            if not group_ids:
+                flash("Group ID not specified. Cannot verify permissions.", "danger")
+                return redirect(request.referrer or url_for("main.index"))
+
+            groups_with_required_role = {}
+            for group_id in group_ids:
+                # Users membership for specified group
+                membership = UserGroups.query.filter_by(
+                    user_id = current_user.id,
+                    group_id = group_id
+                ).first()
+
+                if not membership:
+                    continue
+
+                # Check if users role is at least the required role
+                user_role_level = ROLE_HIERARCHY.get(membership.role, -1)
+                required_role_level = ROLE_HIERARCHY.get(role, 0)
+                if user_role_level >= required_role_level:
+                    groups_with_required_role[group_id] = membership.role
+
+            if not groups_with_required_role:
+                flash("You do not have the required permissions to access this page.", "danger")
+                return redirect(request.referrer or url_for("main.index"))
+            else:
+                kwargs["groups_with_required_role"] = groups_with_required_role
+            return view(*args, **kwargs)
+        return wrapped_view
+    return decorator
+
+            
+
 ################################# ROUTES ###########################################
 @auth_blueprint.route("/v1/login", methods=["GET", "POST"])
 def login():
@@ -87,7 +140,12 @@ def logout():
 
 @auth_blueprint.route("/v1/invite-user", methods=["GET", "POST"])
 @require_auth
-def invite_user():
+@require_role("group_admin", group_id_source = "all_groups")
+def invite_user(groups_with_required_role = None):
+    template_data = {}
+
+    g
+
     if request.method == "POST":
         #create the invite in the database
         invite = Invites(
