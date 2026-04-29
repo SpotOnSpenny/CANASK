@@ -1,0 +1,28 @@
+{
+    "groups":[
+        {
+            "name": "",
+            "description": ""
+        }
+    ],
+    "users":[
+        {
+            "username": "",
+            "email": "",
+            "password": "",
+            "site_admin": true
+        },
+        {
+            "username": "",
+            "email": "",
+            "password": "",
+            "site_admin": false,
+            "groups": [
+                {
+                    "name": "",
+                    "role": ""
+                }
+            ]
+        }
+    ]
+}

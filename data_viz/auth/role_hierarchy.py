@@ -1,6 +1,6 @@
 ROLE_HIERARCHY = {
-    "site_admin": 4,
-    "data_owner": 3,
-    "group_admin": 2,
-    "member": 1
+    "Site Admin": 4,
+    "Data Owner": 3,
+    "Group Admin": 2,
+    "Member": 1
 }

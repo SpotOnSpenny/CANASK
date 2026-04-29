@@ -8,3 +8,4 @@ hyperd.log
 *.ppk
 *.pem
 /conda_env
+seed.json

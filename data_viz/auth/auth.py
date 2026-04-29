@@ -11,12 +11,12 @@ from flask_login import login_user, current_user, logout_user
 from data_viz.auth import login_manager
 from data_viz.database import db
 from data_viz.database.models import User, Invites, Groups, UserGroups, UserActivity
-from data_viz.auth.account_helpers import get_user_groups, get_assignable_roles
+from data_viz.auth.auth_helpers import get_user_groups, get_assignable_roles
 
 # Define the auth blueprint for authentication related routes
 auth_blueprint = Blueprint("auth", __name__)
 
-# require_auth decorator
+# Decorator to check if user is authenticated or not
 def require_auth(view):
     @wraps(view)
     def wrapped_view(**kwargs):
@@ -30,8 +30,8 @@ def require_auth(view):
 def load_user(user_id):
     return User.query.get(int(user_id))
 
-# Require role decorator
-def require_role(role, group_id_source):
+# Decorator to check if user has required role for specified group
+def require_role(role, group_id_source, action = None):
     def decorator(view):
         @wraps(view)
         def wrapped_view(*args, **kwargs):
@@ -70,8 +70,11 @@ def require_role(role, group_id_source):
                 if user_role_level >= required_role_level:
                     groups_with_required_role[group_id] = membership.role
 
-            if not groups_with_required_role:
-                flash("You do not have the required permissions to access this page.", "danger")
+            if not groups_with_required_role and not action:
+                flash("You do not have the required permissions.", "danger")
+                return redirect(request.referrer or url_for("main.index"))
+            elif not groups_with_required_role and action:
+                flash(f"You do not have the required permissions to {action}.", "danger")
                 return redirect(request.referrer or url_for("main.index"))
             else:
                 kwargs["groups_with_required_role"] = groups_with_required_role
@@ -140,11 +143,12 @@ def logout():
 
 @auth_blueprint.route("/v1/invite-user", methods=["GET", "POST"])
 @require_auth
-@require_role("group_admin", group_id_source = "all_groups")
+@require_role("group_admin", group_id_source = "all_groups", action = "invite new users")
 def invite_user(groups_with_required_role = None):
-    template_data = {}
-
-    g
+    if request.method == "GET":
+        template_data = {}
+        print(groups_with_required_role)
+    
 
     if request.method == "POST":
         #create the invite in the database
