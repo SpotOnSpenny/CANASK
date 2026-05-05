@@ -47,14 +47,24 @@ class Invites(db.Model):
     id = db.Column(db.Integer, primary_key = True)
     email = db.Column(db.String(255), nullable = False)
     status = db.Column(db.String(50), default = "pending")
-    group_id = db.Column(db.Integer, db.ForeignKey("groups.id"), nullable = False)
-    role = db.Column(db.String(255), nullable = False, default = "member")
-    token = db.Column(db.String(255), unique = True, nullable = False)
     expires_at = db.Column(db.DateTime, nullable = False)
     sent_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable = False)
+    site_admin_invite = db.Column(db.Boolean, default = False)
 
     def __repr__(self):
-        return f"<Invite {self.email} to Group ID: {self.group_id}>"
+        return f"<Invite {self.email}, Status: {self.status}>"
+
+class InviteGroups(db.Model):
+    __tablename__ = "invite_groups"
+    __tableargs__ = (db.UniqueConstraint("invite_id", "group_id", name = "uq_invite_group"))
+
+    id = db.Column(db.Integer, primary_key = True)
+    invite_id = db.Column(db.Integer, db.ForeignKey("invites.id"), nullable = False)
+    group_id = db.Column(db.Integer, db.ForeignKey("groups.id"), nullable = False)
+    role = db.Column(db.String(255), nullable = False, default = "member")
+
+    def __repr__(self):
+        return f"<InviteGroup Invite ID: {self.invite_id} for Group ID {self.group_id} with Role {self.role}>"
 
 class Visuals(db.Model):
     __tablename__ = "visuals"

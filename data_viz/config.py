@@ -27,6 +27,7 @@ class ProductionConfig():
     SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URL")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     WTF_CSRF_ENABLED = True
+    INVITE_TOKEN_EXPIRY = timedelta(days=7)
     # Add more configuration settings here as the need arises
 
 class DevelopmentConfig(ProductionConfig):

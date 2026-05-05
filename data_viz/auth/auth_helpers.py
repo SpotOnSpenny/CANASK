@@ -167,7 +167,7 @@ def get_user_groups(user):
         invitable_roles = ["group_admin", "data_owner"]
         memberships = UserGroups.query.filter(
             UserGroups.user_id == user.id,
-            UserGroups.role.in_(invitable_roles)
+            #UserGroups.role.in_(invitable_roles)
         ).all()
 
         group_ids = [membership.group_id for membership in memberships]
@@ -175,8 +175,9 @@ def get_user_groups(user):
 
 def get_assignable_roles(user, group_id):
     if user.site_admin:
-        return ["site_admin", "data_owner", "group_admin", "member"]
+        return ["Site Admin", "Data Owner", "Group Admin", "Member"]
 
+    print(user, group_id)
     membership = UserGroups.query.filter_by(user_id = user.id, group_id = group_id).first()
     if membership:
         return [role for role in ROLE_HIERARCHY.keys() if ROLE_HIERARCHY[role] < ROLE_HIERARCHY[membership.role]]

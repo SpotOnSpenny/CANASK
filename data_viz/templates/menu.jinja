@@ -83,6 +83,11 @@
                         class="nav-link text-white htmx-element accordion-innard" aria-current="page">
                         Logout
                     </p>
+                    <p hx-get="/v1/invite-user" hx-trigger="click" hx-target="#content-div"
+                        hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/v1/invite-user"
+                        class="nav-link text-white htmx-element accordion-innard" aria-current="page">
+                        Invite a user
+                    </p>
                 </div>
             </div>
         </div>

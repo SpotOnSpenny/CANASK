@@ -29,9 +29,11 @@ def create_admin_user():
         return
 
     new_admin = User(
-        email=admin_email,
-        username=admin_username,
-        password_hash=admin_password
+        email = admin_email,
+        username = admin_username,
+        site_admin = True,
+        status = "active",
+        password_hash = admin_password
     )
     db.session.add(new_admin)
     db.session.commit()
@@ -84,7 +86,8 @@ def create_from_seed(admin_username = None):
                     username = user["username"],
                     password = user["password"],
                     invited_by = admin_user.id,
-                    site_admin = user.get("site_admin", False)
+                    site_admin = user.get("site_admin", False),
+                    status = "active"
                 )
                 print(f"Successfully created user {user['username']} from seed data.")
                 if "groups" in user.keys():
