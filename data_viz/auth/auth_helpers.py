@@ -7,13 +7,13 @@ from data_viz.database import db
 from data_viz.database.models import User, Invites, UserGroups, Groups, UserActivity
 from data_viz.auth.role_hierarchy import ROLE_HIERARCHY
 
-def create_user(email, username, password, invited_by = None, site_admin = False):
+def create_user(email, username, password, invited_by = None, status = "active",site_admin = False):
     password_hash = hashpw(password.encode('utf-8'), gensalt()).decode('utf-8')
     user = User(
         email = email,
         username = username, 
         password_hash = password_hash,
-        status = "active", 
+        status = status, 
         invited_by = invited_by,
         site_admin = site_admin
     )

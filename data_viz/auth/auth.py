@@ -128,7 +128,7 @@ def login():
     else:
         return render_template("base.jinja", include_partials="login")
 
-@auth_blueprint.route("/v1/logout", methods=["GET","POST"])
+@auth_blueprint.route("/v1/logout", methods=["POST"])
 @require_auth
 def logout():
     logout_activity = UserActivity(

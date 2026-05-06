@@ -2,7 +2,7 @@
 import os
 
 # External Dependency Imports
-from flask import Flask, redirect, current_app, request
+from flask import Flask, redirect, current_app, request, render_template, flash, get_flashed_messages
 from flask_assets import Environment, Bundle
 from flask_simplelogin import SimpleLogin
 from flask_wtf.csrf import CSRFProtect
@@ -52,12 +52,33 @@ assets.register(
     )
 )
 
-# Setup cache control headings
 @app.after_request
 def add_cache_control_headers(response):
+    # Setup cache control headings
     if not request.path.startswith("/static/"):
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
         response.headers["Pragma"] = "no-cache"
+
+    # Inject flash messages OOB for HTMX requests
+    if request.headers.get("HX-Request") and response.content_type == "text/html; charset=utf-8" and response.status_code not in [301, 302, 303, 307, 308]:
+        messages = get_flashed_messages(with_categories=True)
+        if messages:
+            alerts = "".join([
+                f'<div class="alert alert-{category} alert-dismissible fade show" role="alert">'
+                f'{message}'
+                f'<button type="button" class="btn-close" data-bs-dismiss="alert"></button>'
+                f'</div>'
+                for category, message in messages
+            ])
+            flash_html = f'''
+                <div id="flashed-messages-container" hx-swap-oob="true">
+                    <div class="position-fixed top-0 start-50 translate-middle-x pt-3" style="z-index: 1050; width: 50%;">
+                        {alerts}
+                    </div>
+                </div>
+            '''
+            original = response.get_data(as_text=True)
+            response.set_data(original + flash_html)  
     return response
 
 # Database setup
