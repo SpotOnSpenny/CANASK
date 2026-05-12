@@ -6,11 +6,6 @@ import re
 
 # External Dependency Imports
 import pandas
-import plotly
-import plotly.figure_factory
-
-# Internal Dependency Imports
-
 
 #######################################################################################
 #                                        Notes:                                       #

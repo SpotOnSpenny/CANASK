@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+**/.webassets-cache
+
+# Environment
+app_config/.env.dev
+app_config/.env.prod
+*.pem
+*.ppk
+
+# Data and output
+output/
+
+# Development artifacts
+.git/
+.gitignore
+readme.md
+
+# Conda/virtual environments
+conda_env/
+
+# Logs
+*.log
+hyperd.log
+
+# Seed data (sensitive)
+app_config/seed.json
+
+# Uneeded Celery stuff
+celerybeat-schedule
+celerybeat-schedule.db
+celerybeat.pid
+celerybeat-schedule-shm
+celerybeat-schedule-shm.db
+celerybeat-schedule-shm.pid
+celerybeat-schedule-wal
+celerybeat-schedule-wal.db
+celerybeat-schedule-wal.pid

@@ -4,7 +4,6 @@ import os
 # External Dependency Imports
 from flask import Flask, redirect, current_app, request, render_template, flash, get_flashed_messages
 from flask_assets import Environment, Bundle
-from flask_simplelogin import SimpleLogin
 from flask_wtf.csrf import CSRFProtect
 
 # Internal Dependency Imports
@@ -14,6 +13,7 @@ from data_viz.database import db, migrate
 from data_viz.auth import login_manager
 from data_viz.auth.auth import auth_blueprint
 from data_viz.cli import register_cli
+from celery_worker.celery import init_celery
 
 #######################################################################################
 #                                        Notes:                                       #
@@ -93,6 +93,9 @@ csrf.init_app(app)
 
 # Register the custom CLI commands for the application
 register_cli(app)
+
+# Start celery for background job handling
+celery = init_celery(app)
 
 # Initialize the login manager for the application
 login_manager.login_view = "auth.login"

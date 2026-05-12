@@ -15,10 +15,10 @@ from dotenv import load_dotenv
 # Configuration settings for the Flask application within the project
 load_dotenv()
 
-class ProductionConfig():
+class Config():
     SECRET_KEY = os.environ["SECRET_KEY"]
-    DEBUG = False
-    ASSET_DEBUG = False
+    DEBUG = os.environ.get("DEBUG", "false").lower() == "true"
+    ASSET_DEBUG = os.environ.get("DEBUG", "false").lower() == "true"
     SIMPLELOGIN_LOGIN_URL = os.environ.get("SIMPLELOGIN_LOGIN_URL")
     SIMPLELOGIN_HOME_URL = os.environ.get("SIMPLELOGIN_HOME_URL")
     SIMPLELOGIN_USERNAME = os.environ.get("SIMPLELOGIN_USERNAME")
@@ -30,20 +30,8 @@ class ProductionConfig():
     INVITE_TOKEN_EXPIRY = timedelta(days=7)
     # Add more configuration settings here as the need arises
 
-class DevelopmentConfig(ProductionConfig):
-    DEBUG = True
-    ASSET_DEBUG = True
-    # Add more configuration settings here as the need arises
-
 def configure(app):
-    match os.environ.get("FLASK_ENV", None):
-        case "production":
-            app.config.from_object(ProductionConfig)
-        case "development":
-            app.config.from_object(DevelopmentConfig)
-        case _:
-            raise("Invalid FLASK_ENV value. Check the ENV file and try again")
-
+    app.config.from_object(Config)
 
 # Test code below
 if __name__ == '__main__':

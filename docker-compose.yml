@@ -1,0 +1,74 @@
+services:
+  db:
+    image: postgres:16
+    env_file:
+      - app_config/.env.dev
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build:
+      context: . 
+      args:
+        REQUIREMENTS_FILE: app_requirements/requirements.webapp.txt
+    env_file:
+      - app_config/.env.dev
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - .:/canask_webapp
+  
+  worker:
+    build:
+      context: .
+      args: 
+        REQUIREMENTS_FILE: app_requirements/requirements.scraper.txt
+    command: celery -A data_viz:celery worker --loglevel=info
+    env_file:
+      - app_config/.env.dev
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - .:/canask_webapp
+
+  beat:
+    build:
+      context: .
+      args: 
+        REQUIREMENTS_FILES: app_requirements/requirements.scraper.txt
+    command: celery -A data_viz:celery beat --loglevel=info
+    env_file:
+        - app_config/.env.dev
+    depends_on:
+        db:
+          condition: service_healthy
+        redis:
+          condition: service_healthy
+    volumes:
+        - .:/canask_webapp
+volumes:
+  postgres_data:
+      

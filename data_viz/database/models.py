@@ -1,5 +1,6 @@
 # External Imports
 from flask_login import UserMixin
+import jwt
 
 # Internal Imports
 from data_viz.database import db
@@ -46,6 +47,7 @@ class Invites(db.Model):
 
     id = db.Column(db.Integer, primary_key = True)
     email = db.Column(db.String(255), nullable = False)
+    token = db.Column(db.String(512), nullable = True)
     status = db.Column(db.String(50), default = "pending")
     expires_at = db.Column(db.DateTime, nullable = False)
     sent_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable = False)
@@ -53,6 +55,15 @@ class Invites(db.Model):
 
     def __repr__(self):
         return f"<Invite {self.email}, Status: {self.status}>"
+
+    def generate_jwt(self, secret_key):
+        payload = {
+            "email": self.email,
+            "invite_id": self.id,
+            "exp": self.expires_at.timestamp()
+        }
+        self.token = jwt.encode(payload, secret_key, algorithm="HS256")
+        return self.token
 
 class InviteGroups(db.Model):
     __tablename__ = "invite_groups"

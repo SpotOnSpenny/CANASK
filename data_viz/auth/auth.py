@@ -226,23 +226,16 @@ def invite_user(groups_with_required_role = None):
             ip_address = request.remote_addr
         )
         db.session.add(activity)
-        db.session.commit()
-
-        # Queries to check that the invite was generated correctly
-        print("Invite result:")
-        print(Invites.query.filter_by(id = invite.id).first().__dict__)
-        print("Invite groups result:")
-        for ig in InviteGroups.query.filter_by(invite_id = invite.id).all():
-            print(ig.__dict__)
-        print("Invite activity result:")
-        print(UserActivity.query.filter_by(activity_type = "user_invite").first().__dict__)
 
         payload = {
             "email": request.form.get("email"),
             "invite_id": invite.id,
             "exp": token_expiry.timestamp()
         }
-        token = jwt.encode(payload, current_app.config["SECRET_KEY"], algorithm = "HS256")
+        token = invite.generate_jwt(current_app.config["SECRET_KEY"])
+        invite.token = token
+        
+        db.session.commit()
 
         # Send the email to the user with the token and instructions to accept the invite
         flash(f"Invite sent to {invite.email}. JWT = {token}", "success")
