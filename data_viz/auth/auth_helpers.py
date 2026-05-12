@@ -164,10 +164,8 @@ def get_user_groups(user):
     if user.site_admin:
         return Groups.query.all()
     else:
-        invitable_roles = ["group_admin", "data_owner"]
         memberships = UserGroups.query.filter(
-            UserGroups.user_id == user.id,
-            #UserGroups.role.in_(invitable_roles)
+            UserGroups.user_id == user.id
         ).all()
 
         group_ids = [membership.group_id for membership in memberships]

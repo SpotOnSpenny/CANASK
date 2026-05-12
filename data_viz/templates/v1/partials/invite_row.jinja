@@ -1,0 +1,74 @@
+<tr id="invite-row-{{ invite.id }}">
+    <td>{{ invite.email }}</td>
+    <td>
+        {% for ig in invite.invite_groups %}
+            <span class="badge bg-secondary">{{ ig.group.name }} — {{ ig.role }}</span>
+        {% endfor %}
+        {% if invite.site_admin_invite %}
+            <span class="badge bg-dark">Site Admin</span>
+        {% endif %}
+    </td>
+    <td>{{ invite.sent_by_user.username }}</td>
+    <td>{{ invite.sent_at.strftime('%Y-%m-%d') }}</td>
+    <td>{{ invite.expires_at.strftime('%Y-%m-%d') }}</td>
+    <td>
+        {% if invite.status == "pending" %}
+            <span class="badge bg-warning text-dark">Pending</span>
+        {% elif invite.status == "accepted" %}
+            <span class="badge bg-success">Accepted</span>
+        {% elif invite.status == "expired" %}
+            <span class="badge bg-secondary">Expired</span>
+        {% elif invite.status == "revoked" %}
+            <span class="badge bg-danger">Revoked</span>
+        {% endif %}
+    </td>
+    <td>
+        {% if invite.status == "pending" %}
+            <div class="dropdown">
+            <button class="btn btn-sm invite-action-btn dropdown-toggle" 
+                    type="button" 
+                    data-bs-toggle="dropdown"
+                    data-bs-boundary="viewport">
+            </button>
+                <ul class="dropdown-menu">
+                    <li>
+                        <button class="dropdown-item"
+                            hx-post="/v1/invites/{{ invite.id }}/resend"
+                            hx-target="#invite-row-{{ invite.id }}"
+                            hx-swap="outerHTML">
+                            Resend
+                        </button>
+                    </li>
+                    <li>
+                        <button class="dropdown-item text-danger"
+                            hx-post="/v1/invites/{{ invite.id }}/revoke"
+                            hx-target="#invite-row-{{ invite.id }}"
+                            hx-swap="outerHTML">
+                            Revoke
+                        </button>
+                    </li>
+                </ul>
+            </div>
+        {% elif invite.status == "expired" %}
+            <div class="dropdown">
+                <button class="btn btn-sm invite-action-btn dropdown-toggle" 
+                        type="button" 
+                        data-bs-toggle="dropdown"
+                        data-bs-boundary="viewport">
+                </button>
+                <ul class="dropdown-menu">
+                    <li>
+                        <button class="dropdown-item"
+                            hx-post="/v1/invites/{{ invite.id }}/renew"
+                            hx-target="#invite-row-{{ invite.id }}"
+                            hx-swap="outerHTML">
+                            Renew
+                        </button>
+                    </li>
+                </ul>
+            </div>
+        {% else %}
+            <span class="text-muted">—</span>
+        {% endif %}
+    </td>
+</tr>

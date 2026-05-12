@@ -49,9 +49,15 @@ class Invites(db.Model):
     email = db.Column(db.String(255), nullable = False)
     token = db.Column(db.String(512), nullable = True)
     status = db.Column(db.String(50), default = "pending")
+    sent_at = db.Column(db.DateTime, nullable = False, default = db.func.current_timestamp())
     expires_at = db.Column(db.DateTime, nullable = False)
+    expiry_task_id = db.Column(db.String(255), nullable = True)
     sent_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable = False)
     site_admin_invite = db.Column(db.Boolean, default = False)
+
+    # Relationships
+    sent_by_user = db.relationship("User", foreign_keys = [sent_by])
+    invite_groups = db.relationship("InviteGroups", backref="invite", lazy = True)
 
     def __repr__(self):
         return f"<Invite {self.email}, Status: {self.status}>"
@@ -73,6 +79,9 @@ class InviteGroups(db.Model):
     invite_id = db.Column(db.Integer, db.ForeignKey("invites.id"), nullable = False)
     group_id = db.Column(db.Integer, db.ForeignKey("groups.id"), nullable = False)
     role = db.Column(db.String(255), nullable = False, default = "member")
+
+    # Relationships
+    group = db.relationship("Groups", foreign_keys = [group_id])
 
     def __repr__(self):
         return f"<InviteGroup Invite ID: {self.invite_id} for Group ID {self.group_id} with Role {self.role}>"

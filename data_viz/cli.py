@@ -42,7 +42,7 @@ def create_admin_user():
 # Pull in seed data from the json file and create the appropriate database entries for users, gorups, and gorup assignments.
 def create_from_seed(admin_username = None):
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    seed_file_path = os.path.join(project_root, "seed.json")
+    seed_file_path = os.path.join(project_root, "app_config/seed.json")
     if not os.path.exists(seed_file_path):
         print("Seed file not found. Please ensure seed.json is in the project root.")
         return
@@ -122,9 +122,6 @@ def register_cli(app):
     
     @app.cli.command("init-db", short_help="Initialize the database")
     def init_db():
-        print("Creating database tables...")
-        db.create_all()
-        print("Database initialized.")
         print("Creating default admin user...")
         create_admin_user()
         print("Default admin user created. Database setup complete!")

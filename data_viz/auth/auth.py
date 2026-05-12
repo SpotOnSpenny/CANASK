@@ -1,12 +1,14 @@
 # Standard library imports
 from functools import wraps
-from datetime import datetime
+from datetime import datetime, timezone
 
 # External imports
 from flask import Blueprint, request, render_template, flash, current_app, redirect, url_for, session
 from bcrypt import checkpw, gensalt
 import jwt
 from flask_login import login_user, current_user, logout_user
+from celery.result import AsyncResult
+
 
 # Internal imports
 from data_viz.auth import login_manager
@@ -14,6 +16,7 @@ from data_viz.database import db
 from data_viz.database.models import User, Invites, Groups, UserGroups, UserActivity, InviteGroups
 from data_viz.auth.auth_helpers import get_user_groups, get_assignable_roles
 from data_viz.auth.role_hierarchy import ROLE_HIERARCHY
+from celery_worker.tasks.invite_jwt_expiry import expire_invite
 
 # Define the auth blueprint for authentication related routes
 auth_blueprint = Blueprint("auth", __name__)
@@ -51,11 +54,18 @@ def require_role(role, group_id_source, action = None):
             elif group_id_source == "all_groups":
                 user_groups = get_user_groups(current_user)
                 group_ids = [group.id for group in user_groups]
+            elif group_id_source == "invite":
+                invite_id = kwargs.get("invite_id")
+                invite = Invites.query.get(invite_id)
+                if not invite:
+                    flash("Invite not found", "danger")
+                    return redirect(url_for("main.index"))
+                group_ids = [ig.group_id for ig in invite.invite_groups]
             
 
             if not group_ids:
                 flash("Group ID not specified. Cannot verify permissions.", "danger")
-                return redirect(request.referrer or url_for("main.index"))
+                return redirect(url_for("main.index"))
 
             groups_with_required_role = {}
             for group_id in group_ids:
@@ -75,10 +85,10 @@ def require_role(role, group_id_source, action = None):
                     groups_with_required_role[group_id] = membership.role
             if not groups_with_required_role and not action:
                 flash("You do not have the required permissions.", "danger")
-                return redirect(request.referrer or url_for("main.index"))
+                return redirect(url_for("main.index"))
             elif not groups_with_required_role and action:
                 flash(f"You do not have the required permissions to {action}.", "danger")
-                return redirect(request.referrer or url_for("main.index"))
+                return redirect(url_for("main.index"))
             else:
                 kwargs["groups_with_required_role"] = groups_with_required_role
             return view(*args, **kwargs)
@@ -146,7 +156,7 @@ def logout():
 
 @auth_blueprint.route("/v1/invite-user", methods=["GET", "POST"])
 @require_auth
-@require_role("group_admin", group_id_source = "all_groups", action = "invite new users")
+@require_role("Group Admin", group_id_source = "all_groups", action = "invite new users")
 def invite_user(groups_with_required_role = None):
     if request.method == "GET":
         # Check for site admin role to determine what to show
@@ -196,7 +206,7 @@ def invite_user(groups_with_required_role = None):
                 group = Groups.query.filter_by(name = group_name).first()
                 group_assignments[group.id] = role
             
-        token_expiry = datetime.utcnow() + current_app.config["INVITE_TOKEN_EXPIRY"]
+        token_expiry = datetime.now(timezone.utc) + current_app.config["INVITE_TOKEN_EXPIRY"]
         invite = Invites(
             email = request.form.get("email"),
             status = "pending",
@@ -227,24 +237,90 @@ def invite_user(groups_with_required_role = None):
         )
         db.session.add(activity)
 
-        payload = {
-            "email": request.form.get("email"),
-            "invite_id": invite.id,
-            "exp": token_expiry.timestamp()
-        }
+        # JWT generation
         token = invite.generate_jwt(current_app.config["SECRET_KEY"])
         invite.token = token
         
+        # Schedule the expiry task
+        task = expire_invite.apply_async(
+            args=[invite.id],
+            eta=token_expiry
+        )
+        invite.expiry_task_id = task.id
         db.session.commit()
 
         # Send the email to the user with the token and instructions to accept the invite
         flash(f"Invite sent to {invite.email}. JWT = {token}", "success")
         return redirect(url_for("main.index"))
 
+@auth_blueprint.route("/v1/invite-management", methods=["GET", "POST"])
+@require_auth
+@require_role("Group Admin", group_id_source = "all_groups", action = "manage_invites")
+def invite_management(groups_with_required_role = None):
+    if current_user.site_admin:
+        invites = Invites.query.all()
+    else:
+        managed_group_ids = list(groups_with_required_role.keys())
+        invite_ids = db.session.query(InviteGroups.invite_id).filter(
+            InviteGroups.group_id.in_(managed_group_ids)
+        ).subquery()
+        invites = Invites.query.filter(
+            Invites.id.in_(invite_ids)
+        ).all()
+
+    if request.headers.get("HX-Request") == "true":
+        return render_template("v1/invite_management.jinja", invites = invites)
+    else:
+        return render_template("base.jinja", include_partials = "index", dash_template = "v1/invite_management.jinja", invites = invites)
+    
+@auth_blueprint.route("/v1/invites/<int:invite_id>/revoke", methods=["POST"])
+@require_auth
+@require_role("Group Admin", group_id_source = "invite", action = "revoke that invite")
+def revoke_invite(invite_id, groups_with_required_role=None):
+    invite = Invites.query.get(invite_id)
+
+    if invite.expiry_task_id:
+        AsyncResult(invite.expiry_task_id).revoke()
+
+    invite.status = "revoked"
+    db.session.commit()
+
+    return render_template("v1/partials/invite_row.jinja", invite=invite)
+
+
+@auth_blueprint.route("/v1/invites/<int:invite_id>/resend", methods=["POST"])
+@require_auth
+@require_role("Group Admin", group_id_source = "invite", action = "resend that invite")
+def resend_invite(invite_id, groups_with_required_role=None):
+    invite = Invites.query.get(invite_id)
+
+    # Send email here
+    return render_template("v1/partials/invite_row.jinja", invite=invite)
+
+
+@auth_blueprint.route("/v1/invites/<int:invite_id>/renew", methods=["POST"])
+@require_auth
+@require_role("Group Admin", group_id_source = "invite", action = "renew that invite")
+def renew_invite(invite_id, groups_with_required_role=None):
+    invite = Invites.query.get(invite_id)
+
+    if invite.expiry_task_id:
+        AsyncResult(invite.expiry_task_id).revoke()
+
+    new_expiry = datetime.now(timezone.utc) + current_app.config["INVITE_TOKEN_EXPIRY"]
+    invite.expires_at = new_expiry
+    invite.status = "pending"
+    invite.token = invite.generate_jwt(current_app.config["SECRET_KEY"])
+
+    task = expire_invite.apply_async(args=[invite.id], eta=new_expiry)
+    invite.expiry_task_id = task.id
+
+    db.session.commit()
+
+    return render_template("v1/partials/invite_row.jinja", invite=invite)
+
+
 @auth_blueprint.route("/v1/accept-invite/<token>", methods=["GET"])
 def accept_invite(token):
     pass
 
-@auth_blueprint.route("/v1/invite-management", methods=["GET", "POST"])
-def invite_management():
-    pass

@@ -1,0 +1,91 @@
+<div id="invite-management-div" class="container py-4">
+    <div class="row justify-content-center">
+        <div class="col-12">
+            <div class="card shadow-sm">
+                <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Invite Management</h5>
+                    <input type="text" 
+                           id="invite-search" 
+                           class="form-control form-control-sm w-25" 
+                           placeholder="Search invites...">
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0" id="invite-table">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th class="sortable" data-col="0">
+                                        Email <span class="sort-icon">↕</span>
+                                    </th>
+                                    <th>Groups</th>
+                                    <th class="sortable" data-col="2">
+                                        Sent By <span class="sort-icon">↕</span>
+                                    </th>
+                                    <th class="sortable" data-col="3">
+                                        Sent At <span class="sort-icon">↕</span>
+                                    </th>
+                                    <th class="sortable" data-col="4">
+                                        Expires At <span class="sort-icon">↕</span>
+                                    </th>
+                                    <th class="sortable" data-col="5">
+                                        Status <span class="sort-icon">↕</span>
+                                    </th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="invite-table-body">
+                                {% for invite in invites %}
+                                    {% include "v1/partials/invite_row.jinja" %}
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Search
+    document.getElementById('invite-search').addEventListener('input', function() {
+        const search = this.value.toLowerCase();
+        const rows = document.querySelectorAll('#invite-table-body tr');
+        rows.forEach(row => {
+            const text = row.textContent.toLowerCase();
+            row.style.display = text.includes(search) ? '' : 'none';
+        });
+    });
+
+    // Sort
+    document.querySelectorAll('.sortable').forEach(header => {
+        let ascending = true;
+        header.style.cursor = 'pointer';
+        header.addEventListener('click', function() {
+            const col = parseInt(this.dataset.col);
+            const tbody = document.getElementById('invite-table-body');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+
+            // Reset all other sort icons
+            document.querySelectorAll('.sortable').forEach(h => {
+                if (h !== this) {
+                    h.querySelector('.sort-icon').textContent = '↕';
+                    h._ascending = true;
+                }
+            });
+
+            // Use the header's own ascending state
+            ascending = this._ascending !== false;
+            
+            rows.sort((a, b) => {
+                const aText = a.cells[col].textContent.trim().toLowerCase();
+                const bText = b.cells[col].textContent.trim().toLowerCase();
+                return ascending ? aText.localeCompare(bText) : bText.localeCompare(aText);
+            });
+
+            this._ascending = !ascending;
+            this.querySelector('.sort-icon').textContent = ascending ? '↓' : '↑';
+            rows.forEach(row => tbody.appendChild(row));
+        });
+    });
+</script>

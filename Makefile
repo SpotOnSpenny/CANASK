@@ -21,7 +21,16 @@ prod-down:
 prod-logs:
 	docker compose --env-file app_config/.env.prod logs -f
 
+clear-cache:
+	docker compose --env-file app_config/.env.dev exec web rm -rf data_viz/.webassets-cache
+	docker compose --env-file app_config/.env.dev exec web rm -f data_viz/static/assets/main.css
+	docker compose --env-file app_config/.env.dev exec web rm -f data_viz/static/assets/main.js
+
 # Database
+new-migration:
+	docker compose --env-file app_config/.env.dev exec web flask db migrate -m "$(msg)"
+	docker compose --env-file app_config/.env.dev exec web flask db upgrade
+
 migrate:
 	docker compose --env-file app_config/.env.dev exec web flask db upgrade
 
@@ -30,3 +39,6 @@ seed:
 
 init-db:
 	docker compose --env-file app_config/.env.dev exec web flask init-db
+
+drop-db:
+	docker compose --env-file app_config/.env.dev exec web flask drop-db
