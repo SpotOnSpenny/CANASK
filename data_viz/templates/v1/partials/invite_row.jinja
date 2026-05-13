@@ -1,11 +1,14 @@
 <tr id="invite-row-{{ invite.id }}">
     <td>{{ invite.email }}</td>
     <td>
-        {% for ig in invite.invite_groups %}
-            <span class="badge bg-secondary">{{ ig.group.name }} — {{ ig.role }}</span>
-        {% endfor %}
         {% if invite.site_admin_invite %}
             <span class="badge bg-dark">Site Admin</span>
+        {% else %}
+            {% for ig in invite.invite_groups %}
+                {% if managed_group_ids is none or ig.group_id in managed_group_ids %}
+                    <span class="badge bg-secondary">{{ ig.group.name }} — {{ ig.role }}</span>
+                {% endif %}
+            {% endfor %}
         {% endif %}
     </td>
     <td>{{ invite.sent_by_user.username }}</td>
@@ -23,32 +26,59 @@
         {% endif %}
     </td>
     <td>
-        {% if invite.status == "pending" %}
-            <div class="dropdown">
+    {% if invite.status == "pending" %}
+        <div class="dropdown">
             <button class="btn btn-sm invite-action-btn dropdown-toggle" 
                     type="button" 
                     data-bs-toggle="dropdown"
                     data-bs-boundary="viewport">
             </button>
-                <ul class="dropdown-menu">
+            <ul class="dropdown-menu">
+                <li>
+                    {% set can_adjust = namespace(value=false) %}
+                    {% for ig in invite.invite_groups %}
+                        {% if managed_group_ids is none or ig.group_id in managed_group_ids %}
+                            {% if not invite.site_admin_invite %}
+                                {% set user_role = 'Site Admin' if current_user.site_admin else groups_with_required_role[ig.group_id] %}
+                                {% if role_hierarchy[user_role] > role_hierarchy[ig.role] %}
+                                    {% set can_adjust.value = true %}
+                                {% endif %}
+                            {% endif %}
+                        {% endif %}
+                    {% endfor %}
+
+                    {% if can_adjust.value or current_user.site_admin %}
                     <li>
                         <button class="dropdown-item"
-                            hx-post="/v1/invites/{{ invite.id }}/resend"
-                            hx-target="#invite-row-{{ invite.id }}"
-                            hx-swap="outerHTML">
-                            Resend
+                            hx-get="/v1/invites/{{ invite.id }}/adjust-permissions"
+                            hx-target="#modal-container"
+                            hx-swap="innerHTML"
+                            hx-on::after-request="new bootstrap.Modal(document.getElementById('adjustPermissionsModal')).show()">
+                            Adjust Permissions
                         </button>
                     </li>
-                    <li>
-                        <button class="dropdown-item text-danger"
-                            hx-post="/v1/invites/{{ invite.id }}/revoke"
-                            hx-target="#invite-row-{{ invite.id }}"
-                            hx-swap="outerHTML">
-                            Revoke
-                        </button>
-                    </li>
-                </ul>
-            </div>
+                    {% endif %}
+                </li>
+                <li>
+                    <button class="dropdown-item"
+                        hx-post="/v1/invites/{{ invite.id }}/resend"
+                        hx-target="#invite-row-{{ invite.id }}"
+                        hx-swap="outerHTML">
+                        Resend
+                    </button>
+                </li>
+                {% if not invite.site_admin_invite or current_user.site_admin %}
+                <li>
+                    <button class="dropdown-item text-danger"
+                        hx-post="/v1/invites/{{ invite.id }}/revoke"
+                        hx-target="#invite-row-{{ invite.id }}"
+                        hx-swap="outerHTML">
+                        {{ "Revoke Invite" if all_groups_managed else "Revoke Group Permission" }}
+                    </button>
+                </li>
+                {% endif %}
+            </ul>
+        </div>
         {% elif invite.status == "expired" %}
             <div class="dropdown">
                 <button class="btn btn-sm invite-action-btn dropdown-toggle" 

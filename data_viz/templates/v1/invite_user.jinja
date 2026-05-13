@@ -77,7 +77,7 @@
 </div>
 
 <script>
-    //client side form validation
+    // Client side form validation
     document.getElementById('invite-form').addEventListener('htmx:configRequest', function(event) {
         const selectedRole = document.querySelector('input[type="radio"]:checked');
         if (!selectedRole) {
@@ -90,31 +90,99 @@
         }
     });
 
-    // Update badge text and show when a role is selected, and allow unselecting by clicking the same radio again
     let lastChecked = {};
+
+    function isSiteAdminRadio(radio) {
+        return radio.value.includes('__Site Admin');
+    }
+
+    function enableAllRadios() {
+        document.querySelectorAll('input[type="radio"]').forEach(r => {
+            r.disabled = false;
+            r.closest('.accordion-item').style.opacity = '1';
+        });
+    }
+
+    function disableNonSiteAdminRadios() {
+        document.querySelectorAll('input[type="radio"]').forEach(r => {
+            if (!isSiteAdminRadio(r)) {
+                r.disabled = true;
+                r.checked = false;
+                r.closest('.accordion-item').style.opacity = '0.5';
+                // Clear badge for disabled items
+                const badge = r.closest('.accordion-item').querySelector('.badge');
+                badge.textContent = '';
+                badge.classList.add('d-none');
+                lastChecked[r.name] = null;
+            }
+        });
+    }
+
+    function disableSiteAdminRadios() {
+        document.querySelectorAll('input[type="radio"]').forEach(r => {
+            if (isSiteAdminRadio(r)) {
+                r.disabled = true;
+                r.checked = false;
+                r.closest('.accordion-item').style.opacity = '0.5';
+                const badge = r.closest('.accordion-item').querySelector('.badge');
+                badge.textContent = '';
+                badge.classList.add('d-none');
+                lastChecked[r.name] = null;
+            }
+        });
+    }
+
+    function anyNonSiteAdminSelected() {
+        return Array.from(document.querySelectorAll('input[type="radio"]:checked'))
+            .some(r => !isSiteAdminRadio(r));
+    }
+
+    function anySiteAdminSelected() {
+        return Array.from(document.querySelectorAll('input[type="radio"]:checked'))
+            .some(r => isSiteAdminRadio(r));
+    }
 
     document.querySelectorAll('input[type="radio"]').forEach(radio => {
         radio.addEventListener('click', function() {
             const group_role = this.name;
-            
+
             if (lastChecked[group_role] === this) {
                 // Same radio clicked again — uncheck it
                 this.checked = false;
                 lastChecked[group_role] = null;
-                
-                // Remove the badge
+
+                // Clear badge
                 const accordionItem = this.closest('.accordion-item');
                 const badge = accordionItem.querySelector('.badge');
                 badge.textContent = '';
                 badge.classList.add('d-none');
+
+                // Re-enable everything if nothing conflicts anymore
+                if (!anyNonSiteAdminSelected() && !anySiteAdminSelected()) {
+                    enableAllRadios();
+                } else if (!anySiteAdminSelected()) {
+                    enableAllRadios();
+                    disableSiteAdminRadios();
+                } else if (!anyNonSiteAdminSelected()) {
+                    enableAllRadios();
+                    disableNonSiteAdminRadios();
+                }
+
             } else {
                 // New radio selected — update tracking and badge
                 lastChecked[group_role] = this;
                 const accordionItem = this.closest('.accordion-item');
                 const badge = accordionItem.querySelector('.badge');
                 const [group, role] = this.value.split('__');
-                badge.textContent = role
+                badge.textContent = role;
                 badge.classList.remove('d-none');
+
+                // Enforce mutual exclusivity
+                if (isSiteAdminRadio(this)) {
+                    disableNonSiteAdminRadios();
+                } else {
+                    disableSiteAdminRadios();
+                }
             }
         });
     });

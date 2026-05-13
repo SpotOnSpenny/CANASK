@@ -173,7 +173,7 @@ def get_user_groups(user):
 
 def get_assignable_roles(user, group_id):
     if user.site_admin:
-        return ["Site Admin", "Data Owner", "Group Admin", "Member"]
+        return ["Data Owner", "Group Admin", "Member"]
 
     print(user, group_id)
     membership = UserGroups.query.filter_by(user_id = user.id, group_id = group_id).first()

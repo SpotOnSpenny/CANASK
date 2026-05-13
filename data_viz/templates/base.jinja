@@ -47,6 +47,13 @@
 
 <body class="overflow-x-hidden overflow-y-hidden">
     <div id="flashed-messages-container"></div>
+    <div class="modal fade" id="adjustPermissionsModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div id="modal-container"></div>
+            </div>
+        </div>
+    </div>
     <div class="bg-light position-absolute top-0 start-0 w-100 z-n1"></div>
     <div id="partial-inclusions" class="fade-me-in fade-me-out-left">
         {% if include_partials == "index" %}

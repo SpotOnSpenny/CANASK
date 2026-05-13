@@ -181,16 +181,84 @@ def invite_user(groups_with_required_role = None):
     
 
     if request.method == "POST":
+        email = request.form.get("email")
+        
+        # Parse form data first so we know what's being requested
+        form_data = request.form.to_dict()
+        site_admin_invite = False
+        group_assignments = {}
+        for key, value in form_data.items():
+            if "group_assignment" in key and value.split("__")[1] == "Site Admin":
+                site_admin_invite = True
+                break
+            elif "group_assignment" in key:
+                group_name = value.split("__")[0]
+                role = value.split("__")[1]
+                group = Groups.query.filter_by(name=group_name).first()
+                group_assignments[group.id] = role
+
         # Check to ensure no user with that email already exists
-        existing_user = User.query.filter_by(email=request.form.get("email")).first()
+        existing_user = User.query.filter_by(email=email).first()
         if existing_user:
-            flash(f"A user with the email {request.form.get('email')} already exists. Assign a new role/group to the existing user instead.", "danger")
+            flash(f"A user with the email {email} already exists. Assign a new role/group to the existing user instead.", "danger")
             return redirect(request.referrer or url_for("auth.invite_user"))
-        # Check that an invite with that email is not already pending
-        existing_invite = Invites.query.filter_by(email=request.form.get("email"), status = "pending").first()
+
+        # Check if a pending invite already exists for this email
+        existing_invite = Invites.query.filter_by(email=email, status="pending").first()
+
         if existing_invite:
-            flash(f"An invite for the email {request.form.get('email')} is already pending. You must cancel the existing invite before sending a new one.", "danger")
-            return redirect(request.referrer or url_for("auth.invite_user"))
+            # Case 1: existing invite is site admin — block everything
+            if existing_invite.site_admin_invite:
+                flash(f"A pending invite for {email} already exists with elevated site admin permissions.", "warning")
+                return redirect(request.referrer or url_for("auth.invite_user"))
+
+            # Case 2: new invite is site admin — upgrade existing invite
+            if site_admin_invite:
+                existing_invite.site_admin_invite = True
+                activity = UserActivity(
+                    user_id=current_user.id,
+                    activity_type="user_invite",
+                    activity_target_type="invite",
+                    activity_target_id=existing_invite.id,
+                    details=f"Invite for {email} upgraded to site admin by {current_user.username}",
+                    ip_address=request.remote_addr
+                )
+                db.session.add(activity)
+                db.session.commit()
+                flash(f"An invite already exists for {email} and has been upgraded to site admin level.", "success")
+                return redirect(url_for("main.index"))
+
+            # Case 3: regular group invite — check for duplicate groups
+            existing_group_ids = [ig.group_id for ig in existing_invite.invite_groups]
+            duplicate_groups = [gid for gid in group_assignments.keys() if gid in existing_group_ids]
+            
+            if duplicate_groups:
+                duplicate_names = ", ".join([Groups.query.get(gid).name for gid in duplicate_groups])
+                flash(f"A pending invite for {email} to {duplicate_names} already exists.", "warning")
+                return redirect(request.referrer or url_for("auth.invite_user"))
+
+            # Case 4: add new groups to existing invite
+            for group_id, role in group_assignments.items():
+                invite_group = InviteGroups(
+                    invite_id=existing_invite.id,
+                    group_id=group_id,
+                    role=role
+                )
+                db.session.add(invite_group)
+            
+                activity = UserActivity(
+                    user_id=current_user.id,
+                    activity_type="user_invite",
+                    activity_target_type="invite",
+                    activity_target_id=existing_invite.id,
+                    details=f"Groups {', '.join([Groups.query.get(gid).name for gid in group_assignments.keys()])} added to existing invite for {email} by {current_user.username}",
+                    ip_address=request.remote_addr
+                )
+                db.session.add(activity)
+                db.session.commit()
+                group_names = ", ".join([Groups.query.get(gid).name for gid in group_assignments.keys()])
+                flash(f"An invite already exists for {email}, {group_names} has been added to the existing invite.", "success")
+                return redirect(url_for("main.index"))
 
         #create the invite and invite groups in the database tables
         form_data = request.form.to_dict()
@@ -250,6 +318,7 @@ def invite_user(groups_with_required_role = None):
         db.session.commit()
 
         # Send the email to the user with the token and instructions to accept the invite
+        # Send email here
         flash(f"Invite sent to {invite.email}. JWT = {token}", "success")
         return redirect(url_for("main.index"))
 
@@ -259,33 +328,70 @@ def invite_user(groups_with_required_role = None):
 def invite_management(groups_with_required_role = None):
     if current_user.site_admin:
         invites = Invites.query.all()
+        managed_group_ids = None  # None means show all
     else:
         managed_group_ids = list(groups_with_required_role.keys())
         invite_ids = db.session.query(InviteGroups.invite_id).filter(
             InviteGroups.group_id.in_(managed_group_ids)
         ).subquery()
         invites = Invites.query.filter(
-            Invites.id.in_(invite_ids)
+            Invites.id.in_(invite_ids),
+            Invites.status != "revoked"
         ).all()
 
     if request.headers.get("HX-Request") == "true":
-        return render_template("v1/invite_management.jinja", invites = invites)
+        return render_template("v1/invite_management.jinja", 
+                            invites=invites, 
+                            managed_group_ids=managed_group_ids,
+                            groups_with_required_role=groups_with_required_role,
+                            role_hierarchy=ROLE_HIERARCHY)
     else:
-        return render_template("base.jinja", include_partials = "index", dash_template = "v1/invite_management.jinja", invites = invites)
+        return render_template("base.jinja", 
+                            include_partials="index", 
+                            dash_template="v1/invite_management.jinja", 
+                            invites=invites, 
+                            managed_group_ids=managed_group_ids,
+                            groups_with_required_role=groups_with_required_role,
+                            role_hierarchy=ROLE_HIERARCHY)
     
 @auth_blueprint.route("/v1/invites/<int:invite_id>/revoke", methods=["POST"])
 @require_auth
-@require_role("Group Admin", group_id_source = "invite", action = "revoke that invite")
+@require_role("Group Admin", group_id_source="invite", action="revoke that invite")
 def revoke_invite(invite_id, groups_with_required_role=None):
     invite = Invites.query.get(invite_id)
 
-    if invite.expiry_task_id:
-        AsyncResult(invite.expiry_task_id).revoke()
+    # Completely revoke the invite if the site admin says to
+    if current_user.site_admin:
+        if invite.expiry_task_id:
+            AsyncResult(invite.expiry_task_id).revoke()
+        invite.status = "revoked"
+    # Otherwise, just revoke the roles that the user has access to
+    else:
+        managed_group_ids = list(groups_with_required_role.keys())
+        for ig in invite.invite_groups:
+            if ig.group_id in managed_group_ids:
+                db.session.delete(ig)
 
-    invite.status = "revoked"
+        remaining_groups = [ig for ig in invite.invite_groups if ig.group_id not in managed_group_ids]
+        if not remaining_groups:
+            if invite.expiry_task_id:
+                AsyncResult(invite.expiry_task_id).revoke()
+            invite.status = "revoked"
+
     db.session.commit()
 
-    return render_template("v1/partials/invite_row.jinja", invite=invite)
+    # If the user has no more groups matching the invite, remove the row from the table
+    if not current_user.site_admin:
+        remaining_managed = [ig for ig in invite.invite_groups if ig.group_id in managed_group_ids]
+        if not remaining_managed:
+            return "", 200, {"HX-Reswap": "delete"}
+
+    # Otherwise, re-render the row without the group that was revoked
+    return render_template("v1/partials/invite_row.jinja",
+                        invite=invite,
+                        managed_group_ids=None if current_user.site_admin else managed_group_ids,
+                        groups_with_required_role=groups_with_required_role,
+                        role_hierarchy=ROLE_HIERARCHY)
 
 
 @auth_blueprint.route("/v1/invites/<int:invite_id>/resend", methods=["POST"])
@@ -293,9 +399,13 @@ def revoke_invite(invite_id, groups_with_required_role=None):
 @require_role("Group Admin", group_id_source = "invite", action = "resend that invite")
 def resend_invite(invite_id, groups_with_required_role=None):
     invite = Invites.query.get(invite_id)
-
+    managed_group_ids = None if current_user.site_admin else list(groups_with_required_role.keys())
     # Send email here
-    return render_template("v1/partials/invite_row.jinja", invite=invite)
+    return render_template("v1/partials/invite_row.jinja",
+                        invite=invite,
+                        managed_group_ids=None if current_user.site_admin else managed_group_ids,
+                        groups_with_required_role=groups_with_required_role,
+                        role_hierarchy=ROLE_HIERARCHY)
 
 
 @auth_blueprint.route("/v1/invites/<int:invite_id>/renew", methods=["POST"])
@@ -303,22 +413,141 @@ def resend_invite(invite_id, groups_with_required_role=None):
 @require_role("Group Admin", group_id_source = "invite", action = "renew that invite")
 def renew_invite(invite_id, groups_with_required_role=None):
     invite = Invites.query.get(invite_id)
-
+    managed_group_ids = None if current_user.site_admin else list(groups_with_required_role.keys())
     if invite.expiry_task_id:
         AsyncResult(invite.expiry_task_id).revoke()
 
+    # Regenerate new info for the JWT
     new_expiry = datetime.now(timezone.utc) + current_app.config["INVITE_TOKEN_EXPIRY"]
     invite.expires_at = new_expiry
     invite.status = "pending"
     invite.token = invite.generate_jwt(current_app.config["SECRET_KEY"])
 
+    # send email here
+
+    # Create new task for celery to handle expiry
     task = expire_invite.apply_async(args=[invite.id], eta=new_expiry)
     invite.expiry_task_id = task.id
 
     db.session.commit()
 
-    return render_template("v1/partials/invite_row.jinja", invite=invite)
+    return render_template("v1/partials/invite_row.jinja",
+                        invite=invite,
+                        managed_group_ids=None if current_user.site_admin else managed_group_ids,
+                        groups_with_required_role=groups_with_required_role,
+                        role_hierarchy=ROLE_HIERARCHY)
 
+
+@auth_blueprint.route("/v1/invites/<int:invite_id>/adjust-permissions", methods=["GET", "POST"])
+@require_auth
+@require_role("Group Admin", group_id_source="invite", action="adjust invite permissions")
+def adjust_invite_permissions(invite_id, groups_with_required_role=None):
+    invite = Invites.query.get(invite_id)
+    managed_group_ids = None if current_user.site_admin else list(groups_with_required_role.keys())
+
+    if request.method == "GET":
+        adjustable_groups = []
+        existing_group_ids = [ig.group_id for ig in invite.invite_groups]
+        
+        # If we are a site admin, show all groups
+        if current_user.site_admin:
+            all_groups = Groups.query.all()
+            for group in all_groups:
+                existing_ig = next((ig for ig in invite.invite_groups if ig.group_id == group.id), None)
+                if existing_ig:
+                    assignable_roles = get_assignable_roles(current_user, group.id)
+                    adjustable_groups.append({
+                        "invite_group": existing_ig,
+                        "assignable_roles": assignable_roles
+                    })
+                else:
+                    # If the group invite does not exist, we need one so that the site admin can add groups via the template
+                    temp_ig = InviteGroups(invite_id=invite.id, group_id=group.id, role=None)
+                    temp_ig.group = group
+                    assignable_roles = get_assignable_roles(current_user, group.id)
+                    adjustable_groups.append({
+                        "invite_group": temp_ig,
+                        "assignable_roles": assignable_roles
+                    })
+        # If the user isn't a site admin, just render what they have access to
+        else:
+            for ig in invite.invite_groups:
+                if ig.group_id in managed_group_ids:
+                    assignable_roles = get_assignable_roles(current_user, ig.group_id)
+                    adjustable_groups.append({
+                        "invite_group": ig,
+                        "assignable_roles": assignable_roles
+                    })
+
+        return render_template("v1/partials/adjust_permissions_modal.jinja",
+                            invite=invite,
+                            adjustable_groups=adjustable_groups)
+
+    # Adjust the invite permissions in the DB based on the form submission
+    if request.method == "POST":
+        form_data = request.form.to_dict()
+        managed_group_ids = None if current_user.site_admin else list(groups_with_required_role.keys())
+
+        # Elevate existing invite to site admin
+        if form_data.get("site_admin_invite") == "true":
+            invite.site_admin_invite = True
+            activity = UserActivity(
+                user_id=current_user.id,
+                activity_type="invite_permissions_adjusted",
+                activity_target_type="invite",
+                activity_target_id=invite.id,
+                details=f"Invite for {invite.email} elevated to site admin by {current_user.username}",
+                ip_address=request.remote_addr
+            )
+            db.session.add(activity)
+            db.session.commit()
+            return render_template("v1/partials/invite_row.jinja",
+                                invite=invite,
+                                managed_group_ids=managed_group_ids,
+                                groups_with_required_role=groups_with_required_role,
+                                role_hierarchy=ROLE_HIERARCHY)
+        
+        # If there's no site admin on the form then it's not a site admin invite
+        invite.site_admin_invite = False
+
+        # Remove the permissions that were altered
+        for ig in invite.invite_groups:
+            if managed_group_ids is None or ig.group_id in managed_group_ids:
+                db.session.delete(ig)
+        db.session.flush()
+        new_igs = []
+        # Add on the new/altered permisions
+        for key, value in form_data.items():
+            if key.startswith("role_"):
+                group_id = int(key.split("_")[1])
+                if managed_group_ids is None or group_id in managed_group_ids:
+                    new_ig = InviteGroups(
+                        invite_id=invite.id,
+                        group_id=group_id,
+                        role=value
+                    )
+                    new_igs.append(new_ig)
+                    db.session.add(new_ig)
+
+        db.session.flush()
+
+        # Log who changed what
+        group_details = ", ".join([f"{Groups.query.get(ig.group_id).name} | {ig.role}" for ig in new_igs])
+        activity = UserActivity(
+            user_id=current_user.id,
+            activity_type="invite_permissions_adjusted",
+            activity_target_type="invite",
+            activity_target_id=invite.id,
+            details=f"Permissions adjusted on invite for {invite.email} by {current_user.username}. New assignments: {group_details}",
+            ip_address=request.remote_addr
+        )
+        db.session.add(activity)
+        db.session.commit()
+        return render_template("v1/partials/invite_row.jinja",
+                            invite=invite,
+                            managed_group_ids=managed_group_ids,
+                            groups_with_required_role=groups_with_required_role,
+                            role_hierarchy=ROLE_HIERARCHY)
 
 @auth_blueprint.route("/v1/accept-invite/<token>", methods=["GET"])
 def accept_invite(token):

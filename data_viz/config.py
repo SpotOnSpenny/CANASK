@@ -27,7 +27,7 @@ class Config():
     SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URL")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     WTF_CSRF_ENABLED = True
-    INVITE_TOKEN_EXPIRY = timedelta(minutes=5)
+    INVITE_TOKEN_EXPIRY = timedelta(minutes=10)
     # Add more configuration settings here as the need arises
 
 def configure(app):
