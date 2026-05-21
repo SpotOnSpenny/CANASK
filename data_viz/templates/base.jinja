@@ -46,7 +46,20 @@
 </script>
 
 <body class="overflow-x-hidden overflow-y-hidden">
-    <div id="flashed-messages-container"></div>
+    <div id="flashed-messages-container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="position-fixed top-0 start-50 translate-middle-x pt-3" style="z-index: 1050; width: 50%;">
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+    </div>
     <div class="modal fade" id="adjustPermissionsModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
@@ -60,6 +73,8 @@
         {% include 'index.jinja' %}
         {% elif include_partials == "login" %}
         {% include 'v1/login.jinja' %}
+        {% elif include_partials == "accept invite" %}
+        {% include 'v1/accept_invite.jinja' %}
         {% endif %}
     </div>
     <div>
@@ -71,4 +86,13 @@
     {% endassets %}
 </body>
 
+<script>
+    document.body.addEventListener('close.bs.alert', function(event) {
+        if (event.target.closest('#flashed-messages-container')) {
+            event.preventDefault();
+            event.target.classList.add('fade-out');
+            setTimeout(() => event.target.remove(), 300);
+        }
+    });
+</script>
 </html>

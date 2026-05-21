@@ -3,7 +3,7 @@ from functools import wraps
 from datetime import datetime, timezone
 
 # External imports
-from flask import Blueprint, request, render_template, flash, current_app, redirect, url_for, session
+from flask import Blueprint, request, render_template, flash, current_app, redirect, url_for, session, make_response
 from bcrypt import checkpw, gensalt
 import jwt
 from flask_login import login_user, current_user, logout_user
@@ -14,7 +14,7 @@ from celery.result import AsyncResult
 from data_viz.auth import login_manager
 from data_viz.database import db
 from data_viz.database.models import User, Invites, Groups, UserGroups, UserActivity, InviteGroups
-from data_viz.auth.auth_helpers import get_user_groups, get_assignable_roles
+from data_viz.auth.auth_helpers import get_user_groups, get_assignable_roles, validate_password, create_user, assign_group
 from data_viz.auth.role_hierarchy import ROLE_HIERARCHY
 from celery_worker.tasks.invite_jwt_expiry import expire_invite
 
@@ -118,10 +118,10 @@ def login():
             )
             db.session.add(new_login)
             db.session.commit()
-            if request.headers.get("HX-Request") == "true":
-                return render_template("index.jinja")
-            else:
-                return render_template("base.jinja", include_partials="index", dash_template=None)
+            response = make_response(render_template("index.jinja"))
+            response.headers["HX-Push-Url"] = "/"
+            return response
+
         else:
             login_attempt = UserActivity(
                 user_id = user.id if user else None,
@@ -134,9 +134,15 @@ def login():
             db.session.add(login_attempt)
             db.session.commit()
             flash("Invalid username or password", "danger")
-            return render_template("base.jinja", include_partials="login")
+            if request.headers.get("HX-Request"):
+                return render_template("v1/login.jinja")
+            else:
+                return render_template("base.jinja", include_partials="login")
     else:
-        return render_template("base.jinja", include_partials="login")
+        if request.headers.get("HX-Request"):
+            return render_template("v1/login.jinja")
+        else:
+            return render_template("base.jinja", include_partials="login")
 
 @auth_blueprint.route("/v1/logout", methods=["POST"])
 @require_auth
@@ -424,6 +430,7 @@ def renew_invite(invite_id, groups_with_required_role=None):
     invite.token = invite.generate_jwt(current_app.config["SECRET_KEY"])
 
     # send email here
+    print(f"Invite for {invite.email} renewed. New JWT = {invite.token}")
 
     # Create new task for celery to handle expiry
     task = expire_invite.apply_async(args=[invite.id], eta=new_expiry)
@@ -549,7 +556,116 @@ def adjust_invite_permissions(invite_id, groups_with_required_role=None):
                             groups_with_required_role=groups_with_required_role,
                             role_hierarchy=ROLE_HIERARCHY)
 
+@auth_blueprint.route("/v1/accept-invite", methods=["GET", "POST"])
 @auth_blueprint.route("/v1/accept-invite/<token>", methods=["GET"])
-def accept_invite(token):
-    pass
+def accept_invite(token = None):
+    # Ensure user is not already logged in
+    if current_user.is_authenticated:
+        flash("You are already logged in. Please log out to accept the invite and create a different account.", "warning")
+        return redirect(url_for("main.index"))
+    
+    # Handle token from URL
+    if token:
+        try:
+            jwt.decode(token, current_app.config["SECRET_KEY"], algorithms=["HS256"])
+        except jwt.ExpiredSignatureError:
+            flash("This invite link has expired.", "danger")
+            return redirect(url_for("auth.login"))
+        except jwt.InvalidTokenError:
+            flash("The invite link is invalid.", "danger")
+            return redirect(url_for("auth.login"))
+        session["invite_token"] = token
+        return redirect(url_for("auth.accept_invite"))
 
+    # Get and decode token from session
+    token = session.get("invite_token")
+    if not token:
+        flash("No invite token provided.", "danger")
+        return redirect(url_for("auth.login"))
+
+    try:
+        payload = jwt.decode(token, current_app.config["SECRET_KEY"], algorithms=["HS256"])
+    except jwt.ExpiredSignatureError:
+        session.pop("invite_token", None)
+        flash("This invite link has expired.", "danger")
+        return redirect(url_for("auth.login"))
+    except jwt.InvalidTokenError:
+        session.pop("invite_token", None)
+        flash("The invite link is invalid.", "danger")
+        return redirect(url_for("auth.login"))
+
+    invite = Invites.query.get(payload.get("invite_id"))
+    if not invite or invite.status != "pending":
+        session.pop("invite_token", None)
+        flash("This invite is no longer valid.", "danger")
+        return redirect(url_for("auth.login"))
+    
+    if request.method == "GET":
+        return render_template("base.jinja", 
+                            include_partials="accept invite",
+                            invite=invite, 
+                            email=payload.get("email"))
+    
+    if request.method == "POST":
+        username = request.form.get("username")
+        password = request.form.get("password")
+        confirm_password = request.form.get("confirm_password")
+
+        # Serverside validations to ensure password is strong, and user doesn't exist
+        if password != confirm_password:
+            flash("Passwords do not match.", "danger")
+            return redirect(url_for("auth.accept_invite"))
+        valid, message = validate_password(password)
+        if not valid:
+            flash(message, "danger")
+            return redirect(url_for("auth.accept_invite"))
+        if User.query.filter_by(username=username).first():
+            flash("Username already taken. Please choose a different username.", "danger")
+            return redirect(url_for("auth.accept_invite"))
+
+        try:
+            # Create the user account
+            user = create_user(
+                email = payload.get("email"),
+                username = username,
+                password = password,
+                invited_by = invite.sent_by,
+                site_admin = invite.site_admin_invite
+            )
+            
+            # Assign group memberships
+            if not invite.site_admin_invite:
+                invite_groups = InviteGroups.query.filter_by(invite_id=invite.id).all()
+                for invite_group in invite_groups:
+                    assign_group(
+                        user_id=user.id,
+                        group_id=invite_group.group_id,
+                        role=invite_group.role,
+                        assigned_by=invite.sent_by
+                    )
+        except Exception as e:
+            db.session.rollback()
+            flash("An error occurred while creating your account. Please contact the administrator.", "danger")
+            current_app.logger.error(f"Error creating account from invite: {str(e)}")
+            return redirect(url_for("auth.login"))
+
+        # Add account creation to the activity log
+        activity = UserActivity(
+            user_id = user.id,
+            activity_type = "account created via invite",
+            activity_target_type = "account",
+            activity_target_id = user.id,
+            details = f"Invite accepted by {user.username}",
+            ip_address = request.remote_addr
+        )
+        db.session.add(activity)
+        db.session.commit()
+
+        # Remove the expiry task from the queue since the invite has been accepted
+        if invite.expiry_task_id:
+            AsyncResult(invite.expiry_task_id).revoke()
+        
+        # Remove the token from the session and send user to login page
+        session.pop("invite_token", None)
+        flash("Account created successfully! Please log in to use CANASK.", "success")
+        return redirect(url_for("auth.login"))

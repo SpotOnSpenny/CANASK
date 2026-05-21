@@ -61,7 +61,9 @@ def add_cache_control_headers(response):
 
     # Inject flash messages OOB for HTMX requests
     if request.headers.get("HX-Request") and response.content_type == "text/html; charset=utf-8" and response.status_code not in [301, 302, 303, 307, 308]:
+        print("Injecting flash messages into HTMX response")
         messages = get_flashed_messages(with_categories=True)
+        print(messages)
         if messages:
             alerts = "".join([
                 f'<div class="alert alert-{category} alert-dismissible fade show" role="alert">'

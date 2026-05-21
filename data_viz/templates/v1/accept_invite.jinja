@@ -1,0 +1,119 @@
+<div id="accept-invite-div" class="d-flex justify-content-center align-items-center w-100 vh-100">
+    <div class="row justify-content-center">
+        <div class="col-md-6 w-75">
+            <div class="card shadow-sm">
+                <div class="card-header bg-dark text-white">
+                    <h5 class="mb-0">Create Your Account</h5>
+                </div>
+                <div class="card-body">
+                    <div id="form-alerts"></div>
+                    <p class="text-muted mb-4">You've been invited to join CANASK. Complete the form below to create your account.</p>
+
+                    <form id="accept-invite-form"
+                          hx-post="/v1/accept-invite"
+                          hx-target="#partial-inclusions"
+                          hx-swap="innerHTML swap:1s settle:1s">
+
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">Email Address</label>
+                            <p class="form-control-plaintext">{{ email }}</p>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="username" class="form-label fw-semibold">Username</label>
+                            <input type="text"
+                                   id="username"
+                                   name="username"
+                                   class="form-control"
+                                   placeholder="Choose a username"
+                                   required>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="password" class="form-label fw-semibold">Password</label>
+                            <input type="password"
+                                   id="password"
+                                   name="password"
+                                   class="form-control"
+                                   placeholder="Choose a password"
+                                   required>
+                            <div class="form-text">Minimum 12 characters with at least 3 special characters.</div>
+                        </div>
+
+                        <div class="mb-4">
+                            <label for="confirm_password" class="form-label fw-semibold">Confirm Password</label>
+                            <input type="password"
+                                   id="confirm_password"
+                                   name="confirm_password"
+                                   class="form-control"
+                                   placeholder="Confirm your password"
+                                   required>
+                        </div>
+
+                        <div class="d-flex justify-content-end">
+                            <button type="submit" class="btn btn-dark px-4">
+                                Create Account
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.getElementById('accept-invite-form').addEventListener('htmx:configRequest', function(event) {
+        const password = document.getElementById('password').value;
+        const confirmPassword = document.getElementById('confirm_password').value;
+        const alerts = document.getElementById('flashed-messages-container');
+
+        console.log("Config request fired");
+
+        if (password !== confirmPassword) {
+            event.preventDefault();
+            alerts.innerHTML =`
+            <div class="position-fixed top-0 start-50 translate-middle-x pt-3" style="z-index: 1050; width: 50%;">
+                <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                    The passwords provided did not match.
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            </div>
+            `;
+            return;
+        }
+
+        if (password.length < 12) {
+            event.preventDefault();
+            alerts.innerHTML = `
+            <div class="position-fixed top-0 start-50 translate-middle-x pt-3" style="z-index: 1050; width: 50%;">
+                <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                    Password must be at least 12 characters long.
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            </div>
+            `;
+            return;
+        }
+
+        const specialChars = password.match(/[^a-zA-Z0-9]/g);
+        if (!specialChars || specialChars.length < 3) {
+            event.preventDefault();
+            alerts.innerHTML = `
+            <div class="position-fixed top-0 start-50 translate-middle-x pt-3" style="z-index: 1050; width: 50%;">
+                <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                    Password must contain at least 3 special characters.
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            </div>
+            `;
+            return;
+        }
+    });
+
+    document.querySelectorAll('.form-check-label').forEach(label => {
+        label.addEventListener('mousedown', function(event) {
+            if (event.detail > 1) event.preventDefault();
+        });
+    });
+</script>

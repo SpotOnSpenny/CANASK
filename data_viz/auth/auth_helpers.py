@@ -1,3 +1,6 @@
+# Standard Library Imports
+import re
+
 # External Imports
 from bcrypt import hashpw, gensalt
 from flask import flash, has_request_context
@@ -181,3 +184,13 @@ def get_assignable_roles(user, group_id):
         return [role for role in ROLE_HIERARCHY.keys() if ROLE_HIERARCHY[role] < ROLE_HIERARCHY[membership.role]]
     else:
         return []
+
+def validate_password(password):
+    if len(password) < 12:
+        return False, "Password must be at least 12 characters long."
+    if not any(char.isupper() for char in password):
+        return False, "Password must contain at least one uppercase letter."
+    special_characters = re.findall(r'[^a-zA-Z0-9]', password)
+    if not special_characters:
+        return False, "Password must contain at least one special character."
+    return True, "Password is valid."
