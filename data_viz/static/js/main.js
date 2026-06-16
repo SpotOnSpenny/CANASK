@@ -6,6 +6,11 @@ document.body.addEventListener('htmx:configRequest', (event) => {
 //HTMX config to exclude history cache and require server request on back/forward
 htmx.config.historyCacheSize = 0;
 htmx.config.refreshOnHistoryMiss = true;
+// Parse swap responses with <template> tags. Without this, a response whose main
+// content is a bare <tr> (e.g. the group/user/invite row partials) is parsed in a
+// table context that foster-parents the appended out-of-band flash <div>, throwing
+// "querySelectorAll is not a function" and wiping out the swapped row.
+htmx.config.useTemplateFragments = true;
 
 // Set about data html strings
 let bccsu_html = `
@@ -260,6 +265,34 @@ document.addEventListener("DOMContentLoaded", (event) => {
   }
 });
 
+// Highlight the side-nav (and mobile-nav) link for the page currently shown.
+// The nav persists across HTMX swaps, so this runs on load and after every
+// navigation, matching window.location against each link's hx-push-url.
+function highlightActiveNav() {
+  function normalize(p) { return (p || "").replace(/\/+$/, "") || "/"; }
+  let current = normalize(window.location.pathname);
+  let links = document.querySelectorAll(
+    "#desktop-nav .nav-link, #mobile-nav .mobile-nav-link"
+  );
+  links.forEach((link) => {
+    let target = normalize(link.getAttribute("hx-push-url") || link.getAttribute("hx-get"));
+    let isCurrent = target === current;
+    link.classList.toggle("nav-current", isCurrent);
+    // Announce the current page to assistive tech (replaces the static
+    // aria-current that used to sit on every link).
+    if (isCurrent) {
+      link.setAttribute("aria-current", "page");
+    } else {
+      link.removeAttribute("aria-current");
+    }
+  });
+}
+
+document.addEventListener("DOMContentLoaded", highlightActiveNav);
+// Fires when HTMX pushes a new URL (province click) and on back/forward restore
+document.body.addEventListener("htmx:pushedIntoHistory", highlightActiveNav);
+document.body.addEventListener("htmx:historyRestore", highlightActiveNav);
+
 // General functions to fetch data, create charts, etc. within the templates
 function fetchData(data_file, functionCallback = null) {
   return fetch(data_file)
@@ -327,7 +360,7 @@ function createCategoryChartON(data) {
   let vis = Plotly.react(
     visDiv,
     traces,
-    (layout = {
+    themeChartLayout(layout = {
       dragmode: "pan",
       yaxis: {
         fixedrange: true,
@@ -553,7 +586,7 @@ function createDeathMapOn(data, geojson, first_run = true) {
   let vis = Plotly.react(
     visDiv,
     dataSlider,
-    layout,
+    themeChartLayout(layout),
     (config = {
       displaylogo: false,
       responsive: true,
@@ -781,7 +814,7 @@ async function toxSetUp() {
       let vis = Plotly.react(
         visDiv,
         plots,
-        (layout = {
+        themeChartLayout(layout = {
           dragmode: "pan",
           yaxis: {
             fixedrange: true,
@@ -872,7 +905,7 @@ function changeChartType(selector) {
         Plotly.react(
           visDiv,
           plotsToAdd,
-          (layout = {
+          themeChartLayout(layout = {
             dragmode: "pan",
             yaxis: {
               fixedrange: true,
@@ -939,7 +972,7 @@ function changeChartType(selector) {
         Plotly.react(
           visDiv,
           plotsToAdd,
-          (layout = {
+          themeChartLayout(layout = {
             dragmode: "pan",
             yaxis: {
               fixedrange: true,
@@ -1009,7 +1042,7 @@ function changeChartType(selector) {
         Plotly.react(
           visDiv,
           plotsToAdd,
-          (layout = {
+          themeChartLayout(layout = {
             dragmode: "pan",
             yaxis: {
               fixedrange: true,

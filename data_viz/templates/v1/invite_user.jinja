@@ -2,15 +2,18 @@
     <div class="row justify-content-center">
         <div class="col-md-8">
             <div class="card shadow-sm">
-                <div class="card-header bg-dark text-white">
+                <div class="card-header">
                     <h5 class="mb-0">Invite a New User</h5>
                 </div>
                 <div class="card-body">
+                    <p class="form-intro">Enter the person's email, then choose the group(s) and role they should
+                        have. Each role grants a different level of access, and is assigned on a per-group basis.</p>
                     <div id="form-alerts"></div>
                     <form id="invite-form"
                           hx-post="/v1/invite-user"
                           hx-target="#content-div"
-                          hx-swap="innerHTML swap:1s settle:1s">
+                          hx-swap="innerHTML swap:1s settle:1s"
+                          hx-disabled-elt="find button[type='submit']">
 
                         <div class="mb-4">
                             <label for="email" class="form-label fw-semibold">Email Address</label>
@@ -36,7 +39,7 @@
                                                 aria-controls="collapse_{{ loop.index }}">
                                             {{ group_name }}
                                             <!-- Show a badge if a role has been selected for this group -->
-                                            <span class="badge bg-dark ms-2 d-none" id="badge_{{ loop.index }}"></span>
+                                            <span class="badge bg-primary ms-2 d-none" id="badge_{{ loop.index }}"></span>
                                         </button>
                                     </h2>
                                     <div id="collapse_{{ loop.index }}" 
@@ -65,7 +68,7 @@
                         <hr class="my-3">
 
                         <div class="d-flex justify-content-end">
-                            <button type="submit" class="btn btn-dark px-4">
+                            <button type="submit" class="btn btn-primary px-4">
                                 Send Invite
                             </button>
                         </div>

@@ -7,7 +7,24 @@
     <!-- Required meta tags -->
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
-    <meta name="csrf-token" content="{{ csrf_token() }}"
+    <meta name="csrf-token" content="{{ csrf_token() }}" />
+
+    <!-- Theme bootstrap: set light/dark before paint to avoid a flash -->
+    <script>
+        (function () {
+            try {
+                var saved = localStorage.getItem('canask-theme');
+                var theme = saved || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+                document.documentElement.setAttribute('data-theme', theme);
+                document.documentElement.setAttribute('data-bs-theme', theme);
+            } catch (e) { /* storage unavailable */ }
+        })();
+    </script>
+
+    <!-- Inter (UI + tabular data figures) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
     <!-- Google reCaptcha-->
     <script src="https://www.google.com/recaptcha/api.js"></script>
@@ -46,6 +63,11 @@
 </script>
 
 <body class="overflow-x-hidden overflow-y-hidden">
+    <button id="canask-theme-toggle" type="button" class="canask-theme-toggle" aria-label="Toggle dark mode"
+        aria-pressed="false" title="Toggle light / dark theme">
+        <i class="bi bi-moon-stars theme-icon-light" aria-hidden="true"></i>
+        <i class="bi bi-sun theme-icon-dark" aria-hidden="true"></i>
+    </button>
     <div id="flashed-messages-container">
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
@@ -94,5 +116,28 @@
             setTimeout(() => event.target.remove(), 300);
         }
     });
+
+    // Light / dark theme toggle (button lives in the persistent base layout)
+    (function () {
+        function reflect(theme) {
+            var btn = document.getElementById('canask-theme-toggle');
+            if (btn) { btn.setAttribute('aria-pressed', String(theme === 'dark')); }
+        }
+        function setTheme(theme) {
+            document.documentElement.setAttribute('data-theme', theme);
+            document.documentElement.setAttribute('data-bs-theme', theme);
+            try { localStorage.setItem('canask-theme', theme); } catch (e) {}
+            reflect(theme);
+            // Re-theme any Plotly charts on the page (helper lives in the JS bundle)
+            if (typeof window.canaskRedrawCharts === 'function') { window.canaskRedrawCharts(); }
+        }
+        reflect(document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light');
+        document.addEventListener('click', function (event) {
+            var btn = event.target.closest && event.target.closest('#canask-theme-toggle');
+            if (!btn) return;
+            var current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+            setTheme(current === 'dark' ? 'light' : 'dark');
+        });
+    })();
 </script>
 </html>

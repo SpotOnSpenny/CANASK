@@ -1,0 +1,180 @@
+<div class="modal-header">
+    <h5 class="modal-title">Add a User to a Group</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+</div>
+<form id="add-user-form"
+      hx-post="/v1/add-user"
+      hx-target="#content-div"
+      hx-swap="innerHTML swap:1s settle:1s"
+      hx-disabled-elt="find button[type='submit']"
+      hx-on::after-request="bootstrap.Modal.getInstance(document.getElementById('adjustPermissionsModal')).hide()">
+    <div class="modal-body">
+        <p class="form-intro">Enter the person's email, then choose the group(s) and role they should
+            have. If they already have an account they'll be granted access immediately; otherwise an
+            invite is sent. Each role grants a different level of access, assigned on a per-group basis.</p>
+        <div id="form-alerts"></div>
+
+        <div class="mb-3">
+            <label for="email" class="form-label fw-semibold">Email Address</label>
+            <input type="email"
+                   id="email"
+                   name="email"
+                   class="form-control"
+                   placeholder="Enter the email address to add"
+                   required>
+        </div>
+
+        <hr class="my-3">
+
+        <div class="accordion" id="groupAccordion">
+            {% for group_name, roles in invitable_roles.items() %}
+                <div class="accordion-item">
+                    <h2 class="accordion-header" id="heading_{{ loop.index }}">
+                        <button class="accordion-button collapsed"
+                                type="button"
+                                data-bs-toggle="collapse"
+                                data-bs-target="#collapse_{{ loop.index }}"
+                                aria-expanded="false"
+                                aria-controls="collapse_{{ loop.index }}">
+                            {{ group_name }}
+                            <!-- Show a badge if a role has been selected for this group -->
+                            <span class="badge bg-primary ms-2 d-none" id="badge_{{ loop.index }}"></span>
+                        </button>
+                    </h2>
+                    <div id="collapse_{{ loop.index }}"
+                        class="accordion-collapse collapse"
+                        aria-labelledby="heading_{{ loop.index }}">
+                        <div class="accordion-body">
+                            {% for role in roles %}
+                                <div class="form-check">
+                                    <input class="form-check-input"
+                                        type="radio"
+                                        name="group_assignment_{{ group_name }}"
+                                        value="{{ group_name }}__{{ role }}"
+                                        id="role_{{ group_name }}_{{ role }}">
+                                    <label class="form-check-label"
+                                        for="role_{{ group_name }}_{{ role }}">
+                                        {{ role.replace("_", " ").title() }}
+                                    </label>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+    <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-primary">Add User</button>
+    </div>
+</form>
+
+<script>
+    (function() {
+        const form = document.getElementById('add-user-form');
+
+        // Client side form validation — block submit if no role chosen
+        form.addEventListener('htmx:configRequest', function(event) {
+            const selectedRole = document.querySelector('#add-user-form input[type="radio"]:checked');
+            if (!selectedRole) {
+                event.preventDefault();
+                document.getElementById('form-alerts').innerHTML = `
+                    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                        Please select a role before adding the user.
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>`;
+            }
+        });
+
+        const radios = () => document.querySelectorAll('#add-user-form input[type="radio"]');
+        let lastChecked = {};
+
+        function isSiteAdminRadio(radio) {
+            return radio.value.includes('__Site Admin');
+        }
+
+        function enableAllRadios() {
+            radios().forEach(r => {
+                r.disabled = false;
+                r.closest('.accordion-item').style.opacity = '1';
+            });
+        }
+
+        function clearRadio(r) {
+            r.disabled = true;
+            r.checked = false;
+            r.closest('.accordion-item').style.opacity = '0.5';
+            const badge = r.closest('.accordion-item').querySelector('.badge');
+            badge.textContent = '';
+            badge.classList.add('d-none');
+            lastChecked[r.name] = null;
+        }
+
+        function disableNonSiteAdminRadios() {
+            radios().forEach(r => { if (!isSiteAdminRadio(r)) clearRadio(r); });
+        }
+
+        function disableSiteAdminRadios() {
+            radios().forEach(r => { if (isSiteAdminRadio(r)) clearRadio(r); });
+        }
+
+        function anyNonSiteAdminSelected() {
+            return Array.from(radios()).filter(r => r.checked).some(r => !isSiteAdminRadio(r));
+        }
+
+        function anySiteAdminSelected() {
+            return Array.from(radios()).filter(r => r.checked).some(r => isSiteAdminRadio(r));
+        }
+
+        radios().forEach(radio => {
+            radio.addEventListener('click', function() {
+                const group_role = this.name;
+
+                if (lastChecked[group_role] === this) {
+                    // Same radio clicked again — uncheck it
+                    this.checked = false;
+                    lastChecked[group_role] = null;
+
+                    const accordionItem = this.closest('.accordion-item');
+                    const badge = accordionItem.querySelector('.badge');
+                    badge.textContent = '';
+                    badge.classList.add('d-none');
+
+                    if (!anyNonSiteAdminSelected() && !anySiteAdminSelected()) {
+                        enableAllRadios();
+                    } else if (!anySiteAdminSelected()) {
+                        enableAllRadios();
+                        disableSiteAdminRadios();
+                    } else if (!anyNonSiteAdminSelected()) {
+                        enableAllRadios();
+                        disableNonSiteAdminRadios();
+                    }
+
+                } else {
+                    // New radio selected — update tracking and badge
+                    lastChecked[group_role] = this;
+                    const accordionItem = this.closest('.accordion-item');
+                    const badge = accordionItem.querySelector('.badge');
+                    const [group, role] = this.value.split('__');
+                    badge.textContent = role;
+                    badge.classList.remove('d-none');
+
+                    if (isSiteAdminRadio(this)) {
+                        disableNonSiteAdminRadios();
+                    } else {
+                        disableSiteAdminRadios();
+                    }
+                }
+            });
+        });
+
+        document.querySelectorAll('#add-user-form .form-check-label').forEach(label => {
+            label.addEventListener('mousedown', function(event) {
+                if (event.detail > 1) {
+                    event.preventDefault();
+                }
+            });
+        });
+    })();
+</script>

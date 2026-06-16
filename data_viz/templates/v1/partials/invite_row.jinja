@@ -2,7 +2,7 @@
     <td>{{ invite.email }}</td>
     <td>
         {% if invite.site_admin_invite %}
-            <span class="badge bg-dark">Site Admin</span>
+            <span class="badge bg-primary">Site Admin</span>
         {% else %}
             {% for ig in invite.invite_groups %}
                 {% if managed_group_ids is none or ig.group_id in managed_group_ids %}
@@ -72,7 +72,8 @@
                     <button class="dropdown-item text-danger"
                         hx-post="/v1/invites/{{ invite.id }}/revoke"
                         hx-target="#invite-row-{{ invite.id }}"
-                        hx-swap="outerHTML">
+                        hx-swap="outerHTML"
+                        hx-confirm="{{ 'Revoke this invite to ' ~ invite.email ~ '? Their sign-up link will stop working.' if all_groups_managed else 'Remove this group from the invite for ' ~ invite.email ~ '?' }}">
                         {{ "Revoke Invite" if all_groups_managed else "Revoke Group Permission" }}
                     </button>
                 </li>

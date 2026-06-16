@@ -1,63 +1,55 @@
 <div id="accept-invite-div" class="d-flex justify-content-center align-items-center w-100 vh-100">
-    <div class="row justify-content-center">
-        <div class="col-md-6 w-75">
-            <div class="card shadow-sm">
-                <div class="card-header bg-dark text-white">
-                    <h5 class="mb-0">Create Your Account</h5>
+    <div class="card shadow-sm" style="width: 30rem; max-width: 92vw;">
+        <div class="card-body p-4">
+            <h3 class="card-title mb-1 text-center">Create Your Account</h3>
+            <p class="text-center text-muted mb-4">You've been invited to join CANASK. Complete the form below to
+                create your account.</p>
+            <div id="form-alerts"></div>
+
+            <form id="accept-invite-form"
+                  hx-post="/v1/accept-invite"
+                  hx-target="#partial-inclusions"
+                  hx-swap="innerHTML swap:1s settle:1s"
+                  hx-disabled-elt="find button[type='submit']">
+
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Email Address</label>
+                    <p class="form-control-plaintext">{{ email }}</p>
                 </div>
-                <div class="card-body">
-                    <div id="form-alerts"></div>
-                    <p class="text-muted mb-4">You've been invited to join CANASK. Complete the form below to create your account.</p>
 
-                    <form id="accept-invite-form"
-                          hx-post="/v1/accept-invite"
-                          hx-target="#partial-inclusions"
-                          hx-swap="innerHTML swap:1s settle:1s">
-
-                        <div class="mb-3">
-                            <label class="form-label fw-semibold">Email Address</label>
-                            <p class="form-control-plaintext">{{ email }}</p>
-                        </div>
-
-                        <div class="mb-3">
-                            <label for="username" class="form-label fw-semibold">Username</label>
-                            <input type="text"
-                                   id="username"
-                                   name="username"
-                                   class="form-control"
-                                   placeholder="Choose a username"
-                                   required>
-                        </div>
-
-                        <div class="mb-3">
-                            <label for="password" class="form-label fw-semibold">Password</label>
-                            <input type="password"
-                                   id="password"
-                                   name="password"
-                                   class="form-control"
-                                   placeholder="Choose a password"
-                                   required>
-                            <div class="form-text">Minimum 12 characters with at least 3 special characters.</div>
-                        </div>
-
-                        <div class="mb-4">
-                            <label for="confirm_password" class="form-label fw-semibold">Confirm Password</label>
-                            <input type="password"
-                                   id="confirm_password"
-                                   name="confirm_password"
-                                   class="form-control"
-                                   placeholder="Confirm your password"
-                                   required>
-                        </div>
-
-                        <div class="d-flex justify-content-end">
-                            <button type="submit" class="btn btn-dark px-4">
-                                Create Account
-                            </button>
-                        </div>
-                    </form>
+                <div class="mb-3">
+                    <label for="username" class="form-label fw-semibold">Username</label>
+                    <input type="text"
+                           id="username"
+                           name="username"
+                           class="form-control"
+                           placeholder="Choose a username"
+                           required>
                 </div>
-            </div>
+
+                <div class="mb-3">
+                    <label for="password" class="form-label fw-semibold">Password</label>
+                    <input type="password"
+                           id="password"
+                           name="password"
+                           class="form-control"
+                           placeholder="Choose a password"
+                           required>
+                    <div class="form-text">Minimum 12 characters with at least 3 special characters.</div>
+                </div>
+
+                <div class="mb-4">
+                    <label for="confirm_password" class="form-label fw-semibold">Confirm Password</label>
+                    <input type="password"
+                           id="confirm_password"
+                           name="confirm_password"
+                           class="form-control"
+                           placeholder="Confirm your password"
+                           required>
+                </div>
+
+                <button type="submit" class="btn btn-primary w-100">Create Account</button>
+            </form>
         </div>
     </div>
 </div>

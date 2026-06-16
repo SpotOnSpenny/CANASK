@@ -38,3 +38,11 @@ celerybeat-schedule-shm.pid
 celerybeat-schedule-wal
 celerybeat-schedule-wal.db
 celerybeat-schedule-wal.pid
+
+# Claude things
+.claude
+.Identifier
+.impeccable
+CLAUDE.md
+*Zone.Identifier
+PRODUCT.md

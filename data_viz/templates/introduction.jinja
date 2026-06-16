@@ -1,34 +1,101 @@
-<div id="introduction-div" class="p-5 w-100 d-flex justify-content-center align-items-center">
-    <div class="card introductory-card">
-        <div class="card-body text-center">
-            <h4 class="introductory-title card-title">Welcome to CANASK (the Canadian Alliance for Substance Knowledge)
-            </h4>
-            <p class="card-text">The aim of this application is to provide a comprehensive overview of
-                up-to-date
-                statistics related to the Canadian drug crisis in a single application tailored to the
-                unique needs of
-                the different stakeholders who require it. In doing so, we hope to enable those who use
-                drugs,
-                physicians, and policymakers to
-                make informed decisions using the most current data and meaningful trends regarding the
-                opioid overdose
-                epidemic within Canada in its current state.</p>
-            <br />
-            <p class="card-text">Please use the site menu to explore the different sections
-                of the tool that may be of interest to you.
-            </p>
-            <div class="container">
-                <div class="row justify-content-center align-items-center g-2">
-                    <div class="col-md-4">
-                        <img src="/static/assets/images/ccsa_logo.png" class="img-fluid rounded-top logos"
-                            alt="Canadian Centre on Substance Use and Addiction" />
-                    </div>
-                    <div class="col-md-4">
-                        <img src="/static/assets/images/CHI.jpeg" class="img-fluid rounded-top logos"
-                            alt="University of Calgary Centre for Health Informatics Logo" />
-                    </div>
-                </div>
-            </div>
+<div id="home-orient">
+    <header class="home-hero">
+        <h1 class="home-title">Canadian Alliance for Substance Knowledge</h1>
+        <p class="home-lede">Current, sourced statistics on Canada's drug-toxicity crisis, province by province
+            &mdash; for the people who use drugs, clinicians, and policymakers who need them.</p>
+    </header>
+
+    <section class="home-section">
+        <h2 class="home-section-title">Explore by province</h2>
+        <div class="region-grid">
+            <a class="region-tile htmx-element" href="/v1/province/british-columbia"
+                hx-get="/v1/province/british-columbia" hx-target="#content-div" hx-swap="innerHTML swap:1s settle:1s"
+                hx-push-url="/v1/province/british-columbia">
+                <i class="bi bi-geo-alt region-tile-ic" aria-hidden="true"></i>
+                <span class="region-tile-name">British Columbia</span>
+                <i class="bi bi-arrow-right region-tile-arrow" aria-hidden="true"></i>
+            </a>
+            <a class="region-tile htmx-element" href="/v1/province/alberta" hx-get="/v1/province/alberta"
+                hx-target="#content-div" hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/v1/province/alberta">
+                <i class="bi bi-geo-alt region-tile-ic" aria-hidden="true"></i>
+                <span class="region-tile-name">Alberta</span>
+                <i class="bi bi-arrow-right region-tile-arrow" aria-hidden="true"></i>
+            </a>
+            <a class="region-tile htmx-element" href="/v1/province/saskatchewan" hx-get="/v1/province/saskatchewan"
+                hx-target="#content-div" hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/v1/province/saskatchewan">
+                <i class="bi bi-geo-alt region-tile-ic" aria-hidden="true"></i>
+                <span class="region-tile-name">Saskatchewan</span>
+                <i class="bi bi-arrow-right region-tile-arrow" aria-hidden="true"></i>
+            </a>
+            <a class="region-tile htmx-element" href="/v1/province/manitoba" hx-get="/v1/province/manitoba"
+                hx-target="#content-div" hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/v1/province/manitoba">
+                <i class="bi bi-geo-alt region-tile-ic" aria-hidden="true"></i>
+                <span class="region-tile-name">Manitoba</span>
+                <i class="bi bi-arrow-right region-tile-arrow" aria-hidden="true"></i>
+            </a>
+            <a class="region-tile htmx-element" href="/province/ontario" hx-get="/province/ontario"
+                hx-target="#content-div" hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/province/ontario">
+                <i class="bi bi-geo-alt region-tile-ic" aria-hidden="true"></i>
+                <span class="region-tile-name">Ontario</span>
+                <i class="bi bi-arrow-right region-tile-arrow" aria-hidden="true"></i>
+            </a>
+            <a class="region-tile htmx-element" href="/v1/province/new-brunswick" hx-get="/v1/province/new-brunswick"
+                hx-target="#content-div" hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/v1/province/new-brunswick">
+                <i class="bi bi-geo-alt region-tile-ic" aria-hidden="true"></i>
+                <span class="region-tile-name">New Brunswick</span>
+                <i class="bi bi-arrow-right region-tile-arrow" aria-hidden="true"></i>
+            </a>
         </div>
-    </div>
+    </section>
+
+    <section class="home-section">
+        <h2 class="home-section-title">National</h2>
+        <a class="region-tile region-tile-wide htmx-element" href="/toxicity-deaths" hx-get="/toxicity-deaths"
+            hx-target="#content-div" hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/toxicity-deaths">
+            <i class="bi bi-graph-up region-tile-ic" aria-hidden="true"></i>
+            <span class="region-tile-name">Total Toxicity Deaths</span>
+            <i class="bi bi-arrow-right region-tile-arrow" aria-hidden="true"></i>
+        </a>
+    </section>
+
+    <section class="home-about">
+        <h2 class="home-about-title">
+            <i class="bi bi-shield-check" aria-hidden="true"></i> About the data
+        </h2>
+        <p class="home-about-text">Every visualization shows when it was last updated and links back to its original
+            source &mdash; coroners services, public-health agencies, and community drug-checking programs across
+            Canada. CANASK gathers these into one place so you can read the trend, not chase the report.</p>
+        <ul class="home-facts">
+            <li>
+                <i class="bi bi-patch-check" aria-hidden="true"></i>
+                <span><strong>Dated &amp; sourced</strong>Every chart cites its source and when it was last
+                    updated.</span>
+            </li>
+            <li>
+                <i class="bi bi-sliders" aria-hidden="true"></i>
+                <span><strong>Counts, rates &amp; percentages</strong>Switch how each figure is shown.</span>
+            </li>
+            <li>
+                <i class="bi bi-diagram-3" aria-hidden="true"></i>
+                <span><strong>Drill in</strong>From a province to a health authority to a single year.</span>
+            </li>
+        </ul>
+    </section>
+
+    <footer class="home-partners">
+        <span class="home-partners-label">In partnership with</span>
+        <div class="home-partners-logos">
+            <a class="home-partner-link" href="https://www.ccsa.ca/" target="_blank" rel="noopener noreferrer"
+                title="Canadian Centre on Substance Use and Addiction">
+                <img src="/static/assets/images/ccsa_logo.png" class="home-partner-logo"
+                    alt="Canadian Centre on Substance Use and Addiction" />
+            </a>
+            <a class="home-partner-link" href="https://cumming.ucalgary.ca/centres/centre-health-informatics"
+                target="_blank" rel="noopener noreferrer"
+                title="University of Calgary Centre for Health Informatics">
+                <img src="/static/assets/images/CHI.jpeg" class="home-partner-logo"
+                    alt="University of Calgary Centre for Health Informatics" />
+            </a>
+        </div>
+    </footer>
 </div>

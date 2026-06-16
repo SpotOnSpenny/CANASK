@@ -39,6 +39,9 @@ class UserGroups(db.Model):
     group_id = db.Column(db.Integer, db.ForeignKey("groups.id"), nullable = False)
     role = db.Column(db.String(255), nullable = False, default = "member")
 
+    user = db.relationship("User", foreign_keys = [user_id])
+    group = db.relationship("Groups", foreign_keys = [group_id])
+
     def __repr__(self):
         return f"<UserGroup User ID: {self.user_id}, Group ID: {self.group_id}>"
 
@@ -119,12 +122,26 @@ class DataSources(db.Model):
 
     id = db.Column(db.Integer, primary_key = True)
     name = db.Column(db.String(255), nullable = False)
-    link = db.Column(db.String(255), nullable = False)
-    last_updated = db.Column(db.DateTime, nullable = False)
-    data_until = db.Column(db.DateTime, nullable = False)
+    link = db.Column(db.String(255), nullable = True)
+    last_updated = db.Column(db.DateTime, nullable = True)
+    data_until = db.Column(db.DateTime, nullable = True)
 
     def __repr__(self):
         return f"<DataSource {self.name}>"
+
+class GroupDataSources(db.Model):
+    __tablename__ = "group_data_sources"
+    __table_args__ = (db.UniqueConstraint("group_id", "data_source_id", name = "uq_group_data_source"),)
+
+    id = db.Column(db.Integer, primary_key = True)
+    group_id = db.Column(db.Integer, db.ForeignKey("groups.id"), nullable = False)
+    data_source_id = db.Column(db.Integer, db.ForeignKey("data_sources.id"), nullable = False)
+
+    group = db.relationship("Groups", foreign_keys = [group_id])
+    data_source = db.relationship("DataSources", foreign_keys = [data_source_id])
+
+    def __repr__(self):
+        return f"<GroupDataSource Group ID: {self.group_id}, Data Source ID: {self.data_source_id}>"
 
 class DataPoints(db.Model):
     __tablename__ = "data_points"

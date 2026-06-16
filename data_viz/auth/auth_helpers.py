@@ -7,7 +7,7 @@ from flask import flash, has_request_context
 
 # Internal Imports
 from data_viz.database import db
-from data_viz.database.models import User, Invites, UserGroups, Groups, UserActivity
+from data_viz.database.models import User, Invites, UserGroups, Groups, UserActivity, DataSources, GroupDataSources
 from data_viz.auth.role_hierarchy import ROLE_HIERARCHY
 
 def create_user(email, username, password, invited_by = None, status = "active",site_admin = False):
@@ -174,11 +174,90 @@ def get_user_groups(user):
         group_ids = [membership.group_id for membership in memberships]
         return Groups.query.filter(Groups.id.in_(group_ids)).all()
 
+def get_manageable_users(manager):
+    """Users the manager can see/manage: everyone for a site admin, otherwise every
+    user who shares at least one group the manager belongs to."""
+    if manager.site_admin:
+        return User.query.all()
+
+    group_ids = [group.id for group in get_user_groups(manager)]
+    if not group_ids:
+        return []
+
+    user_ids = db.session.query(UserGroups.user_id).filter(
+        UserGroups.group_id.in_(group_ids)
+    ).distinct()
+    return User.query.filter(User.id.in_(user_ids)).all()
+
+def get_manageable_groups(user):
+    """Groups whose data-source access this user may edit: every group for a site admin,
+    otherwise groups where the user is at least a Data Owner."""
+    if user.site_admin:
+        return Groups.query.order_by(Groups.name).all()
+
+    owner_level = ROLE_HIERARCHY["Data Owner"]
+    memberships = UserGroups.query.filter_by(user_id = user.id).all()
+    group_ids = [m.group_id for m in memberships if ROLE_HIERARCHY.get(m.role, -1) >= owner_level]
+    if not group_ids:
+        return []
+    return Groups.query.filter(Groups.id.in_(group_ids)).order_by(Groups.name).all()
+
+def set_group_data_sources(group_id, source_ids, changed_by = None):
+    """Reconcile a group's GroupDataSources rows to exactly `source_ids` (a collection of
+    DataSources ids). Adds/removes the difference and logs a UserActivity row. Returns the
+    list of changes made (empty if nothing changed)."""
+    group = Groups.query.get(group_id)
+    if not group:
+        raise ValueError("Group not found. Unable to update data source access.")
+
+    target_ids = {int(sid) for sid in source_ids}
+    existing = GroupDataSources.query.filter_by(group_id = group_id).all()
+    existing_ids = {gds.data_source_id for gds in existing}
+
+    to_add = target_ids - existing_ids
+    to_remove = existing_ids - target_ids
+
+    for gds in existing:
+        if gds.data_source_id in to_remove:
+            db.session.delete(gds)
+    for source_id in to_add:
+        db.session.add(GroupDataSources(group_id = group_id, data_source_id = source_id))
+
+    changes = []
+    if to_add:
+        added_names = [s.name for s in DataSources.query.filter(DataSources.id.in_(to_add)).all()]
+        changes.extend(f"+{name}" for name in added_names)
+    if to_remove:
+        removed_names = [s.name for s in DataSources.query.filter(DataSources.id.in_(to_remove)).all()]
+        changes.extend(f"-{name}" for name in removed_names)
+
+    if changes:
+        changer = User.query.get(changed_by) if changed_by else None
+        changer_name = changer.username if changer else f"user ID {changed_by}"
+        activity = UserActivity(
+            user_id = changed_by,
+            activity_type = "group_data_sources_updated",
+            activity_target_type = "group",
+            activity_target_id = group_id,
+            details = f"Data source access for group {group.name} updated by {changer_name}: {', '.join(changes)}."
+        )
+        db.session.add(activity)
+
+    db.session.commit()
+    return changes
+
+def get_user_memberships_in_groups(user_id, group_ids):
+    """A user's UserGroups rows, optionally limited to a set of group ids.
+    Pass group_ids=None (site admin) to return every membership."""
+    query = UserGroups.query.filter_by(user_id = user_id)
+    if group_ids is not None:
+        query = query.filter(UserGroups.group_id.in_(group_ids))
+    return query.all()
+
 def get_assignable_roles(user, group_id):
     if user.site_admin:
-        return ["Data Owner", "Group Admin", "Member"]
+        return ["Data Owner", "Group Admin", "Data Viewer"]
 
-    print(user, group_id)
     membership = UserGroups.query.filter_by(user_id = user.id, group_id = group_id).first()
     if membership:
         return [role for role in ROLE_HIERARCHY.keys() if ROLE_HIERARCHY[role] < ROLE_HIERARCHY[membership.role]]

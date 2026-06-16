@@ -1,0 +1,39 @@
+<tr id="group-row-{{ group.id }}">
+    <td class="fw-semibold">{{ group.name }}</td>
+    <td>
+        {% if group.description %}
+            {{ group.description }}
+        {% else %}
+            <span class="text-muted">—</span>
+        {% endif %}
+    </td>
+    <td>
+        {% if data_sources %}
+            {% for source in data_sources %}
+                <span class="badge bg-secondary">{{ source.name }}</span>
+            {% endfor %}
+        {% else %}
+            <span class="text-muted">No data sources</span>
+        {% endif %}
+    </td>
+    <td>
+        <div class="dropdown">
+            <button class="btn btn-sm invite-action-btn dropdown-toggle"
+                    type="button"
+                    data-bs-toggle="dropdown"
+                    data-bs-boundary="viewport">
+            </button>
+            <ul class="dropdown-menu">
+                <li>
+                    <button class="dropdown-item"
+                        hx-get="/v1/groups/{{ group.id }}/data-sources"
+                        hx-target="#modal-container"
+                        hx-swap="innerHTML"
+                        hx-on::after-request="new bootstrap.Modal(document.getElementById('adjustPermissionsModal')).show()">
+                        Manage data sources
+                    </button>
+                </li>
+            </ul>
+        </div>
+    </td>
+</tr>

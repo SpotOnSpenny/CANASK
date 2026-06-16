@@ -13,8 +13,8 @@ from celery.result import AsyncResult
 # Internal imports
 from data_viz.auth import login_manager
 from data_viz.database import db
-from data_viz.database.models import User, Invites, Groups, UserGroups, UserActivity, InviteGroups
-from data_viz.auth.auth_helpers import get_user_groups, get_assignable_roles, validate_password, create_user, assign_group
+from data_viz.database.models import User, Invites, Groups, UserGroups, UserActivity, InviteGroups, DataSources, GroupDataSources
+from data_viz.auth.auth_helpers import get_user_groups, get_assignable_roles, validate_password, create_user, create_group, assign_group, assign_site_admin, get_manageable_users, get_user_memberships_in_groups, get_manageable_groups, set_group_data_sources
 from data_viz.auth.role_hierarchy import ROLE_HIERARCHY
 from celery_worker.tasks.invite_jwt_expiry import expire_invite
 
@@ -61,6 +61,13 @@ def require_role(role, group_id_source, action = None):
                     flash("Invite not found", "danger")
                     return redirect(url_for("main.index"))
                 group_ids = [ig.group_id for ig in invite.invite_groups]
+            elif group_id_source == "user":
+                target_user_id = kwargs.get("user_id")
+                target_user = User.query.get(target_user_id)
+                if not target_user:
+                    flash("User not found", "danger")
+                    return redirect(url_for("main.index"))
+                group_ids = [m.group_id for m in UserGroups.query.filter_by(user_id = target_user_id).all()]
             
 
             if not group_ids:
@@ -96,6 +103,59 @@ def require_role(role, group_id_source, action = None):
     return decorator
 
             
+
+def parse_group_assignments(form_data):
+    """Parse the shared invite/add-user form. Returns (site_admin, {group_id: role})."""
+    site_admin = False
+    group_assignments = {}
+    for key, value in form_data.items():
+        if "group_assignment" not in key:
+            continue
+        if value.split("__")[1] == "Site Admin":
+            site_admin = True
+            return site_admin, {}
+        group_name = value.split("__")[0]
+        role = value.split("__")[1]
+        group = Groups.query.filter_by(name = group_name).first()
+        if group:
+            group_assignments[group.id] = role
+    return site_admin, group_assignments
+
+def create_invite(email, group_assignments, site_admin_invite):
+    """Create a brand-new pending invite (+ JWT, expiry task, activity log) and return it."""
+    token_expiry = datetime.now(timezone.utc) + current_app.config["INVITE_TOKEN_EXPIRY"]
+    invite = Invites(
+        email = email,
+        status = "pending",
+        expires_at = token_expiry,
+        sent_by = current_user.id,
+        site_admin_invite = site_admin_invite
+    )
+    db.session.add(invite)
+    db.session.flush()
+
+    if not site_admin_invite:
+        for group_id, role in group_assignments.items():
+            db.session.add(InviteGroups(invite_id = invite.id, group_id = group_id, role = role))
+
+    if site_admin_invite:
+        details = f"Site admin invite sent to {invite.email} by {current_user.username}"
+    else:
+        details = f"Invite sent to {invite.email} by {current_user.username}, for the groups {', '.join([Groups.query.get(gid).name for gid in group_assignments.keys()])} with respective roles {', '.join(group_assignments.values())}"
+    db.session.add(UserActivity(
+        user_id = current_user.id,
+        activity_type = "user_invite",
+        activity_target_type = "invite",
+        activity_target_id = invite.id,
+        details = details,
+        ip_address = request.remote_addr
+    ))
+
+    invite.token = invite.generate_jwt(current_app.config["SECRET_KEY"])
+    task = expire_invite.apply_async(args = [invite.id], eta = token_expiry)
+    invite.expiry_task_id = task.id
+    db.session.commit()
+    return invite
 
 ################################# ROUTES ###########################################
 @auth_blueprint.route("/v1/login", methods=["GET", "POST"])
@@ -188,20 +248,9 @@ def invite_user(groups_with_required_role = None):
 
     if request.method == "POST":
         email = request.form.get("email")
-        
+
         # Parse form data first so we know what's being requested
-        form_data = request.form.to_dict()
-        site_admin_invite = False
-        group_assignments = {}
-        for key, value in form_data.items():
-            if "group_assignment" in key and value.split("__")[1] == "Site Admin":
-                site_admin_invite = True
-                break
-            elif "group_assignment" in key:
-                group_name = value.split("__")[0]
-                role = value.split("__")[1]
-                group = Groups.query.filter_by(name=group_name).first()
-                group_assignments[group.id] = role
+        site_admin_invite, group_assignments = parse_group_assignments(request.form.to_dict())
 
         # Check to ensure no user with that email already exists
         existing_user = User.query.filter_by(email=email).first()
@@ -266,66 +315,12 @@ def invite_user(groups_with_required_role = None):
                 flash(f"An invite already exists for {email}, {group_names} has been added to the existing invite.", "success")
                 return redirect(url_for("main.index"))
 
-        #create the invite and invite groups in the database tables
-        form_data = request.form.to_dict()
-        site_admin_invite = False
-        group_assignments = {}
-        for key, value in form_data.items():
-            if "group_assignment" in key and value.split("__")[1] == "Site Admin":
-                site_admin_invite = True
-                break
-            elif "group_assignment" in key:
-                group_name = value.split("__")[0]
-                role = value.split("__")[1]
-                group = Groups.query.filter_by(name = group_name).first()
-                group_assignments[group.id] = role
-            
-        token_expiry = datetime.now(timezone.utc) + current_app.config["INVITE_TOKEN_EXPIRY"]
-        invite = Invites(
-            email = request.form.get("email"),
-            status = "pending",
-            expires_at = token_expiry,
-            sent_by = current_user.id,
-            site_admin_invite = site_admin_invite
-        )
-        db.session.add(invite)
-        db.session.flush()
-
-        if not site_admin_invite:
-            for group_id, role in group_assignments.items():
-                invite_group = InviteGroups(
-                    invite_id = invite.id,
-                    group_id = group_id,
-                    role = role
-                )
-                db.session.add(invite_group)
-        
-        details = f"Invite sent to {invite.email} by {current_user.username}, for the groups {', '.join([Groups.query.get(group_id).name for group_id in group_assignments.keys()])} with respective roles {', '.join(group_assignments.values())}" if not site_admin_invite else f"Site admin invite sent to {invite.email} by {current_user.username}"
-        activity = UserActivity(
-            user_id = current_user.id,
-            activity_type = "user_invite",
-            activity_target_type = "invite",
-            activity_target_id = invite.id,
-            details = details,
-            ip_address = request.remote_addr
-        )
-        db.session.add(activity)
-
-        # JWT generation
-        token = invite.generate_jwt(current_app.config["SECRET_KEY"])
-        invite.token = token
-        
-        # Schedule the expiry task
-        task = expire_invite.apply_async(
-            args=[invite.id],
-            eta=token_expiry
-        )
-        invite.expiry_task_id = task.id
-        db.session.commit()
+        # Create the invite and invite groups in the database tables
+        invite = create_invite(email, group_assignments, site_admin_invite)
 
         # Send the email to the user with the token and instructions to accept the invite
         # Send email here
-        flash(f"Invite sent to {invite.email}. JWT = {token}", "success")
+        flash(f"Invite sent to {invite.email}. JWT = {invite.token}", "success")
         return redirect(url_for("main.index"))
 
 @auth_blueprint.route("/v1/invite-management", methods=["GET", "POST"])
@@ -556,6 +551,291 @@ def adjust_invite_permissions(invite_id, groups_with_required_role=None):
                             groups_with_required_role=groups_with_required_role,
                             role_hierarchy=ROLE_HIERARCHY)
 
+@auth_blueprint.route("/v1/user-management", methods=["GET"])
+@require_auth
+@require_role("Group Admin", group_id_source = "all_groups", action = "manage users")
+def user_management(groups_with_required_role = None):
+    managed_group_ids = None if current_user.site_admin else list(groups_with_required_role.keys())
+    users = get_manageable_users(current_user)
+
+    user_rows = []
+    for user in users:
+        memberships = get_user_memberships_in_groups(user.id, managed_group_ids)
+        # Non-admins only manage people who share a group they're a Group Admin (or higher) of
+        if not current_user.site_admin and not memberships:
+            continue
+        user_rows.append({"user": user, "memberships": memberships})
+
+    if request.headers.get("HX-Request") == "true":
+        return render_template("v1/user_management.jinja",
+                            user_rows = user_rows,
+                            managed_group_ids = managed_group_ids,
+                            groups_with_required_role = groups_with_required_role,
+                            role_hierarchy = ROLE_HIERARCHY)
+    else:
+        return render_template("base.jinja",
+                            include_partials = "index",
+                            dash_template = "v1/user_management.jinja",
+                            user_rows = user_rows,
+                            managed_group_ids = managed_group_ids,
+                            groups_with_required_role = groups_with_required_role,
+                            role_hierarchy = ROLE_HIERARCHY)
+
+
+@auth_blueprint.route("/v1/add-user", methods=["GET", "POST"])
+@require_auth
+@require_role("Group Admin", group_id_source = "all_groups", action = "add users")
+def add_user(groups_with_required_role = None):
+    if request.method == "GET":
+        template_data = {}
+        if current_user.site_admin:
+            template_data["Site Wide"] = ["Site Admin"]
+            for group in Groups.query.all():
+                template_data[group.name] = ["Group Admin", "Data Owner", "Data Viewer"]
+        else:
+            for group_id in groups_with_required_role.keys():
+                group_obj = Groups.query.get(group_id)
+                assignable_roles = get_assignable_roles(current_user, group_id)
+                if assignable_roles:
+                    template_data[group_obj.name] = assignable_roles
+
+        # Always a modal partial — launched from the User Management page
+        return render_template("v1/add_user.jinja", invitable_roles = template_data)
+
+    if request.method == "POST":
+        email = request.form.get("email")
+        site_admin_assignment, group_assignments = parse_group_assignments(request.form.to_dict())
+        existing_user = User.query.filter_by(email = email).first()
+
+        # Existing account → assign directly (no invite needed)
+        if existing_user:
+            if existing_user.id == current_user.id:
+                flash("You cannot change your own access.", "danger")
+                return redirect(url_for("auth.user_management"))
+
+            changes = 0
+            if site_admin_assignment:
+                if not current_user.site_admin:
+                    flash("Only site admins can grant site admin access.", "danger")
+                elif existing_user.site_admin:
+                    flash(f"{existing_user.username} is already a site admin.", "info")
+                else:
+                    assign_site_admin(existing_user.id, assigned_by = current_user.id)
+                    changes += 1
+            else:
+                for group_id, role in group_assignments.items():
+                    group_name = Groups.query.get(group_id).name
+                    if not current_user.site_admin and role not in get_assignable_roles(current_user, group_id):
+                        flash(f"You cannot assign the role {role} in {group_name}.", "danger")
+                        continue
+                    existing = UserGroups.query.filter_by(user_id = existing_user.id, group_id = group_id).first()
+                    if existing and existing.role == role:
+                        flash(f"{existing_user.username} already has the role {role} in {group_name}.", "info")
+                        continue
+                    # Guardrail: never act on a member who outranks/equals you in that group
+                    if existing and not current_user.site_admin:
+                        manager_role = groups_with_required_role.get(group_id)
+                        if not manager_role or ROLE_HIERARCHY[existing.role] >= ROLE_HIERARCHY[manager_role]:
+                            flash(f"You cannot change {existing_user.username}'s role in {group_name}.", "danger")
+                            continue
+                    assign_group(existing_user.id, group_id, role, assigned_by = current_user.id)
+                    changes += 1
+
+            if changes:
+                flash(f"Access updated for {existing_user.username}.", "success")
+            return redirect(url_for("auth.user_management"))
+
+        # No account yet → fall back to the invite flow
+        existing_invite = Invites.query.filter_by(email = email, status = "pending").first()
+        if existing_invite:
+            flash(f"A pending invite for {email} already exists. Use invite management to adjust it.", "warning")
+            return redirect(url_for("auth.user_management"))
+
+        invite = create_invite(email, group_assignments, site_admin_assignment and current_user.site_admin)
+        flash(f"No account exists for {email}, so an invite was sent. JWT = {invite.token}", "success")
+        return redirect(url_for("auth.user_management"))
+
+
+@auth_blueprint.route("/v1/users/<int:user_id>/adjust-permissions", methods=["GET", "POST"])
+@require_auth
+@require_role("Group Admin", group_id_source = "user", action = "adjust user permissions")
+def adjust_user_permissions(user_id, groups_with_required_role = None):
+    target = User.query.get(user_id)
+    if not target:
+        flash("User not found.", "danger")
+        return redirect(url_for("auth.user_management"))
+
+    managed_group_ids = None if current_user.site_admin else list(groups_with_required_role.keys())
+
+    # Self guardrail — a manager can never act on their own membership
+    if user_id == current_user.id:
+        flash("You cannot change your own access.", "danger")
+        return "", 200, {"HX-Reswap": "none"}
+
+    def in_scope(group_id, membership):
+        """Groups this manager may touch for this user: site admins anything,
+        others only groups they out-rank the member's current role in."""
+        if current_user.site_admin:
+            return True
+        manager_role = groups_with_required_role.get(group_id)
+        return bool(membership) and bool(manager_role) and \
+            ROLE_HIERARCHY[membership.role] < ROLE_HIERARCHY[manager_role]
+
+    if request.method == "GET":
+        adjustable_groups = []
+        if current_user.site_admin:
+            candidate_group_ids = [g.id for g in Groups.query.all()]
+        else:
+            candidate_group_ids = managed_group_ids
+
+        for group_id in candidate_group_ids:
+            membership = UserGroups.query.filter_by(user_id = user_id, group_id = group_id).first()
+            # Site admins may also add the user to groups they aren't in yet
+            if not current_user.site_admin and not in_scope(group_id, membership):
+                continue
+            adjustable_groups.append({
+                "group": Groups.query.get(group_id),
+                "current_role": membership.role if membership else None,
+                "assignable_roles": get_assignable_roles(current_user, group_id)
+            })
+
+        return render_template("v1/partials/adjust_user_permissions_modal.jinja",
+                            target = target, adjustable_groups = adjustable_groups)
+
+    if request.method == "POST":
+        form_data = request.form.to_dict()
+        if current_user.site_admin:
+            scope_group_ids = [g.id for g in Groups.query.all()]
+        else:
+            scope_group_ids = [
+                gid for gid in managed_group_ids
+                if in_scope(gid, UserGroups.query.filter_by(user_id = user_id, group_id = gid).first())
+            ]
+
+        changed = []
+        for group_id in scope_group_ids:
+            submitted_role = form_data.get(f"role_{group_id}")
+            membership = UserGroups.query.filter_by(user_id = user_id, group_id = group_id).first()
+            group_name = Groups.query.get(group_id).name
+
+            if submitted_role:
+                if not current_user.site_admin and submitted_role not in get_assignable_roles(current_user, group_id):
+                    continue
+                if membership and membership.role == submitted_role:
+                    continue
+                assign_group(user_id, group_id, submitted_role, assigned_by = current_user.id)
+                changed.append(f"{group_name} → {submitted_role}")
+            elif membership:
+                # Omitted (unchecked) group that the user currently belongs to → revoke
+                assign_group(user_id, group_id, None, assigned_by = current_user.id, remove = True)
+                changed.append(f"{group_name} removed")
+
+        if changed:
+            flash(f"Updated access for {target.username}: {', '.join(changed)}.", "success")
+
+        memberships = get_user_memberships_in_groups(user_id, managed_group_ids)
+        return render_template("v1/partials/user_row.jinja",
+                            user = target, memberships = memberships,
+                            managed_group_ids = managed_group_ids,
+                            groups_with_required_role = groups_with_required_role,
+                            role_hierarchy = ROLE_HIERARCHY)
+
+
+@auth_blueprint.route("/v1/group-management", methods=["GET"])
+@require_auth
+@require_role("Data Owner", group_id_source = "all_groups", action = "manage groups")
+def group_management(groups_with_required_role = None):
+    groups = get_manageable_groups(current_user)
+    all_sources = DataSources.query.order_by(DataSources.name).all()
+
+    group_rows = []
+    for group in groups:
+        source_ids = {gds.data_source_id for gds in GroupDataSources.query.filter_by(group_id = group.id).all()}
+        group_sources = [s for s in all_sources if s.id in source_ids]
+        group_rows.append({
+            "group": group,
+            "data_sources": group_sources,
+            "source_count": len(group_sources)
+        })
+
+    if request.headers.get("HX-Request") == "true":
+        return render_template("v1/group_management.jinja", group_rows = group_rows)
+    else:
+        return render_template("base.jinja",
+                            include_partials = "index",
+                            dash_template = "v1/group_management.jinja",
+                            group_rows = group_rows)
+
+
+@auth_blueprint.route("/v1/create-group", methods=["GET", "POST"])
+@require_auth
+@require_role("Data Owner", group_id_source = "all_groups", action = "create groups")
+def create_group_route(groups_with_required_role = None):
+    if request.method == "GET":
+        # Always a modal partial — launched from the Group Management page
+        return render_template("v1/create_group.jinja")
+
+    name = (request.form.get("name") or "").strip()
+    description = (request.form.get("description") or "").strip() or None
+
+    if not name:
+        flash("A group name is required.", "danger")
+        return redirect(url_for("auth.group_management"))
+    if Groups.query.filter_by(name = name).first():
+        flash(f"A group named \"{name}\" already exists.", "danger")
+        return redirect(url_for("auth.group_management"))
+
+    group = create_group(name = name, created_by = current_user.id, description = description)
+
+    # A non-site-admin must own the group they just created, otherwise the url-scoped
+    # role check would lock them out of managing its data sources.
+    if not current_user.site_admin:
+        assign_group(current_user.id, group.id, "Data Owner", assigned_by = current_user.id)
+
+    flash(f"Group \"{name}\" created.", "success")
+    return redirect(url_for("auth.group_management"))
+
+
+@auth_blueprint.route("/v1/groups/<int:group_id>/data-sources", methods=["GET", "POST"])
+@require_auth
+@require_role("Data Owner", group_id_source = "url", action = "manage group data sources")
+def group_data_sources(group_id, groups_with_required_role = None):
+    group = Groups.query.get(group_id)
+    if not group:
+        flash("Group not found.", "danger")
+        return redirect(url_for("auth.group_management"))
+
+    all_sources = DataSources.query.order_by(DataSources.name).all()
+    current_ids = {gds.data_source_id for gds in GroupDataSources.query.filter_by(group_id = group_id).all()}
+
+    if request.method == "GET":
+        source_rows = [{"source": s, "checked": s.id in current_ids} for s in all_sources]
+        return render_template("v1/partials/group_data_sources_modal.jinja",
+                            group = group, source_rows = source_rows)
+
+    if request.method == "POST":
+        valid_ids = {s.id for s in all_sources}
+        submitted = []
+        for raw in request.form.getlist("source_ids"):
+            try:
+                sid = int(raw)
+            except (TypeError, ValueError):
+                continue
+            if sid in valid_ids:
+                submitted.append(sid)
+
+        changes = set_group_data_sources(group_id, submitted, changed_by = current_user.id)
+        if changes:
+            flash(f"Data source access updated for {group.name}.", "success")
+
+        submitted_set = set(submitted)
+        group_sources = [s for s in all_sources if s.id in submitted_set]
+        return render_template("v1/partials/group_row.jinja",
+                            group = group,
+                            data_sources = group_sources,
+                            source_count = len(group_sources))
+
+
 @auth_blueprint.route("/v1/accept-invite", methods=["GET", "POST"])
 @auth_blueprint.route("/v1/accept-invite/<token>", methods=["GET"])
 def accept_invite(token = None):
@@ -645,9 +925,10 @@ def accept_invite(token = None):
                     )
         except Exception as e:
             db.session.rollback()
-            flash("An error occurred while creating your account. Please contact the administrator.", "danger")
+            flash("We couldn't create your account just now. Please try again. If it keeps happening, email spencer.fietz@ucalgary.ca.", "danger")
             current_app.logger.error(f"Error creating account from invite: {str(e)}")
-            return redirect(url_for("auth.login"))
+            # Keep the invite context so the user can retry rather than dumping to login
+            return redirect(url_for("auth.accept_invite"))
 
         # Add account creation to the activity log
         activity = UserActivity(

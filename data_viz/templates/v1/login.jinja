@@ -8,7 +8,8 @@
             <form
                 hx-post="/v1/login"
                 hx-target="#page-container"
-                hx-swap="innerHTML swap:1s settle:1s" 
+                hx-swap="innerHTML swap:1s settle:1s"
+                hx-disabled-elt="find button[type='submit']"
                 class="needs-validation"
                 novalidate
             >

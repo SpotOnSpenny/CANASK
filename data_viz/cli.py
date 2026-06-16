@@ -8,7 +8,7 @@ import click
 
 # Internal Iimports
 from data_viz.database import db
-from data_viz.database.models import User, Groups, UserGroups
+from data_viz.database.models import User, Groups, UserGroups, DataSources, GroupDataSources
 from data_viz.auth.auth_helpers import create_user, create_group, assign_group
 
 # Function to create the default admin user
@@ -72,6 +72,40 @@ def create_from_seed(admin_username = None):
             print(f"Successfully created the group {group['name']} from seed data.")
     else:
         print("No groups found in seed data.")
+
+    # Create the fixed data source catalog (the sources groups can be granted access to)
+    if "data_sources" in seed_data.keys():
+        for source in seed_data["data_sources"]:
+            existing_source = DataSources.query.filter_by(name = source["name"]).first()
+            if existing_source:
+                print(f"Data source {source['name']} already exists. Skipping creation.")
+                continue
+            db.session.add(DataSources(name = source["name"], link = source.get("link")))
+            print(f"Successfully created data source {source['name']} from seed data.")
+        db.session.commit()
+    else:
+        print("No data sources found in seed data.")
+
+    # Link groups to any data sources listed against them in the seed data
+    if "groups" in seed_data.keys():
+        for group in seed_data["groups"]:
+            source_names = group.get("data_sources", [])
+            if not source_names:
+                continue
+            group_obj = Groups.query.filter_by(name = group["name"]).first()
+            if not group_obj:
+                continue
+            for source_name in source_names:
+                source = DataSources.query.filter_by(name = source_name).first()
+                if not source:
+                    print(f"Data source {source_name} not found for group {group['name']}. Skipping link.")
+                    continue
+                existing_link = GroupDataSources.query.filter_by(group_id = group_obj.id, data_source_id = source.id).first()
+                if existing_link:
+                    continue
+                db.session.add(GroupDataSources(group_id = group_obj.id, data_source_id = source.id))
+                print(f"Linked group {group['name']} to data source {source_name}.")
+        db.session.commit()
 
     # Create the users and assign them to the groups with appropriate roles
     if "users" in seed_data.keys():

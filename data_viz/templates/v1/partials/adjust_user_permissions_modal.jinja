@@ -1,0 +1,95 @@
+<div class="modal-header">
+    <h5 class="modal-title">Adjust Permissions — {{ target.username }}</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+</div>
+<form hx-post="/v1/users/{{ target.id }}/adjust-permissions"
+      hx-target="#user-row-{{ target.id }}"
+      hx-swap="outerHTML"
+      hx-on::after-request="bootstrap.Modal.getInstance(document.getElementById('adjustPermissionsModal')).hide()">
+    <div class="modal-body">
+        {% if not adjustable_groups %}
+            <p class="text-muted mb-0">There are no groups you can manage for this user.</p>
+        {% endif %}
+
+        {% for item in adjustable_groups %}
+        <div class="mb-3 p-2 border rounded group-assignment-row"
+             id="group_row_{{ item.group.id }}">
+            <div class="d-flex align-items-center gap-3">
+                <div class="form-check mb-0">
+                    <input class="form-check-input group-check"
+                           type="checkbox"
+                           id="include_{{ item.group.id }}"
+                           {% if item.current_role %}checked{% endif %}>
+                </div>
+                <label class="form-label mb-0 fw-semibold flex-grow-1">
+                    {{ item.group.name }}
+                </label>
+                <select class="form-select form-select-sm w-50"
+                        name="role_{{ item.group.id }}"
+                        id="select_{{ item.group.id }}"
+                        {% if not item.current_role %}disabled{% endif %}>
+                    {% for role in item.assignable_roles %}
+                        <option value="{{ role }}"
+                            {% if role == item.current_role %}selected{% endif %}>
+                            {{ role }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-primary" {% if not adjustable_groups %}disabled{% endif %}>Save Changes</button>
+    </div>
+</form>
+
+<script>
+    (function() {
+        // Initial state tracking (uncheck = remove from group, role change = update)
+        const initialState = {};
+        document.querySelectorAll('.group-check').forEach(cb => {
+            const groupId = cb.id.replace('include_', '');
+            const select = document.getElementById(`select_${groupId}`);
+            initialState[groupId] = {
+                checked: cb.checked,
+                role: select ? select.value : null
+            };
+        });
+
+        // A group's role select is only active while the group is checked
+        document.querySelectorAll('.group-check').forEach(checkbox => {
+            checkbox.addEventListener('change', function() {
+                const select = this.closest('.group-assignment-row').querySelector('select');
+                select.disabled = !this.checked;
+            });
+        });
+
+        // Block submit when nothing actually changed
+        const form = document.querySelector('form');
+        if (form) {
+            form.addEventListener('htmx:configRequest', function(event) {
+                let changed = false;
+                document.querySelectorAll('.group-check').forEach(cb => {
+                    const groupId = cb.id.replace('include_', '');
+                    const select = document.getElementById(`select_${groupId}`);
+                    const initial = initialState[groupId];
+                    if (cb.checked !== initial.checked) changed = true;
+                    if (cb.checked && select && select.value !== initial.role) changed = true;
+                });
+
+                if (!changed) {
+                    event.preventDefault();
+                    const modalBody = document.querySelector('.modal-body');
+                    if (!modalBody.querySelector('.no-change-alert')) {
+                        const alert = document.createElement('div');
+                        alert.className = 'alert alert-warning alert-dismissible fade show no-change-alert';
+                        alert.innerHTML = `No permission changes were made. <button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
+                        modalBody.insertBefore(alert, modalBody.firstChild);
+                    }
+                }
+            });
+        }
+    })();
+</script>

@@ -1,41 +1,47 @@
-<div id="invite-management-div" class="container py-4">
+<div id="user-management-div" class="container py-4">
     <div class="row justify-content-center">
         <div class="col-12">
             <div class="card shadow-sm">
                 <div class="card-header d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0">Invite Management</h5>
-                    <input type="text" 
-                           id="invite-search" 
-                           class="form-control form-control-sm w-25" 
-                           placeholder="Search invites...">
+                    <h5 class="mb-0">User Management</h5>
+                    <div class="d-flex align-items-center gap-2">
+                        <input type="text"
+                               id="user-search"
+                               class="form-control form-control-sm"
+                               placeholder="Search users...">
+                        <button type="button"
+                                class="btn btn-sm btn-primary text-nowrap"
+                                hx-get="/v1/add-user"
+                                hx-target="#modal-container"
+                                hx-swap="innerHTML"
+                                hx-on::after-request="new bootstrap.Modal(document.getElementById('adjustPermissionsModal')).show()">
+                            <i class="bi bi-person-plus me-1"></i>Add a user to a group
+                        </button>
+                    </div>
                 </div>
                 <div class="card-body p-0">
                     <div class="table-responsive">
-                        <table class="table table-hover mb-0" id="invite-table">
+                        <table class="table table-hover mb-0" id="user-table">
                             <thead>
                                 <tr>
                                     <th class="sortable" data-col="0">
                                         Email <span class="sort-icon">↕</span>
                                     </th>
+                                    <th class="sortable" data-col="1">
+                                        Username <span class="sort-icon">↕</span>
+                                    </th>
                                     <th>Groups</th>
-                                    <th class="sortable" data-col="2">
-                                        Sent By <span class="sort-icon">↕</span>
-                                    </th>
                                     <th class="sortable" data-col="3">
-                                        Sent At <span class="sort-icon">↕</span>
-                                    </th>
-                                    <th class="sortable" data-col="4">
-                                        Expires At <span class="sort-icon">↕</span>
-                                    </th>
-                                    <th class="sortable" data-col="5">
                                         Status <span class="sort-icon">↕</span>
                                     </th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
-                            <tbody id="invite-table-body">
-                                {% for invite in invites %}
-                                    {% include "v1/partials/invite_row.jinja" %}
+                            <tbody id="user-table-body">
+                                {% for row in user_rows %}
+                                    {% set user = row.user %}
+                                    {% set memberships = row.memberships %}
+                                    {% include "v1/partials/user_row.jinja" %}
                                 {% endfor %}
                             </tbody>
                         </table>
@@ -48,9 +54,9 @@
 
 <script>
     // Search
-    document.getElementById('invite-search').addEventListener('input', function() {
+    document.getElementById('user-search').addEventListener('input', function() {
         const search = this.value.toLowerCase();
-        const rows = document.querySelectorAll('#invite-table-body tr');
+        const rows = document.querySelectorAll('#user-table-body tr');
         rows.forEach(row => {
             const text = row.textContent.toLowerCase();
             row.style.display = text.includes(search) ? '' : 'none';
@@ -58,16 +64,16 @@
     });
 
     // Sort
-    document.querySelectorAll('.sortable').forEach(header => {
+    document.querySelectorAll('#user-table .sortable').forEach(header => {
         let ascending = true;
         header.style.cursor = 'pointer';
         header.addEventListener('click', function() {
             const col = parseInt(this.dataset.col);
-            const tbody = document.getElementById('invite-table-body');
+            const tbody = document.getElementById('user-table-body');
             const rows = Array.from(tbody.querySelectorAll('tr'));
 
             // Reset all other sort icons
-            document.querySelectorAll('.sortable').forEach(h => {
+            document.querySelectorAll('#user-table .sortable').forEach(h => {
                 if (h !== this) {
                     h.querySelector('.sort-icon').textContent = '↕';
                     h._ascending = true;
@@ -76,7 +82,7 @@
 
             // Use the header's own ascending state
             ascending = this._ascending !== false;
-            
+
             rows.sort((a, b) => {
                 const aText = a.cells[col].textContent.trim().toLowerCase();
                 const bText = b.cells[col].textContent.trim().toLowerCase();

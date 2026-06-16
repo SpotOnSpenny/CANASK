@@ -2,7 +2,14 @@
     "groups":[
         {
             "name": "",
-            "description": ""
+            "description": "",
+            "data_sources": [""]
+        }
+    ],
+    "data_sources":[
+        {
+            "name": "",
+            "link": ""
         }
     ],
     "users":[

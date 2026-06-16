@@ -141,6 +141,10 @@ function masterLoop(location = null, year = null, category = null) {
     lastLocation = location;
     visualData = getSecondLevelData(province, location, year, category);
   }
+
+  // Update the "you are here" breadcrumb for the current drill state
+  renderBreadcrumb(location, category);
+
   let dataType;
   if (visuals[province][currentVisual]["type"] !== "map") {
     dataType = visuals[province][currentVisual]["data-types"][0];
@@ -266,7 +270,7 @@ async function createVisualHeatMap(province, visualToGen, geojson, mapData, mapS
   let vis = Plotly.react(
     visDiv,
     dataSlider,
-    layout,
+    themeChartLayout(layout),
     (config = {
       displaylogo: false,
       responsive: false,
@@ -388,7 +392,7 @@ async function createVisualMap(province, currentVisual, geojson, mapOptions) {
   let vis = Plotly.react(
     visDiv,
     [mapData],
-    layout,
+    themeChartLayout(layout),
     (config = {
       displaylogo: false,
       responsive: false,
@@ -444,6 +448,9 @@ async function createVisualLine(province, lineData, currentVisual, dataType, lin
   // check to see if we have a total
   totalPresent = !!("total_y" in traceData);
 
+  // Track series index so each line gets a distinct dash + marker shape, making
+  // series distinguishable without relying on color alone (WCAG).
+  let seriesIndex = 0;
   for (const [key, value] of Object.entries(traceData)) {
     // create a trace for each y value in the lineData object entry
     if (key != "x"){
@@ -462,8 +469,15 @@ async function createVisualLine(province, lineData, currentVisual, dataType, lin
             width: 2,
             smoothing: 1,
           },
+          // Solid lines, but a distinct marker shape per series gives a quiet
+          // non-color cue (no shimmering dash patterns).
+          marker: {
+            symbol: CANASK_MARKER_SYMBOLS[seriesIndex % CANASK_MARKER_SYMBOLS.length],
+            size: 6,
+          },
         };
         traces.push(trace);
+        seriesIndex++;
       }
     }
   }
@@ -473,7 +487,7 @@ async function createVisualLine(province, lineData, currentVisual, dataType, lin
   let vis = Plotly.react(
     visDiv,
     traces,
-    (layout = {
+    themeChartLayout(layout = {
       yaxis: {
         fixedrange: true,
         title: {
@@ -535,18 +549,19 @@ async function createVisualLine(province, lineData, currentVisual, dataType, lin
   tableDiv.innerHTML = "";
   tableDiv.appendChild(table);
   tableTitle.innerText = visualOptions["table-title"].replace("replace_with_health_authority", location);
-  for (const [key, value] of Object.entries(lineData)) {
-    for (const [subKey, subValue] of Object.entries(value)) {
-      if (subKey != "x") {
-        let tr = table.insertRow(-1);
-        tr.setAttribute("class", "align-middle");
+  // Only render the data type currently shown in the visual (counts / rates /
+  // percentages). The whole function re-runs when the toggle changes, so the
+  // table stays in sync with the chart.
+  for (const [subKey, subValue] of Object.entries(lineData[dataType])) {
+    if (subKey != "x") {
+      let tr = table.insertRow(-1);
+      tr.setAttribute("class", "align-middle");
+      let tabCell = tr.insertCell(-1);
+      tabCell.innerText = visualOptions[`table-${dataType}-row`].replace("replace_me", subKey.replaceAll("_y", "").toTitleCase());
+      subValue.forEach((element, index) => {
         let tabCell = tr.insertCell(-1);
-        tabCell.innerText = visualOptions[`table-${key}-row`].replace("replace_me", subKey.replaceAll("_y", "").toTitleCase());
-        subValue.forEach((element, index) => {
-          let tabCell = tr.insertCell(-1);
-          tabCell.innerText = formatTableValue(element, index, subValue);
-        });
-        }
+        tabCell.innerText = formatTableValue(element, index, subValue);
+      });
     }
   }
   // If there are additional rows, add them to the table
@@ -645,7 +660,10 @@ async function createVisualBar(province, barData, currentVisual, dataType, barSo
     return;
   }
 
-  // Create a trace for each y value in the barData object entry
+  // Create a trace for each y value in the barData object entry. Each series
+  // gets a distinct pattern fill + subtle theme-aware outline so bars are
+  // distinguishable without relying on color alone (WCAG).
+  let seriesIndex = 0;
   for (const [key, value] of Object.entries(traceData)) {
     if (key != "x") {
       let trace = {
@@ -654,21 +672,24 @@ async function createVisualBar(province, barData, currentVisual, dataType, barSo
         hoverinfo: visualOptions["hover-info"],
         name: key.replaceAll("_y", "").toSentenceCase(),
         type: "bar",
+        // Clean solid bars with a subtle outline (no eye-straining hatch fill);
+        // the data table below the chart is the non-color alternative.
         marker: {
           line: {
             width: 1,
-            color: "black",
+            color: canaskMarkerLineColor(),
           },
         },
       };
       traces.push(trace);
+      seriesIndex++;
     }
   }
   Plotly.purge(visDiv);
   let vis = Plotly.react(
     visDiv,
     traces,
-    (layout = {
+    themeChartLayout(layout = {
       hoverlabel: {
         namelength: -1,
       },
@@ -731,18 +752,18 @@ async function createVisualBar(province, barData, currentVisual, dataType, barSo
   tableDiv.innerHTML = "";
   tableDiv.appendChild(table);
   tableTitle.innerText = visualOptions["table-title"].replace("replace_with_health_authority", visualOptions["location"] || "").replace("replace_with_category", visualOptions["category"] || "");
-  for (const [key, value] of Object.entries(barData)) {
-    for (const [subKey, subValue] of Object.entries(value)) {
-      if (subKey != "x") {
-        let tr = table.insertRow(-1);
-        tr.setAttribute("class", "align-middle");
+  // Only render the data type currently shown in the visual (counts / rates /
+  // percentages); re-runs with the chart when the toggle changes.
+  for (const [subKey, subValue] of Object.entries(barData[dataType])) {
+    if (subKey != "x") {
+      let tr = table.insertRow(-1);
+      tr.setAttribute("class", "align-middle");
+      let tabCell = tr.insertCell(-1);
+      tabCell.innerText = visualOptions[`table-${dataType}-row`].replace("replace_me", subKey.replaceAll("_y", "").toTitleCase());
+      subValue.forEach((element) => {
         let tabCell = tr.insertCell(-1);
-        tabCell.innerText = visualOptions[`table-${key}-row`].replace("replace_me", subKey.replaceAll("_y", "").toTitleCase());
-        subValue.forEach((element) => {
-          let tabCell = tr.insertCell(-1);
-          tabCell.innerText = element;
-        });
-      }
+        tabCell.innerText = element;
+      });
     }
   }
 
@@ -908,7 +929,7 @@ async function createVisualPie(province, pieData, pieSource, visualOptions, tabu
   let vis = Plotly.react(
     visDiv,
     dataSlider,
-    layout,
+    themeChartLayout(layout),
     (config = {
       displaylogo: false,
       responsive: false,
@@ -1113,6 +1134,62 @@ function formatTableValue(value, index, array){
   } else {
     return value;
   }
+}
+
+// Render the "you are here" breadcrumb for the current drill state. The trail
+// grows with depth: Province > [level-1 visual] > [location] > [category].
+// Each upstream crumb is clickable and navigates back to its own level.
+function renderBreadcrumb(location, category) {
+  let el = document.getElementById("vis-breadcrumb");
+  if (!el || typeof visuals === "undefined" || !visuals[province] || !visuals[province][currentVisual]) return;
+
+  let provLabel = province.replace(/-/g, " ").replace(/\b\w/g, function (c) {
+    return c.toUpperCase();
+  });
+  let level = visuals[province][currentVisual]["level"] || 1;
+  let rootVisual = (route && route.length > 0) ? String(route[0]).split("/")[0] : currentVisual;
+  let rootMeta = visuals[province][rootVisual];
+  let rootName = rootMeta && rootMeta["menu-name"] ? rootMeta["menu-name"] : null;
+
+  // Build the trail. `target` is the level a crumb navigates to (null = current,
+  // non-clickable).
+  let trail = [{ label: provLabel, target: null }];
+  if (rootName) trail.push({ label: rootName, target: level > 1 ? 1 : null });
+  if (location && level >= 2) trail.push({ label: location, target: level > 2 ? 2 : null });
+  if (category && level >= 3) trail.push({ label: category, target: null });
+
+  el.innerHTML = trail
+    .map(function (c, i) {
+      let isLast = i === trail.length - 1;
+      if (c.target != null) {
+        return '<button type="button" class="crumb crumb-link" data-level="' + c.target + '">' + c.label + "</button>";
+      }
+      return '<span class="crumb ' + (isLast ? "crumb-current" : "crumb") + '">' + c.label + "</span>";
+    })
+    .join('<i class="bi bi-chevron-right crumb-sep" aria-hidden="true"></i>');
+
+  Array.prototype.forEach.call(el.querySelectorAll("[data-level]"), function (btn) {
+    btn.onclick = function () {
+      breadcrumbGoToLevel(parseInt(btn.getAttribute("data-level"), 10));
+    };
+  });
+}
+
+// Navigate back to a specific level in the current drill chain.
+function breadcrumbGoToLevel(target) {
+  if (typeof visuals === "undefined" || !visuals[province] || !visuals[province][currentVisual]) return;
+  let level = visuals[province][currentVisual]["level"] || 1;
+  if (!route || target >= level) return;
+  if (target <= 1) {
+    // Back to the level-1 root (same as Reset)
+    currentVisual = route[0];
+    masterLoop();
+    return;
+  }
+  // Back to an intermediate level: that level's visual is route[target - 1].
+  currentVisual = route[target - 1];
+  route = route.slice(0, target - 1);
+  masterLoop(lastLocation);
 }
 
 // Function to set the active visual in the menu

@@ -1,0 +1,66 @@
+<tr id="user-row-{{ user.id }}">
+    <td>{{ user.email }}</td>
+    <td>{{ user.username }}</td>
+    <td>
+        {% if user.site_admin %}
+            <span class="badge bg-primary">Site Admin</span>
+        {% endif %}
+        {% set shown = namespace(any=false) %}
+        {% for m in memberships %}
+            {% if managed_group_ids is none or m.group_id in managed_group_ids %}
+                <span class="badge bg-secondary">{{ m.group.name }} — {{ m.role }}</span>
+                {% set shown.any = true %}
+            {% endif %}
+        {% endfor %}
+        {% if not user.site_admin and not shown.any %}
+            <span class="text-muted">—</span>
+        {% endif %}
+    </td>
+    <td>
+        {% if user.status == "active" %}
+            <span class="badge bg-success">Active</span>
+        {% elif user.status == "invited" %}
+            <span class="badge bg-warning text-dark">Invited</span>
+        {% else %}
+            <span class="badge bg-secondary">{{ user.status|capitalize }}</span>
+        {% endif %}
+    </td>
+    <td>
+        {% if user.id == current_user.id %}
+            <span class="badge bg-info text-dark">You</span>
+        {% else %}
+            {% set can_adjust = namespace(value=current_user.site_admin) %}
+            {% for m in memberships %}
+                {% if managed_group_ids is none or m.group_id in managed_group_ids %}
+                    {% set user_role = 'Site Admin' if current_user.site_admin else groups_with_required_role[m.group_id] %}
+                    {% if role_hierarchy[user_role] > role_hierarchy[m.role] %}
+                        {% set can_adjust.value = true %}
+                    {% endif %}
+                {% endif %}
+            {% endfor %}
+
+            {% if can_adjust.value %}
+            <div class="dropdown">
+                <button class="btn btn-sm invite-action-btn dropdown-toggle"
+                        type="button"
+                        data-bs-toggle="dropdown"
+                        data-bs-boundary="viewport">
+                </button>
+                <ul class="dropdown-menu">
+                    <li>
+                        <button class="dropdown-item"
+                            hx-get="/v1/users/{{ user.id }}/adjust-permissions"
+                            hx-target="#modal-container"
+                            hx-swap="innerHTML"
+                            hx-on::after-request="new bootstrap.Modal(document.getElementById('adjustPermissionsModal')).show()">
+                            Adjust Permissions
+                        </button>
+                    </li>
+                </ul>
+            </div>
+            {% else %}
+                <span class="text-muted">—</span>
+            {% endif %}
+        {% endif %}
+    </td>
+</tr>

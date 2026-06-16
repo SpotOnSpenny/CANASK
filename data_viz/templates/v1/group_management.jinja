@@ -1,0 +1,98 @@
+<div id="group-management-div" class="container py-4">
+    <div class="row justify-content-center">
+        <div class="col-12">
+            <div class="card shadow-sm">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Group Management</h5>
+                    <div class="d-flex align-items-center gap-2">
+                        <input type="text"
+                               id="group-search"
+                               class="form-control form-control-sm"
+                               placeholder="Search groups...">
+                        <button type="button"
+                                class="btn btn-sm btn-primary text-nowrap"
+                                hx-get="/v1/create-group"
+                                hx-target="#modal-container"
+                                hx-swap="innerHTML"
+                                hx-on::after-request="new bootstrap.Modal(document.getElementById('adjustPermissionsModal')).show()">
+                            <i class="bi bi-plus-circle me-1"></i>Create a group
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0" id="group-table">
+                            <thead>
+                                <tr>
+                                    <th class="sortable" data-col="0">
+                                        Name <span class="sort-icon">↕</span>
+                                    </th>
+                                    <th>Description</th>
+                                    <th>Data sources</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="group-table-body">
+                                {% for row in group_rows %}
+                                    {% set group = row.group %}
+                                    {% set data_sources = row.data_sources %}
+                                    {% set source_count = row.source_count %}
+                                    {% include "v1/partials/group_row.jinja" %}
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% if not group_rows %}
+                        <p class="text-muted text-center py-4 mb-0">
+                            You don't manage any groups yet. Create one to get started.
+                        </p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Search
+    document.getElementById('group-search').addEventListener('input', function() {
+        const search = this.value.toLowerCase();
+        const rows = document.querySelectorAll('#group-table-body tr');
+        rows.forEach(row => {
+            const text = row.textContent.toLowerCase();
+            row.style.display = text.includes(search) ? '' : 'none';
+        });
+    });
+
+    // Sort
+    document.querySelectorAll('#group-table .sortable').forEach(header => {
+        let ascending = true;
+        header.style.cursor = 'pointer';
+        header.addEventListener('click', function() {
+            const col = parseInt(this.dataset.col);
+            const tbody = document.getElementById('group-table-body');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+
+            // Reset all other sort icons
+            document.querySelectorAll('#group-table .sortable').forEach(h => {
+                if (h !== this) {
+                    h.querySelector('.sort-icon').textContent = '↕';
+                    h._ascending = true;
+                }
+            });
+
+            // Use the header's own ascending state
+            ascending = this._ascending !== false;
+
+            rows.sort((a, b) => {
+                const aText = a.cells[col].textContent.trim().toLowerCase();
+                const bText = b.cells[col].textContent.trim().toLowerCase();
+                return ascending ? aText.localeCompare(bText) : bText.localeCompare(aText);
+            });
+
+            this._ascending = !ascending;
+            this.querySelector('.sort-icon').textContent = ascending ? '↓' : '↑';
+            rows.forEach(row => tbody.appendChild(row));
+        });
+    });
+</script>

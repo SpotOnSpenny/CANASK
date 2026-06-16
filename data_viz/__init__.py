@@ -43,9 +43,10 @@ assets.register(
     Bundle(
         "js/htmx.min.js",
         "js/plotly-2.32.0.min.js",
+        "js/jquery-3.7.1.min.js",
+        "js/plotly-theme.js",
         "js/main.js",
         "js/visualGeneration.js",
-        "js/jquery-3.7.1.min.js",
         "js/visuals.js",
         filters="jsmin",
         output="assets/main.js"
@@ -61,9 +62,7 @@ def add_cache_control_headers(response):
 
     # Inject flash messages OOB for HTMX requests
     if request.headers.get("HX-Request") and response.content_type == "text/html; charset=utf-8" and response.status_code not in [301, 302, 303, 307, 308]:
-        print("Injecting flash messages into HTMX response")
         messages = get_flashed_messages(with_categories=True)
-        print(messages)
         if messages:
             alerts = "".join([
                 f'<div class="alert alert-{category} alert-dismissible fade show" role="alert">'
