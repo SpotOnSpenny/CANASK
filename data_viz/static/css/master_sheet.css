@@ -122,7 +122,9 @@
 /* ------------------------------- Base ----------------------------------- */
 /* Base scale: bump root so every rem-based size across the app reads larger.
    The home page (#home-orient) is pinned to fixed px below so it is unaffected. */
-html { height: 100%; font-size: 110%; }
+/* Lock the shell to the viewport: the window itself never scrolls (both axes
+   clipped). The only scroll region is #content-div below. */
+html { height: 100%; overflow: hidden; font-size: 110%; }
 
 body {
   height: 100%;
@@ -163,7 +165,7 @@ a { text-decoration: none; }
    to resolve against, so the page grew past the viewport and the body clipped
    the lower sections instead of letting #content-div scroll. */
 #partial-inclusions { height: 100%; }
-#page-container { display: flex; flex-direction: row; height: 100%; }
+#page-container { display: flex; flex-direction: row; height: 100%; min-height: 0; overflow: hidden; }
 
 #content-div {
   /* As a flex item, the default min-height:auto would let this grow to its
@@ -171,10 +173,12 @@ a { text-decoration: none; }
      scroll never engaged and the lower dashboard sections were unreachable.
      Pinning the height and resetting min-height makes it a true scroll pane. */
   flex: 1 1 auto;
+  min-width: 0;
   height: 100%;
   min-height: 0;
   max-height: 100%;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 4px 6px;
   scroll-behavior: smooth;
 }
@@ -185,7 +189,9 @@ a { text-decoration: none; }
 /* ------------------------------ Sidebar --------------------------------- */
 #desktop-nav {
   width: 264px;
-  height: 100vh;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
   flex-shrink: 0;
   background: var(--c-rail-bg) !important;
   color: var(--c-rail-text) !important;
@@ -985,7 +991,7 @@ a { text-decoration: none; }
 .accordion-innard { padding-left: 22px; }
 
 /* ============================ Feedback widget =========================== */
-.feedback-form { position: fixed; bottom: 0; left: 0; width: 100vw; z-index: 1000; color: white; }
+.feedback-form { position: fixed; bottom: 0; left: 0; width: 100%; z-index: 1000; color: white; }
 .feedback-toggle {
   visibility: visible;
   opacity: 1;
@@ -1020,7 +1026,7 @@ a { text-decoration: none; }
   color: var(--c-text);
   position: fixed;
   bottom: 0;
-  width: 100vw;
+  width: 100%;
   display: flex;
   flex-direction: column;
   justify-content: center;
