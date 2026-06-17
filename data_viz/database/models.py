@@ -5,6 +5,9 @@ import jwt
 # Internal Imports
 from data_viz.database import db
 
+# Allowed values for Visuals.visibility (per-visual access level). Ordered most- to least-restrictive.
+VISUAL_VISIBILITY = ("private", "group", "public")
+
 class User(UserMixin, db.Model):
     __tablename__ = "users"
 
@@ -114,6 +117,11 @@ class Visuals(db.Model):
     next_vis_name = db.Column(db.String(255), nullable = True)
     vis_parent_name = db.Column(db.String(255), nullable = True)
     is_default = db.Column(db.Boolean, nullable = True, default = False)
+    # Per-visual access level, set by Data Owners on the Data Ownership panel (see VISUAL_VISIBILITY):
+    #   private -> site admins + the source's Data Owners only
+    #   group   -> signed-in members of a group granted this visual (GroupVisuals)
+    #   public  -> anyone, no sign-in required
+    visibility = db.Column(db.String(20), nullable = False, server_default = "private", default = "private")
 
     def __repr__(self):
         return f"<Visual {self.name}>"

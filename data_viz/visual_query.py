@@ -9,24 +9,78 @@
 import re
 from collections import defaultdict
 
-from data_viz.database.models import Visuals, VisualQuery, DataPoints, DataSources, UserGroups, GroupVisuals
+from data_viz.database.models import (Visuals, VisualQuery, DataPoints, DataSources,
+                                       UserGroups, GroupVisuals, GroupDataSources)
+from data_viz.auth.role_hierarchy import ROLE_HIERARCHY
 from data_viz import visual_specs as vs
 
 
+def _viewer_context(user):
+    """Precompute, once per request, what `user` is allowed to leverage for the per-visual visibility
+    test below: whether they are signed in / a site admin, the data_source_ids they own (Data Owner+
+    in a group with the source), and the visual ids granted to their groups (GroupVisuals)."""
+    signed_in = user is not None and getattr(user, "is_authenticated", False)
+    site_admin = signed_in and getattr(user, "site_admin", False)
+    owned_sources, granted = set(), set()
+    if signed_in and not site_admin:
+        memberships = UserGroups.query.filter_by(user_id=user.id).all()
+        group_ids = [m.group_id for m in memberships]
+        if group_ids:
+            granted = {gv.visual_id for gv in
+                       GroupVisuals.query.filter(GroupVisuals.group_id.in_(group_ids)).all()}
+        owner_level = ROLE_HIERARCHY["Data Owner"]
+        owner_group_ids = [m.group_id for m in memberships
+                           if ROLE_HIERARCHY.get(m.role, -1) >= owner_level]
+        if owner_group_ids:
+            owned_sources = {gds.data_source_id for gds in GroupDataSources.query.filter(
+                GroupDataSources.group_id.in_(owner_group_ids)).all()}
+    return signed_in, site_admin, owned_sources, granted
+
+
+def _can_see(visual, signed_in, site_admin, owned_sources, granted):
+    """Whether a single visual passes its own visibility level for this viewer (ignoring the drill
+    hierarchy, which allowed_visuals enforces separately)."""
+    if visual.visibility == "public":
+        return True
+    if not signed_in:
+        return False
+    if site_admin:
+        return True
+    # A Data Owner of the visual's source sees it at any level (private or group).
+    if visual.data_source_id is not None and visual.data_source_id in owned_sources:
+        return True
+    if visual.visibility == "group":
+        return visual.id in granted
+    return False   # private, and the viewer is neither site admin nor an owner of the source
+
+
 def allowed_visuals(user, province):
-    """The Visuals in `province` a user may see. Site admins see all; otherwise the visuals granted
-    to the user's groups via GroupVisuals, plus ungated maps (visuals with no data source)."""
+    """The Visuals in `province` a user may see, per each visual's visibility level (public / group /
+    private). A drill-child is only reachable if its parent chain is also visible, so any visual whose
+    in-province parent was filtered out is pruned (no orphaned children in the menu)."""
     visuals = Visuals.query.filter_by(province=province).all()
-    if user is not None and getattr(user, "site_admin", False):
-        return visuals
-    if user is None or not getattr(user, "is_authenticated", False):
-        return [v for v in visuals if v.data_source_id is None]
-    group_ids = [ug.group_id for ug in UserGroups.query.filter_by(user_id=user.id).all()]
-    granted = set()
-    if group_ids:
-        granted = {gv.visual_id for gv in
-                   GroupVisuals.query.filter(GroupVisuals.group_id.in_(group_ids)).all()}
-    return [v for v in visuals if v.id in granted or v.data_source_id is None]
+    signed_in, site_admin, owned_sources, granted = _viewer_context(user)
+    visible = {v.id for v in visuals
+               if _can_see(v, signed_in, site_admin, owned_sources, granted)}
+
+    by_name = {v.name: v for v in visuals}
+    changed = True
+    while changed:
+        changed = False
+        for v in visuals:
+            if v.id in visible and v.vis_parent_name:
+                parent = by_name.get(v.vis_parent_name)
+                if parent is None or parent.id not in visible:
+                    visible.discard(v.id)
+                    changed = True
+    return [v for v in visuals if v.id in visible]
+
+
+def accessible_provinces(user):
+    """The set of provinces where the user can see at least one visual -- used to gate the province
+    nav links so users only see provinces they have access to."""
+    provinces = {row[0] for row in Visuals.query.with_entities(Visuals.province).distinct().all()}
+    return {p for p in provinces if allowed_visuals(user, p)}
 
 
 def build_province_payload(province, user=None):

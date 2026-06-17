@@ -81,6 +81,16 @@ def add_cache_control_headers(response):
             response.set_data(original + flash_html)  
     return response
 
+# Expose the current user's nav capabilities to every template so the menu can hide links to
+# pages the user can't access (route-level @require_role still enforces access).
+@app.context_processor
+def inject_nav_permissions():
+    from flask_login import current_user
+    from data_viz.auth.auth_helpers import nav_permissions
+    from data_viz.visual_query import accessible_provinces
+    return {"nav_perms": nav_permissions(current_user),
+            "accessible_provinces": accessible_provinces(current_user)}
+
 # Database setup
 db.init_app(app)
 app_folder = os.path.dirname(os.path.abspath(__file__))

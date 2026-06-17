@@ -1366,6 +1366,10 @@ def export_data_to_db(data=None):
     # The Visuals / VisualQuery / DataPoints tables are owned entirely by this pipeline, so a clean
     # wipe-and-rebuild keeps regeneration idempotent. DataSources rows are shared (seed + access
     # control), so they are upserted by name rather than deleted.
+    # visibility is owner-managed state (not derived from the scrape), so preserve it across the
+    # wipe-and-rebuild by snapshotting it per (province, name) and reapplying below.
+    visibility_snapshot = {(v.province, v.name): v.visibility for v in Visuals.query.all()}
+
     VisualQuery.query.delete()
     Visuals.query.delete()
     DataPoints.query.delete()
@@ -1419,6 +1423,12 @@ def export_data_to_db(data=None):
             next_vis = vs.PROVINCE_NEXT_VIS_OVERRIDE.get((province, visual_id), menu.get("next-vis"))
             menu_data_types = menu.get("data-types")
 
+            # Keep an owner's prior visibility; otherwise default sourceless scaffolding maps to
+            # "public" (no data to protect) and data-bearing visuals to "private" (owner opts in).
+            visibility = visibility_snapshot.get((province, visual_id))
+            if visibility is None:
+                visibility = "public" if source_id is None else "private"
+
             visual = Visuals(
                 name=visual_id, province=province,
                 vis_type=shape, data_shape=shape,
@@ -1429,6 +1439,7 @@ def export_data_to_db(data=None):
                 level=str(menu["level"]),
                 vis_parent_name=menu.get("vis-parent"), next_vis_name=next_vis,
                 is_default=(vs.DEFAULT_VISUALS.get(province) == visual_id),
+                visibility=visibility,
             )
             db.session.add(visual)
             db.session.flush()

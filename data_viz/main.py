@@ -30,8 +30,9 @@ main_blueprint = Blueprint("main", __name__)
 
 ##################################### ROUTES ###########################################
 # Routes for main index page
+# Public landing: anonymous visitors get the home page, but the menu/payload only surfaces visuals
+# whose visibility is "public" (the access filtering lives in visual_query.allowed_visuals).
 @main_blueprint.route("/")
-@require_auth
 def index():
     if request.headers.get("HX-Request") == "true":
         return render_template("introduction.jinja")
@@ -117,9 +118,10 @@ def feedback():
 # Route for V1 data visuals
 # Could automate this "active provinces check" but honestly this is easier and works fine for now
 active_provinces = ["alberta", "british-columbia", "saskatchewan", "manitoba", "ontario", "new-brunswick", "nova-scotia"]
+# Public-capable: anonymous visitors may load a province page; build_province_payload/menu filter the
+# content down to that viewer's accessible (e.g. public-only) visuals.
 @main_blueprint.route("/v1/province/<province>")
-@require_auth
-def v1_province(province): 
+def v1_province(province):
     if province not in active_provinces:
         return redirect(url_for("main.page_not_found"))
     if request.headers.get("HX-Request") == "true":
@@ -129,7 +131,6 @@ def v1_province(province):
 
 # JSON API the V1 frontend fetches its precomputed visual data from (DB-backed, was visual_data.json)
 @main_blueprint.route("/api/v1/province/<province>/data")
-@require_auth
 def v1_province_data(province):
     if province not in active_provinces:
         return jsonify({"error": "unknown province"}), 404

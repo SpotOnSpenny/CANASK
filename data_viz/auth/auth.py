@@ -14,7 +14,7 @@ from celery.result import AsyncResult
 from data_viz.auth import login_manager
 from data_viz.database import db
 from data_viz.database.models import User, Invites, Groups, UserGroups, UserActivity, InviteGroups, DataSources, GroupDataSources, Visuals, GroupVisuals
-from data_viz.auth.auth_helpers import get_user_groups, get_assignable_roles, validate_password, create_user, create_group, assign_group, assign_site_admin, get_manageable_users, get_user_memberships_in_groups, get_manageable_groups, set_group_data_sources, owned_data_sources, can_manage_source, teams_for_source, visuals_for_source, set_group_visuals
+from data_viz.auth.auth_helpers import get_user_groups, get_assignable_roles, validate_password, create_user, create_group, assign_group, assign_site_admin, get_manageable_users, get_user_memberships_in_groups, get_manageable_groups, set_group_data_sources, owned_data_sources, can_manage_source, teams_for_source, visuals_for_source, set_group_visuals, set_visual_visibility, visibility_rows_for_source
 from data_viz.auth.role_hierarchy import ROLE_HIERARCHY
 from celery_worker.tasks.invite_jwt_expiry import expire_invite
 
@@ -218,7 +218,12 @@ def logout():
     db.session.add(logout_activity)
     db.session.commit()
     logout_user()
-    return render_template("v1/login.jinja")
+    # Public pages now exist, so drop the (now anonymous) user on a fresh home page rather than the
+    # login screen. HX-Redirect makes HTMX do a full client-side navigation, which re-renders the
+    # menu/nav for the logged-out state; fall back to a normal redirect for non-HTMX requests.
+    if request.headers.get("HX-Request") == "true":
+        return ("", 204, {"HX-Redirect": "/"})
+    return redirect(url_for("main.index"))
 
 @auth_blueprint.route("/v1/invite-user", methods=["GET", "POST"])
 @require_auth
@@ -856,7 +861,9 @@ def data_ownership(groups_with_required_role = None):
         source_visual_ids = {v.id for v in Visuals.query.filter_by(data_source_id = source.id).all()}
         teams = [{"group": group, "granted": _team_grant(group.id, source_visual_ids)}
                  for group in teams_for_source(source.id)]
-        ownership.append({"source": source, "teams": teams, "visual_count": len(source_visual_ids)})
+        ownership.append({"source": source, "teams": teams,
+                          "visibility_rows": visibility_rows_for_source(source.id),
+                          "visual_count": len(source_visual_ids)})
 
     if request.headers.get("HX-Request") == "true":
         return render_template("v1/data_ownership.jinja", ownership = ownership)
@@ -898,6 +905,28 @@ def group_source_visuals(group_id, source_id):
     return render_template("v1/partials/data_ownership_team_row.jinja",
                         source = source, group = group,
                         granted = _team_grant(group_id, source_visual_ids))
+
+
+@auth_blueprint.route("/v1/visuals/<int:visual_id>/visibility", methods=["POST"])
+@require_auth
+def set_visibility(visual_id):
+    # Permission is source-ownership (Data Owner of the visual's source / site admin), like the
+    # per-team grant route above -- checked explicitly rather than via a role decorator.
+    visual = Visuals.query.get(visual_id)
+    if not visual or visual.data_source_id is None or not can_manage_source(current_user, visual.data_source_id):
+        flash("You do not have permission to change this visual's visibility.", "danger")
+        return redirect(url_for("auth.data_ownership"))
+    source_id = visual.data_source_id
+    try:
+        set_visual_visibility(visual_id, request.form.get("visibility", ""), changed_by = current_user.id)
+    except ValueError as exc:
+        # Flash (delivered via the HX out-of-band swap) and re-render the section unchanged so the
+        # toggle states reset.
+        flash(str(exc), "danger")
+    # Re-render the whole section: a change can cascade to descendant rows, not just this one.
+    return render_template("v1/partials/visual_visibility_section.jinja",
+                        source = DataSources.query.get(source_id),
+                        visibility_rows = visibility_rows_for_source(source_id))
 
 
 @auth_blueprint.route("/v1/accept-invite", methods=["GET", "POST"])

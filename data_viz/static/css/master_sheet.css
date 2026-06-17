@@ -380,6 +380,9 @@ a { text-decoration: none; }
 /* The main visualization surface — let the data breathe */
 #viz-card { background: var(--c-surface); border-radius: var(--radius); }
 #vis-div { width: 100%; }
+/* While loading, stretch the chart skeleton to the full card height (its height:100% needs a
+   definite parent). Scoped to the skeleton so the rendered chart, which sizes itself, is untouched. */
+#vis-div:has(.skeleton-chart) { height: 100%; }
 
 /* ---------------------------- Breadcrumb -------------------------------- */
 .vis-breadcrumb {
@@ -622,6 +625,9 @@ a { text-decoration: none; }
   white-space: nowrap;
 }
 .table.table-bordered { border-color: var(--c-border); }
+/* Drill-down rows in the Data Ownership visibility table — subtle, theme-aware tint via the same
+   surface token the table striping uses, so it adapts to dark mode (Bootstrap's table-light does not). */
+.card-body .table tr.vis-drill-row { --bs-table-bg: var(--c-surface-2); }
 #table-title { font-size: 0.95rem; font-weight: 600; color: var(--c-text); }
 
 /* Invite management sortable headers */

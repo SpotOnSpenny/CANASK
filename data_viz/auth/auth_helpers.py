@@ -7,7 +7,7 @@ from flask import flash, has_request_context
 
 # Internal Imports
 from data_viz.database import db
-from data_viz.database.models import User, Invites, UserGroups, Groups, UserActivity, DataSources, GroupDataSources, Visuals, GroupVisuals
+from data_viz.database.models import User, Invites, UserGroups, Groups, UserActivity, DataSources, GroupDataSources, Visuals, GroupVisuals, VISUAL_VISIBILITY
 from data_viz.auth.role_hierarchy import ROLE_HIERARCHY
 
 def create_user(email, username, password, invited_by = None, status = "active",site_admin = False):
@@ -294,7 +294,9 @@ def visuals_for_source(source_id):
     """A source's visuals as drill-trees grouped by province:
     [{province, trees: [node]}] where node = {visual, children: [node]}. Level-1 visuals are roots;
     children follow next_vis_name (the drill chain)."""
-    visuals = Visuals.query.filter_by(data_source_id = source_id).all()
+    # Order by id so the rows stay put: without an explicit sort Postgres returns rows in an unstable
+    # physical order that shifts after an UPDATE (e.g. a visibility change), reordering the table.
+    visuals = Visuals.query.filter_by(data_source_id = source_id).order_by(Visuals.id).all()
     by_name = {(v.province, v.name): v for v in visuals}
     provinces = {}
     for v in visuals:
@@ -374,6 +376,113 @@ def set_group_visuals(group_id, visual_ids, scope_visual_ids, changed_by = None)
     db.session.commit()
     return changes
 
+# Visibility openness, most- to least-restrictive. A drill-child can never be MORE open than its
+# ancestors (you must pass through the parent to reach it), so rank(child) <= rank(every ancestor).
+VISIBILITY_RANK = {level: i for i, level in enumerate(VISUAL_VISIBILITY)}   # private<group<public
+
+def _chain_ancestors(visual):
+    """The drill-chain ancestors of a visual (nearest first), walked up via vis_parent_name within
+    the same province. Chains are linear (single parent), so this is a simple walk."""
+    out, seen = [], set()
+    current = visual
+    while current.vis_parent_name and current.vis_parent_name not in seen:
+        seen.add(current.vis_parent_name)
+        parent = Visuals.query.filter_by(province = current.province,
+                                         name = current.vis_parent_name).first()
+        if not parent:
+            break
+        out.append(parent)
+        current = parent
+    return out
+
+def _chain_descendants(visual):
+    """The drill-chain descendants of a visual (nearest first), walked down via next_vis_name."""
+    out, seen = [], set()
+    current = visual
+    while current.next_vis_name and current.next_vis_name not in seen:
+        seen.add(current.next_vis_name)
+        child = Visuals.query.filter_by(province = current.province,
+                                        name = current.next_vis_name).first()
+        if not child:
+            break
+        out.append(child)
+        current = child
+    return out
+
+def _label(visual):
+    return visual.menu_name or visual.name
+
+def set_visual_visibility(visual_id, visibility, changed_by = None):
+    """Set a visual's access level (one of VISUAL_VISIBILITY: private/group/public), enforcing the
+    drill hierarchy. The caller must already have verified the user may manage the visual's data
+    source (can_manage_source).
+
+    A visual can't be made more visible than its ancestors (it would be unreachable) -> raises
+    ValueError. Lowering a visual cascades down: descendants more open than the new level are clamped
+    to it so none dangle as visible-but-unreachable. Logs a UserActivity row per changed visual and
+    returns the new visibility."""
+    if visibility not in VISUAL_VISIBILITY:
+        raise ValueError(f"Invalid visibility '{visibility}'.")
+    visual = Visuals.query.get(visual_id)
+    if not visual:
+        raise ValueError("Visual not found.")
+    new_rank = VISIBILITY_RANK[visibility]
+
+    # Guard: a child can't be more open than any ancestor in its drill chain.
+    for ancestor in _chain_ancestors(visual):
+        if VISIBILITY_RANK[ancestor.visibility] < new_rank:
+            raise ValueError(
+                f'"{_label(visual)}" can\'t be more visible than its access point '
+                f'"{_label(ancestor)}" ({ancestor.visibility}). Raise "{_label(ancestor)}" first.')
+
+    changes = []   # (visual, old, new)
+    if visual.visibility != visibility:
+        changes.append((visual, visual.visibility, visibility))
+        visual.visibility = visibility
+
+    # Cascade down: clamp any descendant that is now more open than this visual.
+    for descendant in _chain_descendants(visual):
+        if VISIBILITY_RANK[descendant.visibility] > new_rank:
+            changes.append((descendant, descendant.visibility, visibility))
+            descendant.visibility = visibility
+
+    if not changes:
+        return visibility
+
+    changer = User.query.get(changed_by) if changed_by else None
+    changer_name = changer.username if changer else f"user ID {changed_by}"
+    for changed_visual, old, new in changes:
+        db.session.add(UserActivity(
+            user_id = changed_by,
+            activity_type = "visual_visibility_updated",
+            activity_target_type = "visual",
+            activity_target_id = changed_visual.id,
+            details = (f"Visibility for visual {_label(changed_visual)} changed from "
+                       f"{old} to {new} by {changer_name}.")
+        ))
+    db.session.commit()
+    return visibility
+
+def visibility_rows_for_source(source_id):
+    """Flatten a source's drill-trees into ordered display rows for the Data Ownership visibility
+    table: [{visual, depth, is_root, allowed}] where allowed maps each level -> bool (False when that
+    level would make the visual more open than an ancestor, i.e. unreachable). Roots (access points)
+    are unconstrained. Built from visuals_for_source so the drill hierarchy is preserved."""
+    rows = []
+
+    def walk(node, depth, ancestor_min_rank):
+        visual = node["visual"]
+        allowed = {level: VISIBILITY_RANK[level] <= ancestor_min_rank for level in VISUAL_VISIBILITY}
+        rows.append({"visual": visual, "depth": depth, "is_root": depth == 0, "allowed": allowed})
+        child_min = min(ancestor_min_rank, VISIBILITY_RANK[visual.visibility])
+        for child in node["children"]:
+            walk(child, depth + 1, child_min)
+
+    for province in visuals_for_source(source_id):
+        for root in province["trees"]:
+            walk(root, 0, VISIBILITY_RANK[VISUAL_VISIBILITY[-1]])   # roots: max openness (public)
+    return rows
+
 # Legacy/seed data-source names mapped to the canonical pipeline name (the name the scraped data
 # actually carries, which generateVisuals.export_data_to_db uses and Visuals.data_source_id points
 # at). reconcile_source_aliases() folds the legacy rows into the canonical ones so group grants and
@@ -416,6 +525,22 @@ def reconcile_source_aliases(changed_by = None):
         ))
     db.session.commit()
     return merges
+
+def nav_permissions(user):
+    """Capability flags for showing/hiding the account-management nav links, mirroring the
+    @require_role gates on those routes: manage_users (invite/user/invite-management) needs Group
+    Admin+ in some group; manage_data (group management, data ownership) needs Data Owner+. Site
+    admins get everything."""
+    if not getattr(user, "is_authenticated", False):
+        return {"manage_users": False, "manage_data": False}
+    if getattr(user, "site_admin", False):
+        return {"manage_users": True, "manage_data": True}
+    top = max((ROLE_HIERARCHY.get(m.role, -1)
+               for m in UserGroups.query.filter_by(user_id = user.id).all()), default = -1)
+    return {
+        "manage_users": top >= ROLE_HIERARCHY["Group Admin"],
+        "manage_data": top >= ROLE_HIERARCHY["Data Owner"],
+    }
 
 def get_user_memberships_in_groups(user_id, group_ids):
     """A user's UserGroups rows, optionally limited to a set of group ids.

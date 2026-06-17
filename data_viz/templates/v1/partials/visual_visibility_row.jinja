@@ -1,0 +1,34 @@
+{% set v = row.visual %}
+<tr id="visual-vis-row-{{ v.id }}"{% if not row.is_root %} class="vis-drill-row"{% endif %}>
+    <td>
+        <div style="padding-left: {{ row.depth * 1.5 }}rem;">
+            {% if not row.is_root %}<i class="bi bi-arrow-return-right text-body-secondary me-1" aria-hidden="true"></i>{% endif %}
+            <span class="fw-semibold">{{ v.menu_name or v.name }}</span>
+            {% if not row.is_root %}
+                <span class="badge bg-body-tertiary text-body-secondary border ms-1">Drill-down · L{{ v.level }}</span>
+            {% endif %}
+            <div class="small text-body-secondary">{{ v.province|replace("-", " ")|title }}</div>
+        </div>
+    </td>
+    <td>
+        <div class="btn-group btn-group-sm" role="group"
+             aria-label="Visibility for {{ v.menu_name or v.name }}">
+            {% for level, label, icon in [("private", "Private", "bi-lock"), ("group", "Group", "bi-people"), ("public", "Public", "bi-globe")] %}
+            {% set is_current = (v.visibility == level) %}
+            {% set is_allowed = row.allowed[level] %}
+            {% if is_current %}{% set btn_class = "btn-primary opacity-100" %}
+            {% elif is_allowed %}{% set btn_class = "btn-outline-primary" %}
+            {% else %}{% set btn_class = "btn-outline-secondary opacity-50" %}{% endif %}
+            <button type="button" class="btn {{ btn_class }}"
+                {% if is_current %}disabled aria-pressed="true"{% elif not is_allowed %}
+                disabled title="The access point above must be {{ label }} (or more visible) first"{% else %}
+                hx-post="/v1/visuals/{{ v.id }}/visibility"
+                hx-vals='{"visibility": "{{ level }}"}'
+                hx-target="#vis-section-{{ v.data_source_id }}"
+                hx-swap="outerHTML"{% endif %}>
+                <i class="bi {{ icon }} me-1"></i>{{ label }}
+            </button>
+            {% endfor %}
+        </div>
+    </td>
+</tr>
