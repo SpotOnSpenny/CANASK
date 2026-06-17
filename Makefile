@@ -37,6 +37,9 @@ migrate:
 seed:
 	docker compose --env-file app_config/.env.dev exec web flask seed-db
 
+gen-visuals:
+	docker compose --env-file app_config/.env.dev exec web flask gen-visuals
+
 init-db:
 	docker compose --env-file app_config/.env.dev exec web flask init-db
 

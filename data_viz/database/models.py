@@ -98,11 +98,16 @@ class Visuals(db.Model):
     province = db.Column(db.String(255), nullable = False)
     vis_type = db.Column(db.String(255), nullable = False)
     data_types = db.Column(db.String(255), nullable = False)
-    menu_name = db.Column(db.String(255), nullable = False)
-    menu_parent = db.Column(db.String(255), nullable = False)
-    level = db.Column(db.String(255), nullable = False)
+    menu_name = db.Column(db.String(255), nullable = True)
+    menu_parent = db.Column(db.String(255), nullable = True)
+    level = db.Column(db.String(255), nullable = True)
     next_vis = db.Column(db.ForeignKey("visuals.id"), nullable = True)
     previous_vis = db.Column(db.ForeignKey("visuals.id"), nullable = True)
+    # Data layer: links a visual to its source + stores the cleaned-data presentation config used to
+    # reconstruct the frontend JSON shape from the normalized DataPoints rows (see visual_query.py).
+    data_source_id = db.Column(db.Integer, db.ForeignKey("data_sources.id"), nullable = True)
+    visual_options = db.Column(db.JSON, nullable = True)
+    data_shape = db.Column(db.String(50), nullable = True)
 
     def __repr__(self):
         return f"<Visual {self.name}>"
@@ -125,6 +130,11 @@ class DataSources(db.Model):
     link = db.Column(db.String(255), nullable = True)
     last_updated = db.Column(db.DateTime, nullable = True)
     data_until = db.Column(db.DateTime, nullable = True)
+    # Free-text "about" blurb and the latest scrape's display strings (the pipeline stores month-granular
+    # values like "March, 2025" that don't fit a DateTime), used when reconstructing a visual's data_source block.
+    about = db.Column(db.Text, nullable = True)
+    last_updated_str = db.Column(db.String(255), nullable = True)
+    data_until_str = db.Column(db.String(255), nullable = True)
 
     def __repr__(self):
         return f"<DataSource {self.name}>"
@@ -145,7 +155,7 @@ class GroupDataSources(db.Model):
 
 class DataPoints(db.Model):
     __tablename__ = "data_points"
-    __table_args__ = (db.Index("idx_datapoints_visual_geo_year", "geo", "time_frame_type", "data_metric"),)
+    __table_args__ = (db.Index("idx_datapoints_metric_geo_year", "data_source_id", "data_metric", "geo", "time_frame"),)
 
     id = db.Column(db.Integer, primary_key = True)
     data_source_id = db.Column(db.Integer, db.ForeignKey("data_sources.id"), nullable = False)
@@ -153,8 +163,18 @@ class DataPoints(db.Model):
     geo = db.Column(db.String(255), nullable = False)
     time_frame_type = db.Column(db.String(255), nullable = False)
     time_frame = db.Column(db.String(255), nullable = False)
+    # Semantic, cross-visual quantity (e.g. "opioid_deaths", "samples"), the unit, and up to two generic
+    # disaggregation dimensions (e.g. sex/Male, age_group/20-29; regional uses both for drug_category + result).
     data_metric = db.Column(db.String(255), nullable = False)
-    data_value = db.Column(db.Float, nullable = False)
+    data_type = db.Column(db.String(50), nullable = False)
+    dimension_type = db.Column(db.String(255), nullable = True)
+    dimension_value = db.Column(db.String(255), nullable = True)
+    dimension2_type = db.Column(db.String(255), nullable = True)
+    dimension2_value = db.Column(db.String(255), nullable = True)
+    # Numeric value for querying; data_value_text preserves the original string cell so reconstruction
+    # round-trips the exact JSON type (the source mixes "47" strings and real numbers).
+    data_value = db.Column(db.Float, nullable = True)
+    data_value_text = db.Column(db.String(255), nullable = True)
 
     def __repr__(self):
         return f"<DataPoint Geo: {self.geo}, Time Frame: {self.time_frame}, Data Metric: {self.data_metric}, Data Value: {self.data_value}>"

@@ -127,6 +127,15 @@ def v1_province(province):
     else:
         return render_template("base.jinja", include_partials="index", dash_template="v1/provincial_vis.jinja", province=province)
 
+# JSON API the V1 frontend fetches its precomputed visual data from (DB-backed, was visual_data.json)
+@main_blueprint.route("/api/v1/province/<province>/data")
+@require_auth
+def v1_province_data(province):
+    if province not in active_provinces:
+        return jsonify({"error": "unknown province"}), 404
+    from .visual_query import build_province_payload
+    return jsonify(build_province_payload(province))
+
 
 ################################# Test Code Below ######################################
 if __name__ == '__main__':

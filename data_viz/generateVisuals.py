@@ -1294,6 +1294,235 @@ def export_data_json():
     with open(os.path.join(os.path.abspath(os.path.dirname(__file__)), "static/js/visual_data.json"), "w") as file:
         json.dump(data, file, indent=4)
 
+###########################################################################################
+#                          DB persistence (replaces the JSON sink)                        #
+# Reuses the exact same cleaned dicts the v1_*_export_clean() functions already produce,   #
+# then walks each visual per its VISUAL_SPECS entry and writes normalized rows:            #
+#   DataSources (about + scrape dates), Visuals (presentation config), DataPoints (facts), #
+#   VisualQuery (the predicates that select a visual's facts -- the visual<->data link).   #
+###########################################################################################
+
+# URL-friendly province key -> its cleaning function
+V1_PROVINCES = {
+    "british-columbia": v1_BC_export_clean,
+    "alberta": v1_AB_export_clean,
+    "saskatchewan": v1_SK_export_clean,
+    "manitoba": v1_MB_export_clean,
+    "new-brunswick": v1_NB_export_clean,
+}
+
+
+def _national_substance_map():
+    """{drug-type disaggregator: 'opioids'|'stimulants'} so national deaths_by_drug_type rows can
+    carry a substance dimension (the cleaned dict merges the two without tagging them)."""
+    try:
+        dataframe = pull_data(["nationalHealthInfobase"])["nationalHealthInfobase"]["dataframe"]
+    except Exception:
+        return {}
+    mapping = {}
+    for _, row in dataframe[dataframe["Specific_Measure"] == "Type of opioids"].iterrows():
+        mapping[str(row["Disaggregator"])] = "opioids"
+    for _, row in dataframe[dataframe["Specific_Measure"] == "Type of stimulants"].iterrows():
+        mapping.setdefault(str(row["Disaggregator"]), "stimulants")
+    return mapping
+
+
+def _split_value(value):
+    """Return (numeric_or_None, text_or_None). Strings round-trip verbatim via the text column;
+    numbers go in the float column (queryable)."""
+    if isinstance(value, str):
+        try:
+            return float(value), value
+        except ValueError:
+            return None, value
+    if value is None:
+        return None, None
+    return float(value), None
+
+
+def _primary_x(block):
+    """The x (years) list that additional/table rows are aligned to."""
+    data = block.get("data", {})
+    for dtype in ("counts", "rates", "percentages"):
+        if dtype in data and "x" in data[dtype]:
+            return data[dtype]["x"]
+    return []
+
+
+def export_data_to_db(data=None):
+    """Build the V1 cleaned data (same dicts as export_data_json) and persist them into the DB.
+
+    `data` may be injected ({province: {visual_id: block}}) to persist already-cleaned dicts
+    without re-scraping (used by the round-trip verification against the golden visual_data.json).
+    """
+    from data_viz.database import db
+    from data_viz.database.models import DataSources, DataPoints, Visuals, VisualQuery
+    from data_viz import visual_specs as vs
+
+    if data is None:
+        data = {province: builder() for province, builder in V1_PROVINCES.items()}
+    substance_map = _national_substance_map()
+
+    # The Visuals / VisualQuery / DataPoints tables are owned entirely by this pipeline, so a clean
+    # wipe-and-rebuild keeps regeneration idempotent. DataSources rows are shared (seed + access
+    # control), so they are upserted by name rather than deleted.
+    VisualQuery.query.delete()
+    Visuals.query.delete()
+    DataPoints.query.delete()
+    db.session.flush()
+
+    source_cache = {}        # name -> DataSources row
+    point_cache = {}         # natural-key tuple -> DataPoints row (dedups shared metrics)
+
+    def get_source(data_source):
+        name = data_source["name"]
+        source = source_cache.get(name)
+        if source is None:
+            source = DataSources.query.filter_by(name=name).first()
+            if source is None:
+                source = DataSources(name=name)
+                db.session.add(source)
+            source_cache[name] = source
+        source.link = data_source.get("link", source.link)
+        source.about = data_source.get("about")
+        source.last_updated_str = data_source.get("last_updated")
+        source.data_until_str = data_source.get("data_until")
+        db.session.flush()
+        return source
+
+    def add_point(source_id, geo_type, geo, time_frame, metric, data_type,
+                  dim_type=None, dim_val=None, dim2_type=None, dim2_val=None, value=None):
+        key = (source_id, geo_type, geo, time_frame, metric, data_type, dim_type, dim_val, dim2_type, dim2_val)
+        if key in point_cache:
+            return
+        num, text = _split_value(value)
+        point = DataPoints(
+            data_source_id=source_id, geo_type=geo_type, geo=geo,
+            time_frame_type=vs.TIME_FRAME_TYPE, time_frame=str(time_frame),
+            data_metric=metric, data_type=data_type,
+            dimension_type=dim_type, dimension_value=dim_val,
+            dimension2_type=dim2_type, dimension2_value=dim2_val,
+            data_value=num, data_value_text=text,
+        )
+        point_cache[key] = point
+        db.session.add(point)
+
+    for province, visuals in data.items():
+        for visual_id, block in visuals.items():
+            spec = vs.VISUAL_SPECS[visual_id]
+            shape = spec["shape"]
+            source = get_source(block["data_source"]) if "data_source" in block else None
+            source_id = source.id if source else None
+
+            visual = Visuals(
+                name=visual_id, province=province,
+                vis_type=shape, data_types=",".join(block.get("data", {}).keys()),
+                data_source_id=source_id, visual_options=block.get("visual_options"),
+                data_shape=shape,
+            )
+            db.session.add(visual)
+            db.session.flush()
+
+            predicates = []   # (filter_type, filter_value)
+
+            if shape == "map_none":
+                _persist_predicates(VisualQuery, db, visual.id, predicates)
+                continue
+
+            geo_type = spec.get("geo_type", vs.PROVINCE_GEO_TYPE)
+            predicates.append(("source", block["data_source"]["name"]))
+            predicates.append(("geo_type", geo_type))
+
+            if shape == "flat_series":
+                geo = vs.PROVINCE_DISPLAY[province]
+                predicates.append(("geo", geo))
+                predicates.append(("metric", spec["metric"]))
+                if spec.get("dimension2_type"):
+                    predicates.append(("dimension2_type", spec["dimension2_type"]))
+                for dtype, series in block["data"].items():
+                    x = series.get("x", [])
+                    for series_key, values in series.items():
+                        if series_key == "x":
+                            continue
+                        dim_val, dim2_val = vs.encode_series_key(spec, series_key, substance_map)
+                        dim_type = "substance" if dim_val is not None else None
+                        for i, year in enumerate(x):
+                            if i < len(values):
+                                add_point(source_id, geo_type, geo, year, spec["metric"], dtype,
+                                          dim_type, dim_val, spec.get("dimension2_type"), dim2_val, values[i])
+                _persist_additional(add_point, predicates, block, source_id, geo_type, geo, vs)
+
+            elif shape == "geo_series":
+                predicates.append(("metric", spec["metric"]))
+                if spec.get("dimension2_type"):
+                    predicates.append(("dimension2_type", spec["dimension2_type"]))
+                for dtype, geo_dict in block["data"].items():
+                    for geo, series in geo_dict.items():
+                        x = series.get("x", [])
+                        for series_key, values in series.items():
+                            if series_key == "x":
+                                continue
+                            dim_val, dim2_val = vs.encode_series_key(spec, series_key, substance_map)
+                            dim_type = "substance" if dim_val is not None else None
+                            for i, year in enumerate(x):
+                                if i < len(values):
+                                    add_point(source_id, geo_type, geo, year, spec["metric"], dtype,
+                                              dim_type, dim_val, spec.get("dimension2_type"), dim2_val, values[i])
+
+            elif shape == "pie_nested":
+                predicates.append(("metric", spec["metric"]))
+                predicates.append(("dimension2_type", spec["dimension2_type"]))
+                predicates.append(("additional_metric", vs.additional_metric("Total Samples")))
+                for geo, year_dict in block["data"]["counts"].items():
+                    for year, drug_dict in year_dict.items():
+                        for drug, value in drug_dict.items():
+                            add_point(source_id, geo_type, geo, year, spec["metric"], "counts",
+                                      None, None, spec["dimension2_type"], drug, value)
+                # Total Samples (table-only) per health authority / year
+                for geo, tabular in block.get("tabular_data", {}).items():
+                    totals = tabular.get("Total Samples", [])
+                    years = list(block["data"]["counts"].get(geo, {}).keys())
+                    for i, year in enumerate(years):
+                        if i < len(totals):
+                            add_point(source_id, geo_type, geo, year,
+                                      vs.additional_metric("Total Samples"), "additional_rows",
+                                      vs.ADDITIONAL_DIM_TYPE, "Total Samples", None, None, totals[i])
+
+            elif shape == "regional":
+                predicates.append(("metric", spec["metric"]))
+                predicates.append(("dimension_type", spec["dimension_type"]))
+                for geo, year_dict in block["data"].get("counts", {}).items():
+                    for year, drug_dict in year_dict.items():
+                        for drug, result_dict in drug_dict.items():
+                            for result_key, count_list in result_dict.items():
+                                result = result_key[:-2] if result_key.endswith("_y") else result_key
+                                add_point(source_id, geo_type, geo, year, spec["metric"], "counts",
+                                          spec["dimension_type"], drug,
+                                          spec["dimension2_type"], result, count_list[0])
+
+            _persist_predicates(VisualQuery, db, visual.id, predicates)
+
+    db.session.commit()
+
+
+def _persist_additional(add_point, predicates, block, source_id, geo_type, geo, vs):
+    """Persist additional (table-only) rows for a flat visual + record their metrics as predicates."""
+    x = _primary_x(block)
+    for label, values in block.get("additional_rows", {}).items():
+        metric = vs.additional_metric(label)
+        predicates.append(("additional_metric", metric))
+        for i, year in enumerate(x):
+            if i < len(values):
+                add_point(source_id, geo_type, geo, year, metric, "additional_rows",
+                          vs.ADDITIONAL_DIM_TYPE, label, None, None, values[i])
+
+
+def _persist_predicates(VisualQuery, db, visual_id, predicates):
+    for filter_type, filter_value in predicates:
+        db.session.add(VisualQuery(filter_type=filter_type, filter_value=str(filter_value),
+                                   for_visual_id=visual_id))
+
+
 # Test code below
 if __name__ == '__main__':
     #data = v1_SK_export_clean()

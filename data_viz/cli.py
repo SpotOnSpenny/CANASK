@@ -172,3 +172,10 @@ def register_cli(app):
         print("Seeding database with initial data from seed.json...")
         create_from_seed(admin_username = admin_username)
         print("Database seeding complete.")
+
+    @app.cli.command("gen-visuals", short_help="Scrape-clean the V1 data and persist it into the database.")
+    def gen_visuals():
+        from data_viz.generateVisuals import export_data_to_db
+        print("Generating V1 visual data into the database...")
+        export_data_to_db()
+        print("Visual data generation complete.")
