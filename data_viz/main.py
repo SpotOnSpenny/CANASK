@@ -133,8 +133,9 @@ def v1_province(province):
 def v1_province_data(province):
     if province not in active_provinces:
         return jsonify({"error": "unknown province"}), 404
-    from .visual_query import build_province_payload
-    return jsonify(build_province_payload(province))
+    from .visual_query import build_province_payload, build_province_menu
+    # data = {visual_id: block}; config/default drive the menu (replaces the static visuals.js)
+    return jsonify({"data": build_province_payload(province), **build_province_menu(province)})
 
 
 ################################# Test Code Below ######################################

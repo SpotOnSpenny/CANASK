@@ -47,7 +47,6 @@ assets.register(
         "js/plotly-theme.js",
         "js/main.js",
         "js/visualGeneration.js",
-        "js/visuals.js",
         filters="jsmin",
         output="assets/main.js"
     )

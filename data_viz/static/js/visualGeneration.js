@@ -5,6 +5,10 @@ let currentVisual;
 let province;
 let route = [];
 let lastLocation = null;
+// Menu/presentation config, populated per province from the DB response in fetchRegionData()
+// (replaces the formerly-static visuals.js). Shape mirrors the old global: {province: {visual_id: cfg},
+// "default-visuals": {province: visual_id}} so the existing visuals[province][...] reads work unchanged.
+let visuals = {};
 
 // Function to dynamically create the menu based on the visuals object and current province
 function createMenu(province) {
@@ -113,9 +117,14 @@ async function fetchRegionData(province){
         fetch(`/api/v1/province/${province}/data`, {AbortSignal: AbortSignal.timeout(5000)}),
         fetch(`/static/assets/geojsons/${province.toLowerCase()}.geojson`, {AbortSignal: AbortSignal.timeout(5000)}),
     ]);
-    const dataJson = await data.json();
+    const payload = await data.json();
     const geojsonJson = await geojson.json();
-    currentData = dataJson;
+    // payload = { data: {visual_id: block}, config: {visual_id: menuCfg}, default: visual_id }
+    currentData = payload.data;
+    visuals = {
+        [province]: payload.config || {},
+        "default-visuals": { [province]: payload["default"] },
+    };
     currentGeojson = geojsonJson;
 }
 

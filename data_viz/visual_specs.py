@@ -143,6 +143,84 @@ VISUAL_SPECS = {
 }
 
 
+# ----------------------------------------------------------------------------------------- #
+# Menu / presentation config (formerly the static visuals.js). Keyed by visual_id, using the
+# exact key names the frontend reads. The route returns this alongside the data so the menu is
+# built from the DB response, not a static file. Province-specific drill links live in
+# PROVINCE_NEXT_VIS_OVERRIDE; per-province landing visuals in DEFAULT_VISUALS.
+# ----------------------------------------------------------------------------------------- #
+VISUAL_MENU = {
+    # BC Coroners
+    "drug_death_heatmap": {"type": "heatmap", "data-types": ["counts"],
+        "menu-parent": "Deaths and Demographics", "menu-name": "Drug Toxicity Deaths by Health Authority",
+        "level": 1, "vis-parent": None, "next-vis": None},
+    "deaths_by_sex_line": {"type": "line", "data-types": ["counts", "rates"],
+        "menu-parent": None, "menu-name": None,
+        "level": 2, "vis-parent": "drug_death_heatmap", "next-vis": None},
+    "toxicity_deaths_per_drug_by_year": {"type": "bar", "data-types": ["counts", "rates", "percentages"],
+        "menu-parent": "Deaths and Demographics", "menu-name": "Unregulated Drug Toxicity Deaths by Drug Type",
+        "level": 1, "vis-parent": None, "next-vis": None},
+    "drug_toxicity_deaths_by_age": {"type": "line", "data-types": ["counts", "rates"],
+        "menu-parent": "Deaths and Demographics", "menu-name": "Unregulated Drug Toxicity Deaths by Age Group",
+        "level": 1, "vis-parent": None, "next-vis": None},
+    # BC Centre for Substance Use
+    "drug_supply_by_year": {"type": "line", "data-types": ["counts", "rates"],
+        "menu-parent": "Drug Supply", "menu-name": "Drugs by Category",
+        "level": 1, "vis-parent": None, "next-vis": None},
+    "fent_benz_by_year": {"type": "line", "data-types": ["counts", "rates"],
+        "menu-parent": "Drug Supply", "menu-name": "Presence of Fentanly and Benzodiazepines",
+        "level": 1, "vis-parent": None, "next-vis": None},
+    "opioid_types_by_year": {"type": "line", "data-types": ["counts", "rates"],
+        "menu-parent": "Drug Supply", "menu-name": "Presence of Opioid Types",
+        "level": 1, "vis-parent": None, "next-vis": None},
+    "drug_supply_geographically": {"type": "map", "data-types": None,
+        "menu-parent": "Drug Supply", "menu-name": "Drug Supply by Health Authority",
+        "level": 1, "vis-parent": None, "next-vis": None},
+    "geographical_drug_supply_pie": {"type": "pie", "data-types": ["counts"],
+        "menu-parent": None, "menu-name": None,
+        "level": 2, "vis-parent": "drug_supply_geographically", "next-vis": "regional_drug_supply_breakdown"},
+    "regional_drug_supply_breakdown": {"type": "bar", "data-types": ["counts"],
+        "menu-parent": None, "menu-name": None,
+        "level": 3, "vis-parent": "geographical_drug_supply_pie", "next-vis": None},
+    # National (shared AB / SK / MB / NB)
+    "opioid_deaths_by_age": {"type": "line", "data-types": ["counts", "percentages"],
+        "menu-parent": "Deaths and Demographics", "menu-name": "Opioid Deaths by Age Group",
+        "level": 1, "vis-parent": None, "next-vis": None},
+    "deaths_by_age": {"type": "line", "data-types": ["counts", "percentages"],
+        "menu-parent": "Deaths and Demographics", "menu-name": "Opioid Deaths by Age Group",
+        "level": 1, "vis-parent": None, "next-vis": None},
+    "deaths_by_drug_type": {"type": "bar", "data-types": ["counts", "rates", "percentages"],
+        "menu-parent": "Deaths and Demographics", "menu-name": "Opioid Deaths by Drug Type",
+        "level": 1, "vis-parent": None, "next-vis": None},
+    "deaths_by_sex": {"type": "line", "data-types": ["counts", "rates", "percentages"],
+        "menu-parent": "Deaths and Demographics", "menu-name": "Opioid Deaths by Sex",
+        "level": 1, "vis-parent": None, "next-vis": None},
+    "deaths_by_manner": {"type": "line", "data-types": ["counts", "rates", "percentages"],
+        "menu-parent": "Deaths and Demographics", "menu-name": "Unregulated Drug Toxicity Deaths by Manner of Death",
+        "level": 1, "vis-parent": None, "next-vis": None},
+    # SK Coroners
+    "deaths_by_opioid_type": {"type": "bar", "data-types": ["counts", "rates", "percentages"],
+        "menu-parent": "Deaths and Demographics", "menu-name": "Opioid Deaths by Drug Type",
+        "level": 1, "vis-parent": None, "next-vis": None},
+}
+
+# Province-specific drill link overrides (the same visual_id chains differently per province)
+PROVINCE_NEXT_VIS_OVERRIDE = {
+    ("british-columbia", "drug_death_heatmap"): "deaths_by_sex_line",
+    ("british-columbia", "drug_supply_geographically"): "geographical_drug_supply_pie",
+}
+
+# Per-province landing visual
+DEFAULT_VISUALS = {
+    "british-columbia": "drug_death_heatmap",
+    "alberta": "opioid_deaths_by_age",
+    "saskatchewan": "opioid_deaths_by_age",
+    "manitoba": "deaths_by_age",
+    "new-brunswick": "opioid_deaths_by_age",
+    "nova-scotia": "drug_supply_geographically",
+}
+
+
 def encode_series_key(spec, key, substance_map=None):
     """Legacy series key -> (dimension_value, dimension2_value) for the substance + disaggregator dims.
 

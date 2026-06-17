@@ -94,16 +94,17 @@
     (async function() {
         try{
             province = "{{province}}";
+            // fetch first: it populates the menu config (visuals) from the DB before we read it
+            await fetchRegionData(province);
             currentVisual = visuals["default-visuals"][province];
             createMenu(province);
-            await fetchRegionData(province);
             masterLoop();
         } catch(error) {
             document.addEventListener('DOMContentLoaded', async function () {
             province = "{{province}}";
+            await fetchRegionData(province);
             currentVisual = visuals["default-visuals"][province];
             createMenu(province);
-            await fetchRegionData(province);
             masterLoop();
             });
         }

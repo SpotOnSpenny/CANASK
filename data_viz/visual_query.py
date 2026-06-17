@@ -36,6 +36,20 @@ def build_province_payload(province):
     return payload
 
 
+def build_province_menu(province):
+    """Return the menu/presentation config for a province plus its default visual, built from the
+    visuals that actually exist in the DB for it. Replaces the static visuals.js: the frontend builds
+    its menu from this instead of a bundled file."""
+    config = {}
+    for visual in Visuals.query.filter_by(province=province).all():
+        menu = dict(vs.VISUAL_MENU[visual.name])
+        override = vs.PROVINCE_NEXT_VIS_OVERRIDE.get((province, visual.name))
+        if override is not None:
+            menu["next-vis"] = override
+        config[visual.name] = menu
+    return {"config": config, "default": vs.DEFAULT_VISUALS.get(province)}
+
+
 # --------------------------------------------------------------------------------------- #
 # helpers
 # --------------------------------------------------------------------------------------- #
