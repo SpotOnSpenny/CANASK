@@ -110,12 +110,12 @@ async function fetchRegionData(province){
     console.log(`Fetched data for ${province}`);
     //fetch the data and unpack it
     const [data, geojson] = await Promise.all([
-        fetch("/static/js/visual_data.json", {AbortSignal: AbortSignal.timeout(5000)}),
+        fetch(`/api/v1/province/${province}/data`, {AbortSignal: AbortSignal.timeout(5000)}),
         fetch(`/static/assets/geojsons/${province.toLowerCase()}.geojson`, {AbortSignal: AbortSignal.timeout(5000)}),
     ]);
     const dataJson = await data.json();
     const geojsonJson = await geojson.json();
-    currentData = dataJson[province];
+    currentData = dataJson;
     currentGeojson = geojsonJson;
 }
 
