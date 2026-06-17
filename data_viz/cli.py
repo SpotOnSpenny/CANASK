@@ -176,6 +176,17 @@ def register_cli(app):
     @app.cli.command("gen-visuals", short_help="Scrape-clean the V1 data and persist it into the database.")
     def gen_visuals():
         from data_viz.generateVisuals import export_data_to_db
+        from data_viz.auth.auth_helpers import reconcile_source_aliases
         print("Generating V1 visual data into the database...")
         export_data_to_db()
+        # Keep group access pointing at the canonical pipeline data sources.
+        merges = reconcile_source_aliases()
+        if merges:
+            print("Reconciled duplicate data sources:", ", ".join(merges))
         print("Visual data generation complete.")
+
+    @app.cli.command("reconcile-sources", short_help="Merge legacy/seed-named data sources into their pipeline equivalents.")
+    def reconcile_sources():
+        from data_viz.auth.auth_helpers import reconcile_source_aliases
+        merges = reconcile_source_aliases()
+        print("Reconciled:", ", ".join(merges) if merges else "nothing to merge.")

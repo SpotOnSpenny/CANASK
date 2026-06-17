@@ -374,6 +374,49 @@ def set_group_visuals(group_id, visual_ids, scope_visual_ids, changed_by = None)
     db.session.commit()
     return changes
 
+# Legacy/seed data-source names mapped to the canonical pipeline name (the name the scraped data
+# actually carries, which generateVisuals.export_data_to_db uses and Visuals.data_source_id points
+# at). reconcile_source_aliases() folds the legacy rows into the canonical ones so group grants and
+# visuals reference the same DataSources rows.
+SOURCE_ALIASES = {
+    "BC Coroners Service": ["BC Coroners Service Report"],
+    "British Columbia Centre for Substance Use (BCCSU)": ["BC DrugSense"],
+    "Health Infobase - Health data in Canada": ["National Health Infobase"],
+}
+
+def reconcile_source_aliases(changed_by = None):
+    """Merge legacy/seed-named DataSources into their canonical pipeline-named rows: move each
+    alias's GroupDataSources onto the canonical row (dropping duplicates) and delete the alias row.
+    Idempotent. Returns the list of "alias -> canonical" merges performed."""
+    merges = []
+    for canonical_name, alias_names in SOURCE_ALIASES.items():
+        canonical = DataSources.query.filter_by(name = canonical_name).first()
+        if not canonical:
+            continue
+        for alias_name in alias_names:
+            alias = DataSources.query.filter_by(name = alias_name).first()
+            if not alias or alias.id == canonical.id:
+                continue
+            groups_with_canonical = {gds.group_id for gds in
+                                     GroupDataSources.query.filter_by(data_source_id = canonical.id).all()}
+            for gds in GroupDataSources.query.filter_by(data_source_id = alias.id).all():
+                if gds.group_id in groups_with_canonical:
+                    db.session.delete(gds)          # group already has the canonical source
+                else:
+                    gds.data_source_id = canonical.id
+            db.session.delete(alias)
+            merges.append(f"{alias_name} -> {canonical_name}")
+
+    if merges:
+        db.session.add(UserActivity(
+            user_id = changed_by,
+            activity_type = "data_sources_reconciled",
+            activity_target_type = "data_source",
+            details = f"Merged duplicate data sources into their pipeline equivalents: {', '.join(merges)}."
+        ))
+    db.session.commit()
+    return merges
+
 def get_user_memberships_in_groups(user_id, group_ids):
     """A user's UserGroups rows, optionally limited to a set of group ids.
     Pass group_ids=None (site admin) to return every membership."""
