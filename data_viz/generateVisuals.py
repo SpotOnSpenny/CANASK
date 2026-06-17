@@ -1512,6 +1512,15 @@ def export_data_to_db(data=None):
 
             _persist_predicates(VisualQuery, db, visual.id, predicates)
 
+    # Drill-heading maps carry no data source of their own; inherit it from their drill child so the
+    # whole L1(map) -> L2 -> L3 chain is owned/restrictable as a unit (standalone maps stay ungated).
+    for visual in Visuals.query.filter_by(data_shape="map_none").all():
+        if visual.next_vis_name and visual.data_source_id is None:
+            child = Visuals.query.filter_by(province=visual.province, name=visual.next_vis_name).first()
+            if child and child.data_source_id is not None:
+                visual.data_source_id = child.data_source_id
+    db.session.flush()
+
     db.session.commit()
 
 

@@ -286,8 +286,8 @@ async function createVisualHeatMap(province, visualToGen, geojson, mapData, mapS
     })
   ).then(() => {
     visDiv.on("plotly_click", function (data) {
-      if (!visuals[province][visualToGen]["next-vis"]) {
-        console.error("No next visual exists for this visual");
+      if (!canDrill(province, visualToGen)) {
+        console.warn("No accessible next-level visual for this visual");
         return;
       } else {
         let location = data.points[0].location; // Get the clicked location
@@ -409,9 +409,9 @@ async function createVisualMap(province, currentVisual, geojson, mapOptions) {
   ).then(() => {
     visDiv.on("plotly_click", function (data) {
       if (data && data.points.length > 0) {
-        // check if second level data exists for the current visual
-        if (!visuals[province][currentVisual]["next-vis"]) {
-          console.error("No second level visual exists for this visual");
+        // check if an accessible second-level visual exists for the current visual
+        if (!canDrill(province, currentVisual)) {
+          console.warn("No accessible second-level visual for this visual");
         } else {
           let location = data.points[0].location; // Get the clicked location
           moveUpOneLevel(province);
@@ -945,8 +945,8 @@ async function createVisualPie(province, pieData, pieSource, visualOptions, tabu
     })
   ).then(() => {
     visDiv.on("plotly_click", function (data) {
-      if (!visuals[province][currentVisual]["next-vis"]) {
-        console.error("No next visual exists for this visual");
+      if (!canDrill(province, currentVisual)) {
+        console.warn("No accessible next-level visual for this visual");
         return;
       } else if (data.points[0]["fullData"]["labels"][0].includes("No data available for ")) {
         // If the clicked pie chart has no data, do nothing
@@ -1064,6 +1064,14 @@ function getSecondLevelData(province, location = null, year = null, category = n
     console.warn("No second level visual exists");
     return null;
   }
+}
+
+// Whether a visual can drill into its next level: it must declare a next-vis AND that target must
+// be in the set the server returned for this user (RBAC may withhold deeper drill levels).
+function canDrill(province, vid) {
+  const cfg = visuals[province] && visuals[province][vid];
+  const next = cfg && cfg["next-vis"];
+  return !!(next && visuals[province][next] && currentData && currentData[next]);
 }
 
 // Helper function to move up one level in the visual hierarchy

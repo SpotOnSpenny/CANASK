@@ -97,6 +97,10 @@
         hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/v1/group-management" class="nav-link htmx-element">
         <i class="bi bi-collection nav-ic"></i>Group management
     </a>
+    <a href="/v1/data-ownership" hx-get="/v1/data-ownership" hx-trigger="click" hx-target="#content-div"
+        hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/v1/data-ownership" class="nav-link htmx-element">
+        <i class="bi bi-shield-lock nav-ic"></i>Data ownership
+    </a>
     <button type="button" hx-post="/v1/logout" hx-trigger="click" hx-target="#partial-inclusions"
         hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/v1/login" class="nav-link htmx-element rail-logout">
         <i class="bi bi-box-arrow-right nav-ic"></i>Logout
@@ -157,6 +161,10 @@
         <a href="/v1/group-management" hx-get="/v1/group-management" hx-trigger="click" hx-target="#content-div"
             hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/v1/group-management" class="mobile-nav-link htmx-element">
             Group management
+        </a>
+        <a href="/v1/data-ownership" hx-get="/v1/data-ownership" hx-trigger="click" hx-target="#content-div"
+            hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/v1/data-ownership" class="mobile-nav-link htmx-element">
+            Data ownership
         </a>
     </div>
 </div>

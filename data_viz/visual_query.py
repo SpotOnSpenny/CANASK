@@ -89,7 +89,9 @@ def _predicates(visual_id):
 
 def _base_block(visual):
     block = {}
-    if visual.data_source_id:
+    # Maps carry a data_source_id only for ownership/RBAC (drill-heading maps inherit their chain's
+    # source); their payload is visual_options-only, so don't emit a data_source block for them.
+    if visual.data_source_id and visual.data_shape != "map_none":
         source = DataSources.query.get(visual.data_source_id)
         if source:
             block["data_source"] = {
