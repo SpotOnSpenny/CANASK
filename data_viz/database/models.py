@@ -97,7 +97,7 @@ class Visuals(db.Model):
     about = db.Column(db.String(5000), nullable = True)
     province = db.Column(db.String(255), nullable = False)
     vis_type = db.Column(db.String(255), nullable = False)
-    data_types = db.Column(db.String(255), nullable = False)
+    data_types = db.Column(db.String(255), nullable = True)
     menu_name = db.Column(db.String(255), nullable = True)
     menu_parent = db.Column(db.String(255), nullable = True)
     level = db.Column(db.String(255), nullable = True)
@@ -108,6 +108,12 @@ class Visuals(db.Model):
     data_source_id = db.Column(db.Integer, db.ForeignKey("data_sources.id"), nullable = True)
     visual_options = db.Column(db.JSON, nullable = True)
     data_shape = db.Column(db.String(50), nullable = True)
+    # Menu/presentation config served to the frontend (DB-driven; formerly the static visuals.js).
+    # next_vis_name / vis_parent_name are string visual_ids for the drill chain (per-province).
+    chart_type = db.Column(db.String(50), nullable = True)
+    next_vis_name = db.Column(db.String(255), nullable = True)
+    vis_parent_name = db.Column(db.String(255), nullable = True)
+    is_default = db.Column(db.Boolean, nullable = True, default = False)
 
     def __repr__(self):
         return f"<Visual {self.name}>"

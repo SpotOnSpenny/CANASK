@@ -9,13 +9,30 @@
 import re
 from collections import defaultdict
 
-from data_viz.database.models import Visuals, VisualQuery, DataPoints, DataSources
+from data_viz.database.models import Visuals, VisualQuery, DataPoints, DataSources, UserGroups, GroupVisuals
 from data_viz import visual_specs as vs
 
 
-def build_province_payload(province):
-    """Return {visual_id: block} for a province, shaped identically to a slice of visual_data.json."""
+def allowed_visuals(user, province):
+    """The Visuals in `province` a user may see. Site admins see all; otherwise the visuals granted
+    to the user's groups via GroupVisuals, plus ungated maps (visuals with no data source)."""
     visuals = Visuals.query.filter_by(province=province).all()
+    if user is not None and getattr(user, "site_admin", False):
+        return visuals
+    if user is None or not getattr(user, "is_authenticated", False):
+        return [v for v in visuals if v.data_source_id is None]
+    group_ids = [ug.group_id for ug in UserGroups.query.filter_by(user_id=user.id).all()]
+    granted = set()
+    if group_ids:
+        granted = {gv.visual_id for gv in
+                   GroupVisuals.query.filter(GroupVisuals.group_id.in_(group_ids)).all()}
+    return [v for v in visuals if v.id in granted or v.data_source_id is None]
+
+
+def build_province_payload(province, user=None):
+    """Return {visual_id: block} for a province (filtered to what `user` may see), shaped identically
+    to a slice of visual_data.json."""
+    visuals = allowed_visuals(user, province)
     by_name = {v.name: v for v in visuals}
     payload = {}
     for visual in visuals:
@@ -36,18 +53,27 @@ def build_province_payload(province):
     return payload
 
 
-def build_province_menu(province):
-    """Return the menu/presentation config for a province plus its default visual, built from the
-    visuals that actually exist in the DB for it. Replaces the static visuals.js: the frontend builds
-    its menu from this instead of a bundled file."""
+def build_province_menu(province, user=None):
+    """Return the menu/presentation config for a province plus its default visual, read from the
+    Visuals table and filtered to what `user` may see. Replaces the static visuals.js."""
+    allowed = allowed_visuals(user, province)
     config = {}
-    for visual in Visuals.query.filter_by(province=province).all():
-        menu = dict(vs.VISUAL_MENU[visual.name])
-        override = vs.PROVINCE_NEXT_VIS_OVERRIDE.get((province, visual.name))
-        if override is not None:
-            menu["next-vis"] = override
-        config[visual.name] = menu
-    return {"config": config, "default": vs.DEFAULT_VISUALS.get(province)}
+    for visual in allowed:
+        config[visual.name] = {
+            "type": visual.chart_type,
+            "data-types": visual.data_types.split(",") if visual.data_types else None,
+            "menu-parent": visual.menu_parent,
+            "menu-name": visual.menu_name,
+            "level": int(visual.level) if visual.level is not None else None,
+            "vis-parent": visual.vis_parent_name,
+            "next-vis": visual.next_vis_name,
+        }
+    # Landing visual: the flagged default if the user may see it, else the first allowed level-1 visual.
+    default = next((v.name for v in allowed if v.is_default), None)
+    if default is None:
+        default = next((v.name for v in allowed if v.level == "1"),
+                       allowed[0].name if allowed else None)
+    return {"config": config, "default": default}
 
 
 # --------------------------------------------------------------------------------------- #

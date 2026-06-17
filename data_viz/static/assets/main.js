@@ -137,6 +137,7 @@ returnObject["visual_options"]["location"]=location.toTitleCase();returnObject["
 return returnObject;}else{return secondLevelData;}}
 catch{console.warn("No second level visual exists");return null;}}
 function moveUpOneLevel(province,prevLocation=null){nextLevel=visuals[province][currentVisual]["next-vis"];if(nextLevel==null){console.error("No next level visual exists for this visual");return;}
+if(!visuals[province][nextLevel]||!currentData[nextLevel]){console.warn(`Drill target ${nextLevel}not available to this user`);return;}
 if(prevLocation!=null){route.push(`${currentVisual}/${prevLocation}`);}else{route.push(currentVisual);}
 currentVisual=visuals[province][currentVisual]["next-vis"];}
 function resetVisualControl(){let dataTypeToggle=document.getElementById("data-type-toggle");dataTypeToggle.innerHTML="";if(route.length==0){let backButton=document.getElementById("back-button");let resetButton=document.getElementById("reset-button");if(backButton.classList.contains("d-none")!=true){backButton.classList.add("d-none");}

@@ -133,9 +133,14 @@ def v1_province(province):
 def v1_province_data(province):
     if province not in active_provinces:
         return jsonify({"error": "unknown province"}), 404
+    from flask_login import current_user
     from .visual_query import build_province_payload, build_province_menu
-    # data = {visual_id: block}; config/default drive the menu (replaces the static visuals.js)
-    return jsonify({"data": build_province_payload(province), **build_province_menu(province)})
+    # data = {visual_id: block}; config/default drive the menu. Both are filtered to what the
+    # current user may see (site admins see all; otherwise GroupVisuals grants).
+    return jsonify({
+        "data": build_province_payload(province, current_user),
+        **build_province_menu(province, current_user),
+    })
 
 
 ################################# Test Code Below ######################################

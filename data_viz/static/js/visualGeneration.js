@@ -1075,6 +1075,11 @@ function moveUpOneLevel(province, prevLocation = null) {
     console.error("No next level visual exists for this visual");
     return;
   }
+  // The drill target must be in the set the server returned (RBAC may withhold it); if not, don't navigate.
+  if (!visuals[province][nextLevel] || !currentData[nextLevel]) {
+    console.warn(`Drill target ${nextLevel} not available to this user`);
+    return;
+  }
   if (prevLocation != null) {
     route.push(`${currentVisual}/${prevLocation}`);
   } else {

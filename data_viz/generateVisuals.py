@@ -1414,11 +1414,21 @@ def export_data_to_db(data=None):
             source = get_source(block["data_source"]) if "data_source" in block else None
             source_id = source.id if source else None
 
+            # Menu/presentation config -> DB columns (the read path serves these instead of VISUAL_MENU).
+            menu = vs.VISUAL_MENU[visual_id]
+            next_vis = vs.PROVINCE_NEXT_VIS_OVERRIDE.get((province, visual_id), menu.get("next-vis"))
+            menu_data_types = menu.get("data-types")
+
             visual = Visuals(
                 name=visual_id, province=province,
-                vis_type=shape, data_types=",".join(block.get("data", {}).keys()),
+                vis_type=shape, data_shape=shape,
                 data_source_id=source_id, visual_options=block.get("visual_options"),
-                data_shape=shape,
+                chart_type=menu["type"],
+                data_types=",".join(menu_data_types) if menu_data_types else None,
+                menu_name=menu.get("menu-name"), menu_parent=menu.get("menu-parent"),
+                level=str(menu["level"]),
+                vis_parent_name=menu.get("vis-parent"), next_vis_name=next_vis,
+                is_default=(vs.DEFAULT_VISUALS.get(province) == visual_id),
             )
             db.session.add(visual)
             db.session.flush()
