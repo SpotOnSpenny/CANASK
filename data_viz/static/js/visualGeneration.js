@@ -109,6 +109,112 @@ function createMenu(province) {
 }
 }
 
+// ---- Client-side adapter from the generic fact contract to the legacy block shape ----
+// The /api route serves each visual as normalized facts; this rebuilds the per-visual block shape
+// the Plotly renderers consume. Verified data-identical to the former server-side reconstruction.
+const SUBSTANCE_DISPLAY = { opioids: "Opioid", stimulants: "Stimulant" };
+
+// Series key/label composed straight from the dimension values (no legacy "_y" suffix). The
+// renderers use it as the legend/table label (title/sentence-cased there). "y" is the structural
+// value key the heatmap reads.
+function seriesKey(kind, d, d2) {
+    switch (kind) {
+        case "constant": return "y";
+        case "suffix_y": return d2;
+        case "plain": return d2;
+        case "sex_substance": return `${d2} ${SUBSTANCE_DISPLAY[d] || d}`;
+        case "manner_substance": return `${d2} ${SUBSTANCE_DISPLAY[d] || d} Deaths`;
+        default: return d2;
+    }
+}
+
+function _yearKey(y) { const m = String(y).match(/^\d+/); return m ? [parseInt(m[0], 10), String(y)] : [1e9, String(y)]; }
+function _sortYears(years) {
+    return Array.from(new Set(years)).sort((a, b) => { const ka = _yearKey(a), kb = _yearKey(b); return ka[0] - kb[0] || ka[1].localeCompare(kb[1]); });
+}
+
+
+// ---- Fact selectors: build each renderer's data on demand from a visual's normalized facts ----
+// A block's facts are [{dt: data_type, geo, t: time, d: dimension, d2: dimension2, v: value}].
+// These group/shape them into exactly what each renderer consumes (no intermediate "legacy" block).
+
+// Flat / drilled-geo line+bar data: {dataType: {x:[years], "<label>":[values]}}. Pass `geo` to
+// restrict to one location (geo-nested visuals drilled to a clicked area); null = all (flat).
+function factsToSeries(facts, kind, geo = null) {
+    const tree = {}, years = {};
+    for (const f of facts) {
+        if (f.dt === "additional_rows" || (geo != null && f.geo !== geo)) continue;
+        const key = seriesKey(kind, f.d, f.d2);
+        (tree[f.dt] = tree[f.dt] || {})[key] = tree[f.dt][key] || {}; tree[f.dt][key][f.t] = f.v;
+        (years[f.dt] = years[f.dt] || new Set()).add(f.t);
+    }
+    const data = {};
+    for (const dt of Object.keys(tree)) {
+        const o = { x: _sortYears(years[dt]) };
+        for (const key of Object.keys(tree[dt])) { const yv = tree[dt][key]; o[key] = _sortYears(Object.keys(yv)).map(y => yv[y]); }
+        data[dt] = o;
+    }
+    return data;
+}
+
+// Heatmap data: {geo: {x:[years], y:[values]}} from the counts facts (single value series per area).
+function factsToHeatmap(facts, kind) {
+    const byGeo = {}, years = {};
+    for (const f of facts) {
+        if (f.dt !== "counts") continue;
+        const key = seriesKey(kind, f.d, f.d2);
+        (byGeo[f.geo] = byGeo[f.geo] || {})[key] = byGeo[f.geo][key] || {}; byGeo[f.geo][key][f.t] = f.v;
+        (years[f.geo] = years[f.geo] || new Set()).add(f.t);
+    }
+    const out = {};
+    for (const g of Object.keys(byGeo)) {
+        const o = { x: _sortYears(years[g]) };
+        for (const key of Object.keys(byGeo[g])) { const yv = byGeo[g][key]; o[key] = _sortYears(Object.keys(yv)).map(y => yv[y]); }
+        out[g] = o;
+    }
+    return out;
+}
+
+// Table-only "additional" rows for a flat line/bar: {label: [values aligned to the year axis]}.
+function factsToAdditional(facts) {
+    const add = facts.filter(f => f.dt === "additional_rows");
+    if (!add.length) return null;
+    const rows = {}, years = new Set();
+    for (const f of add) { (rows[f.d] = rows[f.d] || {})[f.t] = f.v; years.add(f.t); }
+    const ordered = _sortYears(years);
+    const out = {};
+    for (const label of Object.keys(rows)) out[label] = ordered.map(y => (y in rows[label] ? rows[label][y] : null));
+    return out;
+}
+
+// Pie data for one drilled area: { counts: {year: {category: value}},
+//                                  tabular: {category: [per-year], "Total Samples": [per-year]} }.
+function factsToPie(facts, geo) {
+    const counts = {}, totals = {}, years = new Set();
+    for (const f of facts) {
+        if (f.geo !== geo) continue;
+        if (f.dt === "counts") { (counts[f.t] = counts[f.t] || {})[f.d2] = f.v; years.add(f.t); }
+        else if (f.dt === "additional_rows") { totals[f.t] = f.v; }
+    }
+    const ys = _sortYears(years);
+    const countsOut = {}; ys.forEach(y => countsOut[y] = Object.assign({}, counts[y]));
+    const drugs = [], seen = new Set();
+    for (const y of ys) for (const d of Object.keys(counts[y] || {})) if (!seen.has(d)) { seen.add(d); drugs.push(d); }
+    const tabular = {};
+    drugs.forEach(d => tabular[d] = ys.map(y => (counts[y] && d in counts[y]) ? counts[y][d] : 0));
+    tabular["Total Samples"] = ys.map(y => (y in totals) ? totals[y] : 0);
+    return { counts: countsOut, tabular };
+}
+
+// Regional level-3 bar for a single (area, year, drug): {x:[year], "<result>":[count]}.
+function factsToRegional(facts, geo, year, drug) {
+    const out = { x: [year] };
+    for (const f of facts) {
+        if (f.geo === geo && f.t === year && f.d === drug) out[f.d2] = [f.v];
+    }
+    return out;
+}
+
 // Function to initialize the data by fetching provincial data
 async function fetchRegionData(province){
     console.log(`Fetched data for ${province}`);
@@ -119,63 +225,71 @@ async function fetchRegionData(province){
     ]);
     const payload = await data.json();
     const geojsonJson = await geojson.json();
-    // payload = { data: {visual_id: block}, config: {visual_id: menuCfg}, default: visual_id }
-    currentData = payload.data;
+    // payload = { data: {visual_id: {facts, key_kind, shape, ...}}, config: {visual_id: menuCfg}, default }
     visuals = {
         [province]: payload.config || {},
         "default-visuals": { [province]: payload["default"] },
     };
+    currentData = payload.data;   // generic blocks; renderers derive their data from .facts (above)
     currentGeojson = geojsonJson;
 }
 
 //Master function to initialize all visuals given the province and what the visual is
 function masterLoop(location = null, year = null, category = null) {
-  // Check the level, if 1, reset the route, if not, setup the back and reset buttons, and also pull data while looping
-  let visualData;
-  
-  console.log(currentData)
-  console.log(currentVisual)
-
-  if (visuals[province][currentVisual]["level"] === 1) {
-    visualData = currentData[currentVisual];
-    lastLocation = null;
-    route = [];
-    resetVisualControl();
-  } else if (visuals[province][currentVisual]["level"] === 2) {
-    setupBackButton();
-    visualData = getSecondLevelData(province, location);
-  } else {
-    setupBackButton();
-    setupResetButton();
-    lastLocation = location;
-    visualData = getSecondLevelData(province, location, year, category);
+  // No accessible visual for this province (e.g. RBAC withheld everything, or a direct URL to a
+  // province the viewer can't see) -> show an empty state instead of dereferencing undefined config.
+  if (!currentVisual || !visuals[province] || !visuals[province][currentVisual]) {
+    const visDiv = document.getElementById("vis-div");
+    if (visDiv) visDiv.innerHTML = '<p class="text-muted text-center py-5">No visuals are available to you for this province.</p>';
+    return;
   }
+
+  const cfg = visuals[province][currentVisual];
+  const level = cfg["level"];
+  // Drill state: reset at level 1, show back/reset controls deeper.
+  if (level === 1) { lastLocation = null; route = []; resetVisualControl(); }
+  else if (level === 2) { setupBackButton(); }
+  else { setupBackButton(); setupResetButton(); lastLocation = location; }
 
   // Update the "you are here" breadcrumb for the current drill state
   renderBreadcrumb(location, category);
 
-  let dataType;
-  if (visuals[province][currentVisual]["type"] !== "map") {
-    dataType = visuals[province][currentVisual]["data-types"][0];
-  }
+  const block = currentData[currentVisual];
+  const facts = block.facts || [];
+  const kind = block.key_kind;
+  const source = block.data_source;
+  // visual_options with the current drill context injected (renderers template against these).
+  const opts = Object.assign({}, block.visual_options || {});
+  if (location != null) opts["location"] = location.toTitleCase();
+  if (category != null) opts["category"] = category.toTitleCase();
+  if (year != null) opts["year"] = year;
 
-  //run the creation function for the visual based on its type
-  switch (visuals[province][currentVisual]["type"]) {
+  const dataType = cfg["type"] !== "map" ? cfg["data-types"][0] : null;
+
+  //run the creation function for the visual based on its type, deriving its data from facts
+  switch (cfg["type"]) {
     case "heatmap":
-      createVisualHeatMap(province, currentVisual, currentGeojson, currentData[currentVisual]["data"]["counts"], currentData[currentVisual]["data_source"], currentData[currentVisual]["visual_options"]);
+      createVisualHeatMap(province, currentVisual, currentGeojson, factsToHeatmap(facts, kind), source, opts);
       break;
     case "line":
-      createVisualLine(province, visualData["data"], currentVisual, dataType, currentData[currentVisual]['data_source'], currentData[currentVisual]['visual_options'], currentData[currentVisual]['additional_rows'] || null);
+      createVisualLine(province, factsToSeries(facts, kind, location), currentVisual, dataType, source, opts,
+                       level === 1 ? factsToAdditional(facts) : null);
       break;
-    case "bar":
-      createVisualBar(province, visualData["data"], currentVisual, dataType, currentData[currentVisual]['data_source'], currentData[currentVisual]['visual_options']);
+    case "bar": {
+      const barData = block.shape === "regional"
+        ? { counts: factsToRegional(facts, location, year, category) }
+        : factsToSeries(facts, kind, location);
+      createVisualBar(province, barData, currentVisual, dataType, source, opts);
       break;
+    }
     case "map":
-      createVisualMap(province, currentVisual, currentGeojson, currentData[currentVisual]["visual_options"]);
+      createVisualMap(province, currentVisual, currentGeojson, opts);
       break;
-    case "pie":
-      createVisualPie(province, visualData['data'], currentData[currentVisual]['data_source'], currentData[currentVisual]['visual_options'], currentData[currentVisual]['tabular_data'], location);
+    case "pie": {
+      const pie = factsToPie(facts, location);
+      createVisualPie(province, { counts: pie.counts }, source, opts, { [location]: pie.tabular }, location);
       break;
+    }
   }
 }
 
@@ -455,7 +569,7 @@ async function createVisualLine(province, lineData, currentVisual, dataType, lin
   }
   
   // check to see if we have a total
-  totalPresent = !!("total_y" in traceData);
+  totalPresent = !!("total" in traceData);
 
   // Track series index so each line gets a distinct dash + marker shape, making
   // series distinguishable without relying on color alone (WCAG).
@@ -470,10 +584,10 @@ async function createVisualLine(province, lineData, currentVisual, dataType, lin
         let trace = {
           x: filteredData.x,
           y: filteredData.y,
-          name: key.replaceAll("_y", "").toSentenceCase(),
+          name: key.toSentenceCase(),
           type: "scatter",
           mode: "lines+markers",
-          stackgroup: totalPresent && key.replaceAll("_y", "").toSentenceCase() != "Total" ? "one" : undefined, // fill if total is present and not the total line
+          stackgroup: totalPresent && key.toSentenceCase() != "Total" ? "one" : undefined, // fill if total is present and not the total line
           line: {
             width: 2,
             smoothing: 1,
@@ -566,7 +680,7 @@ async function createVisualLine(province, lineData, currentVisual, dataType, lin
       let tr = table.insertRow(-1);
       tr.setAttribute("class", "align-middle");
       let tabCell = tr.insertCell(-1);
-      tabCell.innerText = visualOptions[`table-${dataType}-row`].replace("replace_me", subKey.replaceAll("_y", "").toTitleCase());
+      tabCell.innerText = visualOptions[`table-${dataType}-row`].replace("replace_me", subKey.toTitleCase());
       subValue.forEach((element, index) => {
         let tabCell = tr.insertCell(-1);
         tabCell.innerText = formatTableValue(element, index, subValue);
@@ -679,7 +793,7 @@ async function createVisualBar(province, barData, currentVisual, dataType, barSo
         x: traceData["x"],
         y: value,
         hoverinfo: visualOptions["hover-info"],
-        name: key.replaceAll("_y", "").toSentenceCase(),
+        name: key.toSentenceCase(),
         type: "bar",
         // Clean solid bars with a subtle outline (no eye-straining hatch fill);
         // the data table below the chart is the non-color alternative.
@@ -768,7 +882,7 @@ async function createVisualBar(province, barData, currentVisual, dataType, barSo
       let tr = table.insertRow(-1);
       tr.setAttribute("class", "align-middle");
       let tabCell = tr.insertCell(-1);
-      tabCell.innerText = visualOptions[`table-${dataType}-row`].replace("replace_me", subKey.replaceAll("_y", "").toTitleCase());
+      tabCell.innerText = visualOptions[`table-${dataType}-row`].replace("replace_me", subKey.toTitleCase());
       subValue.forEach((element) => {
         let tabCell = tr.insertCell(-1);
         tabCell.innerText = element;
@@ -1015,56 +1129,6 @@ async function createVisualPie(province, pieData, pieSource, visualOptions, tabu
   }
 }
 
-// Helper function to get the data for the next level of the visual
-function getSecondLevelData(province, location = null, year = null, category = null) {
-  // Find the second level of the visual from the object
-  try {
-    let secondLevelObject = currentData[currentVisual];
-    let visualType = visuals[province][currentVisual]["type"];
-
-    // separate out the second level data into the data source, and actual data
-    let secondLevelDataSource = secondLevelObject["data_source"]
-    let secondLevelData = secondLevelObject["data"]
-
-    let returnObject;
-    // if there's a specific location, pull  the data from that location
-    if (location != null && currentVisual != "regional_drug_supply_breakdown"){
-      returnObject = {
-        "type": visualType,
-        "data_source": secondLevelDataSource,
-        "data": { }, 
-        "visual_options": secondLevelObject["visual_options"] || {},
-        "tabular_data": secondLevelObject["tabular_data"] || {},
-      }
-      returnObject["visual_options"]["location"] = location.toTitleCase();
-      for (const [key, value] of Object.entries(secondLevelData)){
-        returnObject["data"][key] = value[location];
-      }
-      return returnObject;
-    } else if (location != null && currentVisual == "regional_drug_supply_breakdown") { //Find a way to consolidate this else if!
-      returnObject = {
-        "type": visualType,
-        "data_source": secondLevelDataSource,
-        "data": { }, 
-        "visual_options": secondLevelObject["visual_options"] || {},
-        "tabular_data": secondLevelObject["tabular_data"] || {},
-      }
-      returnObject["visual_options"]["location"] = location.toTitleCase();
-      returnObject["visual_options"]["category"] = category.toTitleCase();
-      returnObject["visual_options"]["year"] = year;
-      returnObject["data"]["counts"] = secondLevelData["counts"][location][year][category];
-      returnObject["data"]["counts"]["x"] = [year]
-      return returnObject;
-
-    } else {
-      return secondLevelData;
-    }
-  }
-  catch {
-    console.warn("No second level visual exists");
-    return null;
-  }
-}
 
 // Whether a visual can drill into its next level: it must declare a next-vis AND that target must
 // be in the set the server returned for this user (RBAC may withhold deeper drill levels).

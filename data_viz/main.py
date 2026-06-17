@@ -118,7 +118,7 @@ def feedback():
 # Route for V1 data visuals
 # Could automate this "active provinces check" but honestly this is easier and works fine for now
 active_provinces = ["alberta", "british-columbia", "saskatchewan", "manitoba", "ontario", "new-brunswick", "nova-scotia"]
-# Public-capable: anonymous visitors may load a province page; build_province_payload/menu filter the
+# Public-capable: anonymous visitors may load a province page; build_province_generic/menu filter the
 # content down to that viewer's accessible (e.g. public-only) visuals.
 @main_blueprint.route("/v1/province/<province>")
 def v1_province(province):
@@ -135,11 +135,12 @@ def v1_province_data(province):
     if province not in active_provinces:
         return jsonify({"error": "unknown province"}), 404
     from flask_login import current_user
-    from .visual_query import build_province_payload, build_province_menu
-    # data = {visual_id: block}; config/default drive the menu. Both are filtered to what the
-    # current user may see (site admins see all; otherwise GroupVisuals grants).
+    from .visual_query import build_province_menu
+    from .visual_generic import build_province_generic
+    # `data` is the normalized fact-based contract the frontend adapts client-side; config/default
+    # drive the menu. Both are filtered to what the current user may see.
     return jsonify({
-        "data": build_province_payload(province, current_user),
+        "data": build_province_generic(province, current_user),
         **build_province_menu(province, current_user),
     })
 

@@ -122,6 +122,19 @@ class Visuals(db.Model):
     #   group   -> signed-in members of a group granted this visual (GroupVisuals)
     #   public  -> anyone, no sign-in required
     visibility = db.Column(db.String(20), nullable = False, server_default = "private", default = "private")
+    # Self-describing query definition (Stage 2): how to select + shape this visual's DataPoints,
+    # so the read path no longer needs visual_specs.VISUAL_SPECS. `metric` is the event, `geo_type`
+    # the geo granularity, `dimension_type`/`dimension2_type` the disaggregator columns the facts
+    # carry, and `drill_chain` (JSON list) the dimension nesting order used to render/drill.
+    metric = db.Column(db.String(255), nullable = True)
+    geo_type = db.Column(db.String(255), nullable = True)
+    dimension_type = db.Column(db.String(255), nullable = True)
+    dimension2_type = db.Column(db.String(255), nullable = True)
+    drill_chain = db.Column(db.JSON, nullable = True)
+    # How the (dimension, dimension2) values compose into a series label/key
+    # (constant | suffix_y | plain | sex_substance | manner_substance) -- lets the generic read path
+    # and the client-side adapter build series without VISUAL_SPECS.
+    key_kind = db.Column(db.String(50), nullable = True)
 
     def __repr__(self):
         return f"<Visual {self.name}>"
