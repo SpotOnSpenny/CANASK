@@ -182,11 +182,16 @@ def register_cli(app):
               f"{stats['updated']} updated, {stats['pruned']} pruned.")
 
     @app.cli.command("gen-visuals", short_help="Scrape-clean the V1 data and persist it into the database.")
-    def gen_visuals():
-        from data_viz.generateVisuals import export_data_to_db
+    @click.option("--only", "only", multiple=True,
+                  help="Regenerate only these target/province keys (e.g. --only canada). "
+                       "Repeatable. Drops & rewrites just those targets' rows. Default: all.")
+    def gen_visuals(only):
+        from data_viz.generate_visuals import export_data_to_db
         from data_viz.auth.auth_helpers import reconcile_source_aliases
-        print("Generating V1 visual data into the database...")
-        export_data_to_db()
+        targets = list(only) or None
+        print("Generating V1 visual data into the database"
+              + (f" (only: {', '.join(targets)})" if targets else "") + "...")
+        export_data_to_db(only=targets)
         # Keep group access pointing at the canonical pipeline data sources.
         merges = reconcile_source_aliases()
         if merges:

@@ -10,7 +10,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 # Internal Dependency Imports
-from .generateVisuals import pull_data, filter_data
+from .generate_visuals import pull_data, filter_data
 from data_viz.auth.auth import require_auth
 
 #######################################################################################

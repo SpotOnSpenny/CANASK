@@ -484,7 +484,7 @@ def visibility_rows_for_source(source_id):
     return rows
 
 # Legacy/seed data-source names mapped to the canonical pipeline name (the name the scraped data
-# actually carries, which generateVisuals.export_data_to_db uses and Visuals.data_source_id points
+# actually carries, which generate_visuals.export_data_to_db uses and Visuals.data_source_id points
 # at). reconcile_source_aliases() folds the legacy rows into the canonical ones so group grants and
 # visuals reference the same DataSources rows.
 SOURCE_ALIASES = {

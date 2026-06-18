@@ -321,13 +321,13 @@ def export_on_visual_data():
     with open("static/js/on_vis.json", "w") as file:
         json.dump(graph_data, file)
 
-def v1_drugchecking_export_clean():
+def v1_drugchecking_export_clean(writer, province):
     # Pan-Canadian drug-checking harmonized data: one row per checked sample, spanning provinces.
-    # Feeds a category_treemap (Category -> Expected Drug) with Province + Site as geo levels.
+    # New-style cleaner -- emits a category_treemap (Category -> Expected Drug, Province + Site as
+    # geo levels) straight to the writer, no intermediate block dict. `province` is the target scope
+    # key ("canada"); the per-sample Province lives in the geo composite.
     pulled = pull_data(["drugChecking"])["drugChecking"]
     df = pulled["dataframe"].copy()
-    last_updated = pulled["date_updated"]
-    data_until = pulled["data_until"]
     # The raw headers carry stray leading/trailing and double spaces (e.g. "Visit Date ",
     # "Expected Drug Category  (1)"); normalize whitespace so the column refs below are clean.
     df.columns = df.columns.str.strip().str.replace(r"\s+", " ", regex=True)
@@ -335,38 +335,36 @@ def v1_drugchecking_export_clean():
     # Province dropdown groups them as one (extend this map as new provinces appear).
     df["Province"] = df["Province"].replace({"Sask": "Saskatchewan"})
 
-    checked_samples_by_expected_drug = {
-        "data_source": {
-            "name": "Pan-Canadian Drug Checking Data Harmonization",
-            "about": """
+    v = writer.visual(province, "checked_samples_by_expected_drug")
+    if v is None:
+        return   # no definition yet (run `define-visuals`); writer already warned
+    v.use_source({
+        "name": "Pan-Canadian Drug Checking Data Harmonization",
+        "about": """
 This data is collected by individual organizations across Canada, and provided to the CCSA working towards the goal of data harmonization across drug checking sites.
 
 To find out more about drug checking, and the CCSA's Drug Checking working group, please visit the link below:
-            """,
-            "link": "https://www.ccsa.ca/en/data-trends/drug-checking",
-            "last_updated": last_updated,
-            "data_until": data_until
-        },
-        "data": {"counts": {}},
-    }
+        """,
+        "link": "https://www.ccsa.ca/en/data-trends/drug-checking",
+        "last_updated": pulled["date_updated"],
+        "data_until": pulled["data_until"],
+    })
+
     # Drop rows missing any grouping key, then parse "Visit Date" (M/D/YYYY) to a "YYYY-MM" month
     # key -- the same month grain the BC treemap uses (client derives year/seasonal/all-time).
-    treemap_df = df.dropna(
+    df = df.dropna(
         subset=["Site/Organization", "Province", "Expected Drug Category (1)", "Expected Drug (1)"]).copy()
-    treemap_df["_month"] = pandas.to_datetime(
-        treemap_df["Visit Date"], format="%m/%d/%Y", errors="coerce").dt.strftime("%Y-%m")
-    treemap_df = treemap_df[treemap_df["_month"].notna()]
-    # Geo levels ordered broad -> narrow ("Province||Site") so the client's cascade is Province
-    # then Site; matches manifest geo_levels=["Province", "Site/Organization"].
-    for (province, site), site_df in treemap_df.groupby(["Province", "Site/Organization"]):
-        geo = f"{province}||{site}"
-        by_geo = checked_samples_by_expected_drug["data"]["counts"].setdefault(geo, {})
-        grouped = site_df.groupby(
-            ["_month", "Expected Drug Category (1)", "Expected Drug (1)"]).size()
-        for (month, category, drug), n in grouped.items():
-            by_geo.setdefault(month, {}).setdefault(category, {})[drug] = int(n)
-
-    return {"checked_samples_by_expected_drug": checked_samples_by_expected_drug}
+    df["_month"] = pandas.to_datetime(
+        df["Visit Date"], format="%m/%d/%Y", errors="coerce").dt.strftime("%Y-%m")
+    df = df[df["_month"].notna()]
+    # Geo levels ordered broad -> narrow ("Province||Site") so the client's cascade is Province then
+    # Site; matches manifest geo_levels=["Province", "Site/Organization"]. Types (metric/geo_type/
+    # dimension*) come from the Visuals row via the writer -- cleaning only supplies values.
+    for (prov, site), site_df in df.groupby(["Province", "Site/Organization"]):
+        geo = f"{prov}||{site}"
+        counts = site_df.groupby(["_month", "Expected Drug Category (1)", "Expected Drug (1)"]).size()
+        for (month, category, drug), n in counts.items():
+            v.fact(geo, month, int(n), dimension=category, dimension2=drug, time_frame_type="month")
 
 
 def v1_BC_export_clean():
@@ -1360,24 +1358,6 @@ def v1_NB_export_clean():
 
 
 
-# Export all data to a json file, using URL friendly province names as keys
-# These keys will be passed as parameters to javascript so that we can pull the right data for each page
-def export_data_json():
-    data = {
-        "british-columbia": v1_BC_export_clean(),
-        "alberta": v1_AB_export_clean(),
-        "saskatchewan": v1_SK_export_clean(),
-        "manitoba": v1_MB_export_clean(),
-        "new-brunswick": v1_NB_export_clean()
-    }
-
-    # Residual V0 data for other provinces not yet migrated to V1
-    export_nat_drug_toxicity_deaths()
-
-    # Write the data to a json file
-    with open(os.path.join(os.path.abspath(os.path.dirname(__file__)), "static/js/visual_data.json"), "w") as file:
-        json.dump(data, file, indent=4)
-
 ###########################################################################################
 #                          DB persistence (the data layer)                                #
 # Reuses the exact same cleaned dicts the v1_*_export_clean() functions already produce and #
@@ -1493,60 +1473,48 @@ def _primary_x(block):
     return []
 
 
-def export_data_to_db(data=None):
-    """Build the V1 cleaned data (same dicts as export_data_json) and persist its DataPoints.
+class FactWriter:
+    """Collects normalized facts during a regeneration run, then drops & rewrites ONLY the rows the
+    run reproduces -- the ``(data_source_id, geo)`` territory it emitted + the touched visuals'
+    predicates -- in a single transaction, so untouched sources keep their rows.
 
-    Visual *definitions* (the Visuals rows -- shape / metric / dimensions / key encoding / menu
-    config) are authored separately by data_viz.visual_definitions.sync_visual_definitions
-    (`flask define-visuals`). This function only (re)builds the data layer: for each cleaned block it
-    looks up the matching Visuals row and reads its self-describing columns to map the block into
-    normalized DataPoints + VisualQuery predicates.
+    New-style cleaners emit through :meth:`visual` / :class:`VisualWriter`; the legacy block engine
+    emits through :meth:`point` / :meth:`predicate`. Both share this buffer + scoped :meth:`finish`."""
 
-    `data` may be injected ({province: {visual_id: block}}) to persist already-cleaned dicts
-    without re-scraping (used by the round-trip verification against the golden visual_data.json).
-    """
-    from data_viz.database import db
-    from data_viz.database.models import DataSources, DataPoints, Visuals, VisualQuery
+    def __init__(self, db, models):
+        self.db = db
+        self.DataSources, self.DataPoints, self.Visuals, self.VisualQuery = models
+        self._sources = {}        # name -> DataSources row (upserted immediately for its id)
+        self._points = {}         # natural-key -> buffered DataPoints (dedups within the run)
+        self._preds = {}          # (visual_id, type, value) -> buffered VisualQuery kwargs (dedup)
+        self._territory = set()   # (data_source_id, geo) pairs this run reproduces -> delete scope
+        self._visual_ids = set()  # visuals whose predicates this run reproduces -> delete scope
 
-    if data is None:
-        data = {province: builder() for province, builder in V1_PROVINCES.items()}
-    substance_map = _national_substance_map()
-
-    # The VisualQuery / DataPoints tables are owned entirely by this pipeline, so a clean
-    # wipe-and-rebuild keeps regeneration idempotent. Visuals definitions + their visibility /
-    # GroupVisuals grants are owned by define-visuals / the UI, so they are left in place (we only
-    # refresh each DataSource's about / scrape-date strings from the freshly scraped block).
-    VisualQuery.query.delete()
-    DataPoints.query.delete()
-    db.session.flush()
-
-    source_cache = {}        # name -> DataSources row
-    point_cache = {}         # natural-key tuple -> DataPoints row (dedups shared metrics)
-
-    def get_source(data_source):
+    def upsert_source(self, data_source):
+        """Fetch/create the DataSources row by name, refresh its about/scrape-date strings, return id."""
         name = data_source["name"]
-        source = source_cache.get(name)
+        source = self._sources.get(name)
         if source is None:
-            source = DataSources.query.filter_by(name=name).first()
-            if source is None:
-                source = DataSources(name=name)
-                db.session.add(source)
-            source_cache[name] = source
+            source = self.DataSources.query.filter_by(name=name).first() or self.DataSources(name=name)
+            self.db.session.add(source)
+            self._sources[name] = source
         source.link = data_source.get("link", source.link)
         source.about = data_source.get("about")
         source.last_updated_str = data_source.get("last_updated")
         source.data_until_str = data_source.get("data_until")
-        db.session.flush()
-        return source
+        self.db.session.flush()   # need source.id
+        return source.id
 
-    def add_point(source_id, geo_type, geo, time_frame, metric, data_type,
-                  dim_type=None, dim_val=None, dim2_type=None, dim2_val=None, value=None,
-                  time_frame_type=TIME_FRAME_TYPE):
-        key = (source_id, geo_type, geo, time_frame, metric, data_type, dim_type, dim_val, dim2_type, dim2_val)
-        if key in point_cache:
+    def point(self, source_id, geo_type, geo, time_frame, metric, data_type,
+              dim_type=None, dim_val=None, dim2_type=None, dim2_val=None, value=None,
+              time_frame_type=TIME_FRAME_TYPE):
+        """Buffer one DataPoints row (dedup by natural key) and record its (source, geo) territory."""
+        key = (source_id, geo_type, geo, str(time_frame), metric, data_type,
+               dim_type, dim_val, dim2_type, dim2_val)
+        if key in self._points:
             return
         num, text = _split_value(value)
-        point = DataPoints(
+        self._points[key] = self.DataPoints(
             data_source_id=source_id, geo_type=geo_type, geo=geo,
             time_frame_type=time_frame_type, time_frame=str(time_frame),
             data_metric=metric, data_type=data_type,
@@ -1554,89 +1522,197 @@ def export_data_to_db(data=None):
             dimension2_type=dim2_type, dimension2_value=dim2_val,
             data_value=num, data_value_text=text,
         )
-        point_cache[key] = point
-        db.session.add(point)
+        if source_id is not None:
+            self._territory.add((source_id, geo))
 
-    for province, visuals in data.items():
-        for visual_id, block in visuals.items():
-            visual = Visuals.query.filter_by(province=province, name=visual_id).first()
-            if visual is None:
-                print(f"  ! No definition for {province}/{visual_id} -- "
-                      f"run `flask define-visuals` first. Skipping its data.")
+    def predicate(self, visual_id, filter_type, filter_value):
+        """Buffer a VisualQuery predicate (dedup) and mark the visual for a scoped predicate refresh."""
+        self._visual_ids.add(visual_id)
+        self._preds[(visual_id, filter_type, str(filter_value))] = dict(
+            for_visual_id=visual_id, filter_type=filter_type, filter_value=str(filter_value))
+
+    def visual(self, province, visual_id):
+        """A VisualWriter bound to this visual's Visuals row, or None (with a warning) if undefined."""
+        row = self.Visuals.query.filter_by(province=province, name=visual_id).first()
+        if row is None:
+            print(f"  ! No definition for {province}/{visual_id} -- "
+                  f"run `flask define-visuals` first. Skipping its data.")
+            return None
+        return VisualWriter(self, row)
+
+    def finish(self):
+        """One transaction: drop only the reproduced (source, geo) territory + touched predicates,
+        then insert the buffered rows. Other sources/provinces are left untouched."""
+        for source_id, geo in self._territory:
+            self.DataPoints.query.filter_by(data_source_id=source_id, geo=geo).delete()
+        for visual_id in self._visual_ids:
+            self.VisualQuery.query.filter_by(for_visual_id=visual_id).delete()
+        self.db.session.flush()
+        for point in self._points.values():
+            self.db.session.add(point)
+        for kwargs in self._preds.values():
+            self.db.session.add(self.VisualQuery(**kwargs))
+        self.db.session.commit()
+
+
+class VisualWriter:
+    """Bound to one Visuals row: cleaning passes VALUES (geo/time/dim values/count); the metric and
+    dimension TYPES come from the row, so the manifest stays the single source of truth."""
+
+    def __init__(self, writer, visual):
+        self.writer = writer
+        self.visual = visual
+        self.source_id = visual.data_source_id
+
+    def use_source(self, data_source):
+        """Refresh this run's DataSources metadata from the freshly scraped block."""
+        self.source_id = self.writer.upsert_source(data_source)
+        return self
+
+    def _dim_type(self, dimension):
+        # regional/treemap author dimension_type in the manifest; the flat/geo substance slot is
+        # untyped there, so default it to "substance" when a substance value is supplied.
+        return self.visual.dimension_type or ("substance" if dimension is not None else None)
+
+    def fact(self, geo, time_frame, value, *, data_type="counts",
+             dimension=None, dimension2=None, time_frame_type=None):
+        v = self.visual
+        self.writer.point(self.source_id, v.geo_type, geo, time_frame, v.metric, data_type,
+                          self._dim_type(dimension), dimension, v.dimension2_type, dimension2, value,
+                          time_frame_type=(time_frame_type or TIME_FRAME_TYPE))
+        if v.geo_type == "province":
+            self.writer.predicate(v.id, "geo", geo)   # province-shared facts scoped to this geo
+
+    def additional(self, geo, time_frame, label, value, *, time_frame_type=None):
+        """A table-only total row: one additional_rows fact + its additional_metric predicate."""
+        metric = additional_metric(label)
+        self.writer.point(self.source_id, self.visual.geo_type, geo, time_frame, metric,
+                          "additional_rows", ADDITIONAL_DIM_TYPE, label, None, None, value,
+                          time_frame_type=(time_frame_type or TIME_FRAME_TYPE))
+        self.writer.predicate(self.visual.id, "additional_metric", metric)
+
+
+# URL-friendly target key -> new-style cleaner that emits straight to the writer: builder(writer, key)
+V1_DIRECT = {
+    "canada": v1_drugchecking_export_clean,
+}
+
+
+def export_data_to_db(only=None, data=None):
+    """Regenerate V1 facts into DataPoints + VisualQuery.
+
+    `only`: iterable of target/province keys (e.g. ["canada"]) to regenerate; None = all targets.
+    Only the rows the selected run reproduces -- its (data_source_id, geo) territory + the touched
+    visuals' predicates -- are dropped and rewritten, in one transaction, so untouched sources keep
+    their rows and a target whose scrape is missing is simply skipped.
+
+    Visual *definitions* (the Visuals rows) are authored separately by `flask define-visuals`; this
+    layer reads each row to learn how to map cleaned data into facts. `data` may be injected
+    ({province: {visual_id: block}}) to persist already-cleaned legacy blocks without re-scraping.
+    """
+    from data_viz.database import db
+    from data_viz.database.models import DataSources, DataPoints, Visuals, VisualQuery
+
+    writer = FactWriter(db, (DataSources, DataPoints, Visuals, VisualQuery))
+    targets = set(only) if only else None
+    substance_map = _national_substance_map()
+
+    # New-style cleaners emit straight into the writer's buffer.
+    for province, builder in V1_DIRECT.items():
+        if targets and province not in targets:
+            continue
+        try:
+            builder(writer, province)
+        except FileNotFoundError as exc:
+            print(f"  ! skipping {province}: missing scrape ({exc})")
+
+    # Legacy block-dict cleaners -> the same writer via _persist_legacy_blocks (unchanged shapes).
+    if data is None:
+        data = {}
+        for province, builder in V1_PROVINCES.items():
+            if targets and province not in targets:
                 continue
-            shape = visual.data_shape
-            # Refresh the source's about / scrape-date strings from this run's block; the visual's
-            # data_source_id was already authored by define-visuals (resolved by the same name).
-            source = get_source(block["data_source"]) if "data_source" in block else None
-            source_id = source.id if source else visual.data_source_id
+            try:
+                data[province] = builder()
+            except FileNotFoundError as exc:
+                print(f"  ! skipping {province}: missing scrape ({exc})")
+    for province, visuals in data.items():
+        if targets and province not in targets:
+            continue
+        _persist_legacy_blocks(writer, province, visuals, substance_map)
 
-            if shape == "map_none":
-                continue   # no facts; the read path renders it from visual_options only
+    writer.finish()
 
-            geo_type = visual.geo_type
-            # Only the predicates the read path consumes are persisted: `geo` (scopes the shared
-            # province-level facts to this province) and `additional_metric` (table-only totals).
-            # Everything else the read path needs lives on the Visuals row itself.
-            predicates = []
 
-            if shape == "flat_series":
-                geo = PROVINCE_DISPLAY[province]
-                predicates.append(("geo", geo))
-                for dtype, series in block["data"].items():
-                    _persist_series(add_point, source_id, geo_type, geo, visual, dtype, series, substance_map)
-                _persist_additional(add_point, predicates, block, source_id, geo_type, geo)
+def _persist_legacy_blocks(writer, province, visuals, substance_map):
+    """Map each legacy cleaned block dict into facts via the writer -- the original per-shape
+    unpacking, now emitting through writer.point()/predicate(). Deleted once every legacy cleaner
+    has migrated to the VisualWriter.fact() API."""
+    for visual_id, block in visuals.items():
+        vw = writer.visual(province, visual_id)
+        if vw is None:
+            continue
+        row = vw.visual
+        shape = row.data_shape
+        if "data_source" in block:
+            vw.use_source(block["data_source"])
+        source_id = vw.source_id
+        geo_type = row.geo_type
 
-            elif shape == "geo_series":
-                for dtype, geo_dict in block["data"].items():
-                    for geo, series in geo_dict.items():
-                        _persist_series(add_point, source_id, geo_type, geo, visual, dtype, series, substance_map)
+        if shape == "map_none":
+            continue   # no facts; the read path renders it from visual_options only
 
-            elif shape == "pie_nested":
-                predicates.append(("additional_metric", additional_metric("Total Samples")))
-                for geo, year_dict in block["data"]["counts"].items():
-                    for year, drug_dict in year_dict.items():
+        if shape == "flat_series":
+            geo = PROVINCE_DISPLAY[province]
+            writer.predicate(row.id, "geo", geo)   # scope the shared province-level facts to this geo
+            for dtype, series in block["data"].items():
+                _persist_series(writer, source_id, geo_type, geo, row, dtype, series, substance_map)
+            _persist_additional(writer, block, source_id, geo_type, geo, row)
+
+        elif shape == "geo_series":
+            for dtype, geo_dict in block["data"].items():
+                for geo, series in geo_dict.items():
+                    _persist_series(writer, source_id, geo_type, geo, row, dtype, series, substance_map)
+
+        elif shape == "pie_nested":
+            tot = additional_metric("Total Samples")
+            writer.predicate(row.id, "additional_metric", tot)
+            for geo, year_dict in block["data"]["counts"].items():
+                for year, drug_dict in year_dict.items():
+                    for drug, value in drug_dict.items():
+                        writer.point(source_id, geo_type, geo, year, row.metric, "counts",
+                                     None, None, row.dimension2_type, drug, value)
+            # Total Samples (table-only) per health authority / year
+            for geo, tabular in block.get("tabular_data", {}).items():
+                totals = tabular.get("Total Samples", [])
+                years = list(block["data"]["counts"].get(geo, {}).keys())
+                for i, year in enumerate(years):
+                    if i < len(totals):
+                        writer.point(source_id, geo_type, geo, year, tot, "additional_rows",
+                                     ADDITIONAL_DIM_TYPE, "Total Samples", None, None, totals[i])
+
+        elif shape == "regional":
+            for geo, year_dict in block["data"].get("counts", {}).items():
+                for year, drug_dict in year_dict.items():
+                    for drug, result_dict in drug_dict.items():
+                        for result_key, count_list in result_dict.items():
+                            result = result_key[:-2] if result_key.endswith("_y") else result_key
+                            writer.point(source_id, geo_type, geo, year, row.metric, "counts",
+                                         row.dimension_type, drug,
+                                         row.dimension2_type, result, count_list[0])
+
+        elif shape == "category_treemap":
+            # Month-grain facts; geo is an ordered "||"-joined level composite.
+            for geo, month_dict in block["data"].get("counts", {}).items():
+                for month, cat_dict in month_dict.items():
+                    for category, drug_dict in cat_dict.items():
                         for drug, value in drug_dict.items():
-                            add_point(source_id, geo_type, geo, year, visual.metric, "counts",
-                                      None, None, visual.dimension2_type, drug, value)
-                # Total Samples (table-only) per health authority / year
-                for geo, tabular in block.get("tabular_data", {}).items():
-                    totals = tabular.get("Total Samples", [])
-                    years = list(block["data"]["counts"].get(geo, {}).keys())
-                    for i, year in enumerate(years):
-                        if i < len(totals):
-                            add_point(source_id, geo_type, geo, year,
-                                      additional_metric("Total Samples"), "additional_rows",
-                                      ADDITIONAL_DIM_TYPE, "Total Samples", None, None, totals[i])
-
-            elif shape == "regional":
-                for geo, year_dict in block["data"].get("counts", {}).items():
-                    for year, drug_dict in year_dict.items():
-                        for drug, result_dict in drug_dict.items():
-                            for result_key, count_list in result_dict.items():
-                                result = result_key[:-2] if result_key.endswith("_y") else result_key
-                                add_point(source_id, geo_type, geo, year, visual.metric, "counts",
-                                          visual.dimension_type, drug,
-                                          visual.dimension2_type, result, count_list[0])
-
-            elif shape == "category_treemap":
-                # Month-grain facts (time_frame="YYYY-MM"); geo is an ordered "||"-joined level
-                # composite (e.g. "<Health Authority>||<Site>"). dimension/dimension2 hold the
-                # treemap nesting axes; the client derives year/seasonal/all-time + every dropdown.
-                for geo, month_dict in block["data"].get("counts", {}).items():
-                    for month, cat_dict in month_dict.items():
-                        for category, drug_dict in cat_dict.items():
-                            for drug, value in drug_dict.items():
-                                add_point(source_id, geo_type, geo, month, visual.metric, "counts",
-                                          visual.dimension_type, category,
-                                          visual.dimension2_type, drug, value,
-                                          time_frame_type="month")
-
-            _persist_predicates(VisualQuery, db, visual.id, predicates)
-
-    db.session.commit()
+                            writer.point(source_id, geo_type, geo, month, row.metric, "counts",
+                                         row.dimension_type, category,
+                                         row.dimension2_type, drug, value, time_frame_type="month")
 
 
-def _persist_series(add_point, source_id, geo_type, geo, visual, dtype, series, substance_map):
+def _persist_series(writer, source_id, geo_type, geo, visual, dtype, series, substance_map):
     """Persist one (data_type, geo) series block (shared by flat_series and geo_series): every non-x
     key is a legacy series key decoded into (substance, disaggregator) dims, one fact per (year, value)."""
     x = series.get("x", [])
@@ -1647,32 +1723,24 @@ def _persist_series(add_point, source_id, geo_type, geo, visual, dtype, series, 
         dim_type = "substance" if dim_val is not None else None
         for i, year in enumerate(x):
             if i < len(values):
-                add_point(source_id, geo_type, geo, year, visual.metric, dtype,
-                          dim_type, dim_val, visual.dimension2_type, dim2_val, values[i])
+                writer.point(source_id, geo_type, geo, year, visual.metric, dtype,
+                             dim_type, dim_val, visual.dimension2_type, dim2_val, values[i])
 
 
-def _persist_additional(add_point, predicates, block, source_id, geo_type, geo):
+def _persist_additional(writer, block, source_id, geo_type, geo, visual):
     """Persist additional (table-only) rows for a flat visual + record their metrics as predicates."""
     x = _primary_x(block)
     for label, values in block.get("additional_rows", {}).items():
         metric = additional_metric(label)
-        predicates.append(("additional_metric", metric))
+        writer.predicate(visual.id, "additional_metric", metric)
         for i, year in enumerate(x):
             if i < len(values):
-                add_point(source_id, geo_type, geo, year, metric, "additional_rows",
-                          ADDITIONAL_DIM_TYPE, label, None, None, values[i])
-
-
-def _persist_predicates(VisualQuery, db, visual_id, predicates):
-    for filter_type, filter_value in predicates:
-        db.session.add(VisualQuery(filter_type=filter_type, filter_value=str(filter_value),
-                                   for_visual_id=visual_id))
+                writer.point(source_id, geo_type, geo, year, metric, "additional_rows",
+                             ADDITIONAL_DIM_TYPE, label, None, None, values[i])
 
 
 # Test code below
 if __name__ == '__main__':
-    #data = v1_SK_export_clean()
-    # data = v1_clean_national_data("New Brunswick")
-    # print(data)
-    v1_drugchecking_export_clean()
-    #export_data_json()
+    # The cleaners write straight to the DB now and need an app context + a FactWriter, so run a
+    # regeneration via the CLI instead, e.g.:  flask gen-visuals --only canada
+    pass

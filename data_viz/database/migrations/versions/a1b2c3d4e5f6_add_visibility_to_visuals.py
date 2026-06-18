@@ -28,7 +28,7 @@ def upgrade():
                                       nullable=False, server_default='private'))
     # Scaffolding maps carry no data of their own (visual_options only) and exist to host drillable
     # children -> keep them reachable for everyone so navigation isn't bricked. This matches the
-    # default applied by generateVisuals.export_data_to_db for map_none / sourceless visuals.
+    # default applied by generate_visuals.export_data_to_db for map_none / sourceless visuals.
     op.execute("UPDATE visuals SET visibility = 'public' "
                "WHERE data_source_id IS NULL OR data_shape = 'map_none'")
 

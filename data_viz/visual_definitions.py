@@ -4,7 +4,7 @@
 # upserts the Visuals rows that describe each visual -- its data shape/metric/dimensions,   #
 # series-key encoding, chart type, menu placement, and drill links. This is the authoring   #
 # half of the V1 pipeline: definitions live in the DB, so the data generator                #
-# (generateVisuals.export_data_to_db) reads them straight off each Visuals row instead of   #
+# (generate_visuals.export_data_to_db) reads them straight off each Visuals row instead of  #
 # a hard-coded Python registry, and the serve path already reads them too.                  #
 #                                                                                           #
 # Ownership split (no drift): manifests own definition fields; the Data Ownership UI owns    #
