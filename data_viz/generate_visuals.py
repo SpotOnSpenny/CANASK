@@ -2,10 +2,13 @@
 import os
 import json
 import datetime
+import logging
 import re
 
 # External Dependency Imports
 import pandas
+
+logger = logging.getLogger(__name__)
 
 #######################################################################################
 #                                        Notes:                                       #
@@ -1421,6 +1424,10 @@ def _resolve_substance(visual, disaggregator, substance_map):
     mode = visual.substance
     if mode == "opioids":
         return "opioids"
+    if mode == "from_key":
+        # Substance is carried by the series key itself: parse it from the disaggregator the same way
+        # the sex_substance/manner_substance kinds do, falling back to the raw value if unmapped.
+        return SUBSTANCE_FROM_KEY.get(disaggregator, disaggregator)
     if mode == "lookup" and substance_map:
         return substance_map.get(disaggregator)
     return None
@@ -1624,7 +1631,10 @@ def export_data_to_db(only=None, data=None):
         try:
             builder(writer, province)
         except FileNotFoundError as exc:
-            print(f"  ! skipping {province}: missing scrape ({exc})")
+            # Only a *missing scrape* is skipped (the province keeps its existing rows). Any other
+            # error (e.g. a cleaner referencing a column the source dropped) is a real defect and is
+            # left to propagate rather than silently dropping the province's data.
+            logger.warning("Skipping %s: missing scrape (%s)", province, exc)
 
     # Legacy block-dict cleaners -> the same writer via _persist_legacy_blocks (unchanged shapes).
     if data is None:
@@ -1635,13 +1645,39 @@ def export_data_to_db(only=None, data=None):
             try:
                 data[province] = builder()
             except FileNotFoundError as exc:
-                print(f"  ! skipping {province}: missing scrape ({exc})")
+                logger.warning("Skipping %s: missing scrape (%s)", province, exc)
     for province, visuals in data.items():
         if targets and province not in targets:
             continue
         _persist_legacy_blocks(writer, province, visuals, substance_map)
 
     writer.finish()
+
+
+# Per-shape required structure for a legacy block dict: the nested key path each branch of
+# _persist_legacy_blocks dereferences. Validated up front so a shape<->structure mismatch fails with
+# a message naming the visual, instead of a KeyError/TypeError deep inside persistence.
+_BLOCK_REQUIRED_KEYS = {
+    "flat_series": [["data"]],
+    "geo_series": [["data"]],
+    "pie_nested": [["data", "counts"]],
+    "regional": [["data", "counts"]],
+    "category_treemap": [["data", "counts"]],
+    "map_none": [],
+}
+
+
+def _validate_block(shape, block, province, visual_id):
+    """Assert `block` carries the nested keys `shape` will dereference; raise ValueError naming the
+    visual otherwise. Unknown shapes are left to the branch dispatch below (no-op here)."""
+    for path in _BLOCK_REQUIRED_KEYS.get(shape, []):
+        node = block
+        for key in path:
+            if not isinstance(node, dict) or key not in node:
+                raise ValueError(
+                    f"{province}/{visual_id} (shape={shape}) is missing required block key "
+                    f"{'->'.join(path)}")
+            node = node[key]
 
 
 def _persist_legacy_blocks(writer, province, visuals, substance_map):
@@ -1654,6 +1690,7 @@ def _persist_legacy_blocks(writer, province, visuals, substance_map):
             continue
         row = vw.visual
         shape = row.data_shape
+        _validate_block(shape, block, province, visual_id)
         if "data_source" in block:
             vw.use_source(block["data_source"])
         source_id = vw.source_id

@@ -93,22 +93,32 @@
         </div>
     </div>
     <script type="text/javascript">
-    (async function() {
-        try{
+    (function() {
+        async function initProvince() {
             province = "{{province}}";
-            // fetch first: it populates the menu config (visuals) from the DB before we read it
-            await fetchRegionData(province);
-            currentVisual = visuals["default-visuals"][province];
-            createMenu(province);
-            masterLoop();
-        } catch(error) {
-            document.addEventListener('DOMContentLoaded', async function () {
-            province = "{{province}}";
-            await fetchRegionData(province);
-            currentVisual = visuals["default-visuals"][province];
-            createMenu(province);
-            masterLoop();
-            });
+            try {
+                // fetch first: it populates the menu config (visuals) from the DB before we read it
+                await fetchRegionData(province);
+                currentVisual = visuals["default-visuals"][province];
+                createMenu(province);
+                masterLoop();
+            } catch (error) {
+                // Surface a real failure state instead of retrying the identical sequence: a failed
+                // fetch/parse won't succeed on a second identical attempt, leaving the user on the
+                // skeleton loaders forever.
+                console.error("Failed to load province '" + province + "':", error);
+                const visDiv = document.getElementById("vis-div");
+                if (visDiv) {
+                    visDiv.innerHTML = '<p class="text-danger text-center py-5">Sorry, we couldn\'t load the data for this province. Please refresh to try again.</p>';
+                }
+            }
+        }
+        // The earlier failure mode was the script running before the DOM was ready; gate on
+        // readyState rather than catching and re-running.
+        if (document.readyState === "loading") {
+            document.addEventListener("DOMContentLoaded", initProvince);
+        } else {
+            initProvince();
         }
     })();
     </script>

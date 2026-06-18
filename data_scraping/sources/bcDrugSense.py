@@ -79,7 +79,7 @@ def bc_drugsense_scrape(driver):
     table_pages = int(WebDriverWait(driver, 10).until(expected_conditions.presence_of_element_located((By.XPATH, "//div[contains(@class, 'last-page')]"))).text)
     current_page = int(WebDriverWait(driver, 10).until(expected_conditions.presence_of_element_located((By.XPATH, "//div[contains(@class, 'current-page-container')]"))).text)
     # Instantiate a dataframe that matches the DAS data structure
-    drug_data = pandas.DataFrame(columns=["Visit Date", "Expected Drug", "Category", "Colour", "Texture", "Fentanyl Strip", "Benzo Strip", "Medetomidine Strip" "Spectrometer"])
+    drug_data = pandas.DataFrame(columns=["Visit Date", "Expected Drug", "Category", "Colour", "Texture", "Fentanyl Strip", "Benzo Strip", "Medetomidine Strip", "Spectrometer"])
     # Loop through each page of the table
     with alive_bar(len(list(range(0, table_pages))), theme="smooth", title="Collecting pagainated table data...") as bar:
         while current_page <= table_pages:

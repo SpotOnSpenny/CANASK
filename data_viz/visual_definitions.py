@@ -135,7 +135,10 @@ def _apply_definition(visual, entry, source_id):
     # Menu / presentation config (served to the frontend; formerly the static visuals.js).
     visual.chart_type = entry.get("chart_type")
     data_types = entry.get("data_types")
-    visual.data_types = ",".join(data_types) if data_types else None
+    # Comma-joined for storage; drop empty/whitespace members so the split on the read path never
+    # yields a stray "" that would flow to the client as a phantom data type.
+    cleaned_types = [dt for dt in (data_types or []) if dt and dt.strip()]
+    visual.data_types = ",".join(cleaned_types) if cleaned_types else None
     visual.menu_name = entry.get("menu_name")
     visual.menu_parent = entry.get("menu_parent")
     level = entry.get("level")
@@ -147,10 +150,21 @@ def _apply_definition(visual, entry, source_id):
 
 def _inherit_map_sources():
     for visual in Visuals.query.filter_by(data_shape="map_none").all():
-        if visual.next_vis_name and visual.data_source_id is None:
-            child = Visuals.query.filter_by(province=visual.province, name=visual.next_vis_name).first()
-            if child and child.data_source_id is not None:
+        if not (visual.next_vis_name and visual.data_source_id is None):
+            continue
+        # Walk the drill chain until a descendant carries a source: a sourceless map may point at
+        # another sourceless map (a map-to-map heading) with the real data two+ levels down, so the
+        # immediate child isn't always the one that knows the source.
+        child = Visuals.query.filter_by(province=visual.province, name=visual.next_vis_name).first()
+        seen = {visual.name}
+        while child is not None and child.name not in seen:
+            if child.data_source_id is not None:
                 visual.data_source_id = child.data_source_id
+                break
+            seen.add(child.name)
+            if not child.next_vis_name:
+                break
+            child = Visuals.query.filter_by(province=visual.province, name=child.next_vis_name).first()
 
 
 def _prune(scopes):

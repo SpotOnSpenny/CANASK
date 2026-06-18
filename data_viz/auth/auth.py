@@ -920,9 +920,15 @@ def set_visibility(visual_id):
     try:
         set_visual_visibility(visual_id, request.form.get("visibility", ""), changed_by = current_user.id)
     except ValueError as exc:
-        # Flash (delivered via the HX out-of-band swap) and re-render the section unchanged so the
-        # toggle states reset.
+        # Validation failure (bad value / drill-hierarchy conflict): set_visual_visibility raises
+        # before mutating, so flash (via the HX out-of-band swap) and re-render the section unchanged.
         flash(str(exc), "danger")
+    except Exception as exc:
+        # A DB/commit failure (e.g. IntegrityError) must not 500 the HTMX partial -- roll back the
+        # session, log it, and re-render the section so the toggles reset to their persisted state.
+        db.session.rollback()
+        current_app.logger.error(f"Error setting visibility for visual {visual_id}: {exc}")
+        flash("Could not update this visual's visibility. Please try again.", "danger")
     # Re-render the whole section: a change can cascade to descendant rows, not just this one.
     return render_template("v1/partials/visual_visibility_section.jinja",
                         source = DataSources.query.get(source_id),

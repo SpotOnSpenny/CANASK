@@ -51,15 +51,11 @@ def _can_see(visual, signed_in, site_admin, owned_sources, granted):
     return False   # private, and the viewer is neither site admin nor an owner of the source
 
 
-def allowed_visuals(user, province):
-    """The Visuals in `province` a user may see, per each visual's visibility level (public / group /
-    private). A drill-child is only reachable if its parent chain is also visible, so any visual whose
-    in-province parent was filtered out is pruned (no orphaned children in the menu)."""
-    visuals = Visuals.query.filter_by(province=province).all()
-    signed_in, site_admin, owned_sources, granted = _viewer_context(user)
-    visible = {v.id for v in visuals
-               if _can_see(v, signed_in, site_admin, owned_sources, granted)}
-
+def _filter_visible(visuals, ctx):
+    """Filter one province's Visuals to the visible set, given a precomputed viewer context `ctx`
+    (from _viewer_context): apply each visual's visibility level, then prune any drill-child whose
+    in-province parent chain was filtered out (no orphaned children in the menu)."""
+    visible = {v.id for v in visuals if _can_see(v, *ctx)}
     by_name = {v.name: v for v in visuals}
     changed = True
     while changed:
@@ -73,11 +69,38 @@ def allowed_visuals(user, province):
     return [v for v in visuals if v.id in visible]
 
 
+def allowed_visuals(user, province):
+    """The Visuals in `province` a user may see, per each visual's visibility level (public / group /
+    private). A drill-child is only reachable if its parent chain is also visible, so any visual whose
+    in-province parent was filtered out is pruned (no orphaned children in the menu)."""
+    visuals = Visuals.query.filter_by(province=province).all()
+    return _filter_visible(visuals, _viewer_context(user))
+
+
 def accessible_provinces(user):
     """The set of provinces where the user can see at least one visual -- used to gate the province
-    nav links so users only see provinces they have access to."""
-    provinces = {row[0] for row in Visuals.query.with_entities(Visuals.province).distinct().all()}
-    return {p for p in provinces if allowed_visuals(user, p)}
+    nav links so users only see provinces they have access to. Runs on every request (nav context
+    processor), so the viewer context is derived once and all visuals are loaded in a single query
+    and grouped by province, rather than re-deriving the context + re-querying per province."""
+    ctx = _viewer_context(user)
+    by_province = defaultdict(list)
+    for visual in Visuals.query.all():
+        by_province[visual.province].append(visual)
+    return {province for province, visuals in by_province.items()
+            if _filter_visible(visuals, ctx)}
+
+
+def _menu_level(visual):
+    """Parse a visual's free-form `level` string into an int, raising a clear, visual-identifying
+    error on a manifest typo (e.g. "1a") instead of a bare ValueError mid-request."""
+    if visual.level is None:
+        return None
+    try:
+        return int(visual.level)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"Visual {visual.province}/{visual.name} has a non-numeric level '{visual.level}'; "
+            f"fix the manifest entry.")
 
 
 def build_province_menu(province, user=None):
@@ -91,7 +114,7 @@ def build_province_menu(province, user=None):
             "data-types": visual.data_types.split(",") if visual.data_types else None,
             "menu-parent": visual.menu_parent,
             "menu-name": visual.menu_name,
-            "level": int(visual.level) if visual.level is not None else None,
+            "level": _menu_level(visual),
             "vis-parent": visual.vis_parent_name,
             "next-vis": visual.next_vis_name,
         }

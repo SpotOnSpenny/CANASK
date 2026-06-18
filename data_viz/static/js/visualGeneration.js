@@ -348,11 +348,14 @@ function factsToTreemap(facts, cfg, sel) {
 // Function to initialize the data by fetching provincial data
 async function fetchRegionData(province){
     console.log(`Fetched data for ${province}`);
-    //fetch the data and unpack it
+    //fetch the data and unpack it (`signal:` is the correct option name; a 5s timeout aborts a hung request)
     const [data, geojson] = await Promise.all([
-        fetch(`/api/v1/province/${province}/data`, {AbortSignal: AbortSignal.timeout(5000)}),
-        fetch(`/static/assets/geojsons/${province.toLowerCase()}.geojson`, {AbortSignal: AbortSignal.timeout(5000)}),
+        fetch(`/api/v1/province/${province}/data`, {signal: AbortSignal.timeout(5000)}),
+        fetch(`/static/assets/geojsons/${province.toLowerCase()}.geojson`, {signal: AbortSignal.timeout(5000)}),
     ]);
+    // Fail loudly on a non-2xx response instead of calling .json() on an error body and rendering garbage.
+    if (!data.ok) throw new Error(`Province data request failed: ${data.status} ${data.statusText}`);
+    if (!geojson.ok) throw new Error(`Geojson request failed: ${geojson.status} ${geojson.statusText}`);
     const payload = await data.json();
     const geojsonJson = await geojson.json();
     // payload = { data: {visual_id: {facts, key_kind, shape, ...}}, config: {visual_id: menuCfg}, default, categories }

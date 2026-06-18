@@ -94,6 +94,14 @@ class InviteGroups(db.Model):
 
 class Visuals(db.Model):
     __tablename__ = "visuals"
+    # Defense-in-depth for the access-control invariant: visibility must be one of VISUAL_VISIBILITY.
+    # The UI write path (set_visual_visibility) already validates, but _can_see fails closed on any
+    # unrecognized value, so a stray write would silently hide a visual -- the DB constraint blocks it.
+    __table_args__ = (
+        db.CheckConstraint(
+            "visibility IN (" + ", ".join(f"'{v}'" for v in VISUAL_VISIBILITY) + ")",
+            name = "ck_visuals_visibility"),
+    )
 
     id = db.Column(db.Integer, primary_key = True)
     name = db.Column(db.String(255), nullable = False)
@@ -128,6 +136,8 @@ class Visuals(db.Model):
     geo_type = db.Column(db.String(255), nullable = True)
     dimension_type = db.Column(db.String(255), nullable = True)
     dimension2_type = db.Column(db.String(255), nullable = True)
+    # Derived state: computed by visual_definitions.derive_drill_chain (from shape + dimension2_type),
+    # never authored in the manifest -- re-derived on every define-visuals, so don't hand-edit it.
     drill_chain = db.Column(db.JSON, nullable = True)
     # How the (dimension, dimension2) values compose into a series label/key
     # (constant | suffix_y | plain | sex_substance | manner_substance) -- lets the generic read path

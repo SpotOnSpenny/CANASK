@@ -1,9 +1,9 @@
 ###########################################################################################
 #                          Generic (fact-based) read path                                 #
-# build_province_generic() is the V1 data read path: it selects each visual's normalized   #
-# facts straight from its self-describing Visuals columns (metric / geo_type / dimension* / #
-# key_kind / drill_chain) and returns {metadata, facts}. The frontend adapts these facts to #
-# Plotly client-side (data_viz/static/js/visualGeneration.js: genericToLegacy).             #
+# build_province_generic() is the V1 fact read path: it selects a visual's DataPoints using  #
+# only the columns that actually filter (metric / geo_type / dimension2_type) and returns    #
+# {metadata, facts}. key_kind / drill_chain are NOT selectors -- they ride along in each      #
+# block for the client, which adapts the facts to Plotly in static/js/visualGeneration.js.    #
 ###########################################################################################
 
 from data_viz.database.models import DataPoints
