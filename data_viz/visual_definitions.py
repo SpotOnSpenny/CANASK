@@ -36,6 +36,8 @@ def derive_drill_chain(shape, dimension2_type):
         return ["geo", "time", "dimension", "dimension2"]
     if shape == "flat_series":
         return ["dimension2"] if dimension2_type else []
+    # category_treemap is self-contained: its category->leaf nesting and its geo/time/dimension
+    # filters are all client-side, so there is no inter-visual drill chain.
     return []
 
 
@@ -126,6 +128,10 @@ def _apply_definition(visual, entry, source_id):
     visual.substance = entry.get("substance")
     visual.key_kind = entry.get("key_kind")
     visual.drill_chain = derive_drill_chain(shape, dim2)
+    # Generic per-visual presentation/stratifier config (served as-is by _base_block). Most visuals
+    # omit it (kept None, renderers fall back to hardcoded titles); config-driven visuals such as
+    # the category_treemap declare their geo levels / hierarchy / filters / time control here.
+    visual.visual_options = entry.get("visual_options")
     # Menu / presentation config (served to the frontend; formerly the static visuals.js).
     visual.chart_type = entry.get("chart_type")
     data_types = entry.get("data_types")

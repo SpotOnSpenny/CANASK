@@ -237,6 +237,114 @@ function factsToRegional(facts, geo, year, drug) {
     return out;
 }
 
+// ---- Treemap (category_treemap): generic, config-driven nested mosaic ----
+// Facts: `geo` is an ordered "||"-joined level composite (e.g. "<Health Authority>||<Site>");
+// the hierarchy/filter axes are dimension/dimension2; time is month-grain ("YYYY-MM"). Everything
+// below is driven by the visual's visual_options (geo_levels / hierarchy / filters / time), so the
+// same code renders any treemap from any source -- add a geo level or a filter via config, not JS.
+
+// Value of one geo level (the i-th "||"-segment of a fact's composite geo).
+function geoLevel(f, i) { return String(f.geo == null ? "" : f.geo).split("||")[i]; }
+
+// Generic fact-axis read: "dimension" -> d, "dimension2" -> d2, "geo:<i>" -> that geo level.
+function axisValue(f, axis) {
+    if (axis === "dimension") return f.d;
+    if (axis === "dimension2") return f.d2;
+    const m = String(axis).match(/^geo:(\d+)$/);
+    if (m) return geoLevel(f, parseInt(m[1], 10));
+    return null;
+}
+
+// The time-bucket key a fact falls in for a given unit ("all" => null, i.e. no stratification).
+function timeBucketOf(f, unit) {
+    const t = String(f.t || "");
+    if (unit === "year") return t.slice(0, 4);
+    if (unit === "month") return t;
+    if (unit === "seasonal") return t.slice(5, 7);
+    return null;
+}
+
+const TREEMAP_MONTH_NAMES = ["January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"];
+
+// Ordered slider domain for a unit, as [{value, label}], from the unfiltered facts.
+function treemapTimeBuckets(facts, unit) {
+    if (unit === "all") return [];
+    const set = new Set();
+    for (const f of facts) { const b = timeBucketOf(f, unit); if (b) set.add(b); }
+    return Array.from(set).sort().map(function (v) {
+        if (unit === "year") return { value: v, label: v };
+        if (unit === "seasonal") return { value: v, label: TREEMAP_MONTH_NAMES[parseInt(v, 10) - 1] || v };
+        const parts = v.split("-");   // month "YYYY-MM"
+        return { value: v, label: (TREEMAP_MONTH_NAMES[parseInt(parts[1], 10) - 1] || parts[1]) + " " + parts[0] };
+    });
+}
+
+// Aggregate facts into Plotly-treemap arrays for the current selection.
+// sel = { geo: [perLevel value|null], filters: {axis: value|null}, unit, bucket }.
+function factsToTreemap(facts, cfg, sel) {
+    const hierarchy = (cfg && cfg.hierarchy && cfg.hierarchy.length) ? cfg.hierarchy
+        : [{ axis: "dimension" }, { axis: "dimension2" }];
+    const geoLevels = (cfg && cfg.geo_levels) || [];
+    const filters = (cfg && cfg.filters) || [];
+
+    const sums = new Map();   // path-key -> {path:[displayValues], value}
+    let total = 0;
+    for (const f of facts) {
+        let keep = true;
+        for (let i = 0; i < geoLevels.length; i++) {
+            if (sel.geo[i] != null && geoLevel(f, i) !== sel.geo[i]) { keep = false; break; }
+        }
+        if (!keep) continue;
+        for (const flt of filters) {
+            if (sel.filters[flt.axis] != null && axisValue(f, flt.axis) !== sel.filters[flt.axis]) { keep = false; break; }
+        }
+        if (!keep) continue;
+        if (sel.unit !== "all" && sel.bucket != null && timeBucketOf(f, sel.unit) !== sel.bucket) continue;
+
+        const path = hierarchy.map(function (h) { return axisValue(f, h.axis); });
+        if (path.some(function (p) { return p == null || p === ""; })) continue;
+        const v = Number(f.v) || 0;
+        const key = path.join("\u001f");
+        const cur = sums.get(key) || { path: path, value: 0 };
+        cur.value += v;
+        sums.set(key, cur);
+        total += v;
+    }
+
+    // Build node arrays. ids are keyed by the full path so a leaf appearing under two parents
+    // (e.g. the same drug in two categories) never collides.
+    const ids = ["ROOT"], labels = ["Total"], parents = [""], values = [total];
+    const interior = new Map();   // interior-node id -> its index in `values`
+    const rows = [];
+    for (const entry of sums.values()) {
+        let parentId = "ROOT", accPath = "";
+        for (let depth = 0; depth < entry.path.length; depth++) {
+            accPath += "\u001f" + entry.path[depth];
+            const id = "N" + accPath;
+            if (depth === entry.path.length - 1) {
+                ids.push(id); labels.push(entry.path[depth]); parents.push(parentId); values.push(entry.value);
+            } else if (!interior.has(id)) {
+                interior.set(id, values.length);
+                ids.push(id); labels.push(entry.path[depth]); parents.push(parentId); values.push(0);
+            }
+            parentId = id;
+        }
+        rows.push({ path: entry.path, value: entry.value });
+    }
+    // Interior values must equal the sum of their descendant leaves (branchvalues:"total").
+    for (const entry of sums.values()) {
+        let accPath = "";
+        for (let depth = 0; depth < entry.path.length - 1; depth++) {
+            accPath += "\u001f" + entry.path[depth];
+            const idx = interior.get("N" + accPath);
+            if (idx != null) values[idx] += entry.value;
+        }
+    }
+    rows.sort(function (a, b) { return b.value - a.value; });
+    return { ids: ids, labels: labels, parents: parents, values: values, total: total, rows: rows };
+}
+
 // Function to initialize the data by fetching provincial data
 async function fetchRegionData(province){
     console.log(`Fetched data for ${province}`);
@@ -313,6 +421,11 @@ function masterLoop(location = null, year = null, category = null) {
       createVisualPie(province, { counts: pie.counts }, source, opts, { [location]: pie.tabular }, location);
       break;
     }
+    case "treemap":
+      // Self-contained: the renderer derives every dropdown + the time control from block.facts
+      // and block.visual_options, and re-renders itself in place (no masterLoop round-trip).
+      createVisualTreemap(province, block, currentVisual, source);
+      break;
   }
 }
 
@@ -1019,6 +1132,201 @@ async function createVisualPie(province, pieData, pieSource, visualOptions, tabu
   }
 }
 
+// Generic config-driven treemap renderer. Reads block.visual_options for its geo levels,
+// hierarchy axes, dimension filters and time control, builds those controls into #vis-stratifiers,
+// and re-renders itself in place when any control changes. No literal Site/HA/Category here -- the
+// same function powers any category_treemap visual from any data source.
+async function createVisualTreemap(province, block, currentVisual, source) {
+  const cfg = (block && block.visual_options) || {};
+  const facts = (block && block.facts) || [];
+  const visDiv = document.getElementById("vis-div");
+  const aboutDataDiv = document.getElementById("about-data");
+  const tableDiv = document.getElementById("data-table");
+  const tableTitle = document.getElementById("table-title");
+  const controls = document.getElementById("vis-stratifiers");
+
+  setActiveVisual(province, currentVisual);
+
+  const geoLevels = cfg.geo_levels || [];
+  const filters = cfg.filters || [];
+  const hierarchy = (cfg.hierarchy && cfg.hierarchy.length) ? cfg.hierarchy
+    : [{ axis: "dimension", label: "Category" }, { axis: "dimension2", label: "Value" }];
+
+  // Current selection (null = "All"); the slider drives unit/bucket.
+  const sel = { geo: geoLevels.map(function () { return null; }), filters: {}, unit: "all", bucket: null };
+  filters.forEach(function (flt) { sel.filters[flt.axis] = null; });
+
+  function distinct(valueFn, predicate) {
+    const set = new Set();
+    for (const f of facts) {
+      if (predicate && !predicate(f)) continue;
+      const v = valueFn(f);
+      if (v != null && v !== "") set.add(v);
+    }
+    return Array.from(set).sort();
+  }
+
+  function setSelectOptions(select, options, current) {
+    select.innerHTML = "";
+    const allOpt = document.createElement("option");
+    allOpt.value = "__all__"; allOpt.innerText = "All";
+    select.appendChild(allOpt);
+    options.forEach(function (o) {
+      const opt = document.createElement("option");
+      if (o && typeof o === "object") { opt.value = o.value; opt.innerText = o.label; }
+      else { opt.value = o; opt.innerText = o; }
+      select.appendChild(opt);
+    });
+    select.value = (current == null) ? "__all__" : current;
+  }
+
+  function makeControl(labelText) {
+    const wrap = document.createElement("div");
+    wrap.className = "treemap-control text-start";
+    const lab = document.createElement("label");
+    lab.className = "form-label mb-0 small fw-semibold";
+    lab.innerText = labelText;
+    const select = document.createElement("select");
+    select.className = "form-select form-select-sm";
+    wrap.appendChild(lab); wrap.appendChild(select);
+    controls.appendChild(wrap);
+    return select;
+  }
+
+  // Distinct values for geo level i, cascaded by the levels chosen above it.
+  function geoOptions(i) {
+    return distinct(function (f) { return geoLevel(f, i); }, function (f) {
+      for (let k = 0; k < i; k++) { if (sel.geo[k] != null && geoLevel(f, k) !== sel.geo[k]) return false; }
+      return true;
+    });
+  }
+
+  function buildControls() {
+    controls.innerHTML = "";
+    const geoSelects = [];
+    geoLevels.forEach(function (levelLabel, i) {
+      const select = makeControl(levelLabel);
+      setSelectOptions(select, geoOptions(i), null);
+      select.onchange = function () {
+        sel.geo[i] = select.value === "__all__" ? null : select.value;
+        // Re-cascade: clear and repopulate every lower level for the new parent choice.
+        for (let j = i + 1; j < geoLevels.length; j++) {
+          sel.geo[j] = null;
+          setSelectOptions(geoSelects[j], geoOptions(j), null);
+        }
+        render();
+      };
+      geoSelects.push(select);
+    });
+
+    filters.forEach(function (flt) {
+      const select = makeControl(flt.label || flt.axis);
+      setSelectOptions(select, distinct(function (f) { return axisValue(f, flt.axis); }), null);
+      select.onchange = function () {
+        sel.filters[flt.axis] = select.value === "__all__" ? null : select.value;
+        render();
+      };
+    });
+
+    if (cfg.time) {
+      const wrap = document.createElement("div");
+      wrap.className = "treemap-control text-start";
+      const lab = document.createElement("label");
+      lab.className = "form-label mb-0 small fw-semibold";
+      lab.innerText = (cfg.time && cfg.time.label) || "Date";
+      const unitSelect = document.createElement("select");
+      unitSelect.className = "form-select form-select-sm";
+      [["all", "All time"], ["year", "Year"], ["month", "Month"], ["seasonal", "Seasonal"]].forEach(function (u) {
+        const opt = document.createElement("option");
+        opt.value = u[0]; opt.innerText = u[1];
+        unitSelect.appendChild(opt);
+      });
+      const sliderWrap = document.createElement("div");
+      sliderWrap.className = "mt-1";
+      const slider = document.createElement("input");
+      slider.type = "range"; slider.className = "form-range"; slider.min = 0; slider.step = 1;
+      const readout = document.createElement("div");
+      readout.className = "small text-muted";
+      sliderWrap.appendChild(slider); sliderWrap.appendChild(readout);
+
+      let buckets = [];
+      function applyBucket() {
+        const idx = parseInt(slider.value, 10) || 0;
+        sel.bucket = buckets.length ? buckets[idx].value : null;
+        readout.innerText = buckets.length ? buckets[idx].label : "";
+      }
+      function rebuildBuckets() {
+        buckets = treemapTimeBuckets(facts, sel.unit);
+        if (sel.unit === "all" || buckets.length === 0) {
+          sliderWrap.style.display = "none";
+          sel.bucket = null;
+        } else {
+          sliderWrap.style.display = "";
+          slider.max = buckets.length - 1;
+          slider.value = buckets.length - 1;   // default to the most recent bucket
+          applyBucket();
+        }
+      }
+      unitSelect.onchange = function () { sel.unit = unitSelect.value; rebuildBuckets(); render(); };
+      slider.oninput = function () { applyBucket(); render(); };
+      wrap.appendChild(lab); wrap.appendChild(unitSelect); wrap.appendChild(sliderWrap);
+      controls.appendChild(wrap);
+      rebuildBuckets();
+    }
+  }
+
+  function renderTable(data) {
+    aboutDataDiv.innerHTML = buildAboutDataHTML(source);
+    tableTitle.innerText = (cfg.title || "Checked Samples") + " — totals for the current view";
+    const table = document.createElement("table");
+    table.setAttribute("class", "mb-0 table table-striped table-bordered table-hover");
+    const headerCols = hierarchy.map(function (h) { return h.label || h.axis; }).concat(["Count", "% of shown"]);
+    const headRow = table.insertRow(-1);
+    headerCols.forEach(function (h) {
+      const th = document.createElement("th"); th.innerText = h; headRow.appendChild(th);
+    });
+    data.rows.forEach(function (row) {
+      const tr = table.insertRow(-1);
+      tr.setAttribute("class", "align-middle");
+      row.path.forEach(function (p) { tr.insertCell(-1).innerText = p; });
+      tr.insertCell(-1).innerText = row.value;
+      tr.insertCell(-1).innerText = data.total ? ((row.value / data.total) * 100).toFixed(1) + "%" : "0%";
+    });
+    tableDiv.innerHTML = "";
+    tableDiv.appendChild(table);
+  }
+
+  function render() {
+    const data = factsToTreemap(facts, cfg, sel);
+    const trace = {
+      type: "treemap",
+      branchvalues: "total",
+      ids: data.ids,
+      labels: data.labels,
+      parents: data.parents,
+      values: data.values,
+      tiling: { packing: "squarify", pad: 1 },
+      marker: { line: { width: 1, color: canaskMarkerLineColor() } },
+      texttemplate: "<b>%{label}</b><br>%{percentRoot} (%{value})",
+      hovertemplate: "<b>%{label}</b><br>%{value} samples<br>%{percentRoot} of shown<extra></extra>",
+      pathbar: { visible: true },
+    };
+    const layout = {
+      title: cfg.title || "",
+      width: $("#viz-card").width(),
+      height: $("#viz-card").height(),
+      margin: { t: 40, l: 0, r: 0, b: 0 },
+    };
+    visDiv.innerHTML = "";
+    Plotly.purge(visDiv);
+    Plotly.react(visDiv, [trace], themeChartLayout(layout), { displaylogo: false, responsive: false });
+    renderTable(data);
+  }
+
+  buildControls();
+  render();
+}
+
 
 // Whether a visual can drill into its next level: it must declare a next-vis AND that target must
 // be in the set the server returned for this user (RBAC may withhold deeper drill levels).
@@ -1053,8 +1361,11 @@ function moveUpOneLevel(province, prevLocation = null) {
 // Helper function to reset the count/rates toggle
 function resetVisualControl() {
   let dataTypeToggle = document.getElementById("data-type-toggle");
-  // reset the count/rate toggle so that 
+  // reset the count/rate toggle so that
   dataTypeToggle.innerHTML = "";
+  // clear any treemap stratifier dropdowns so they don't linger on a non-treemap visual
+  let stratifiers = document.getElementById("vis-stratifiers");
+  if (stratifiers) stratifiers.innerHTML = "";
   // remove the back button if it exists and toggle only is false
   if (route.length == 0){
     let backButton = document.getElementById("back-button");

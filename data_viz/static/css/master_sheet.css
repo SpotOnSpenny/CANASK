@@ -384,6 +384,18 @@ a { text-decoration: none; }
    definite parent). Scoped to the skeleton so the rendered chart, which sizes itself, is untouched. */
 #vis-div:has(.skeleton-chart) { height: 100%; }
 
+/* Treemap stratifier dropdowns + time slider, overlaid top-left of the chart. Compact, with a
+   translucent backing so they stay legible over the treemap. Driven entirely by visual_options. */
+.treemap-controls { max-width: 14rem; }
+.treemap-controls .treemap-control {
+  background: color-mix(in srgb, var(--c-surface) 88%, transparent);
+  border-radius: var(--radius);
+  padding: 0.2rem 0.4rem;
+  backdrop-filter: blur(2px);
+}
+.treemap-controls .form-select-sm { font-size: 0.78rem; }
+.treemap-controls .form-range { padding: 0; }
+
 /* ---------------------------- Breadcrumb -------------------------------- */
 .vis-breadcrumb {
   display: flex;

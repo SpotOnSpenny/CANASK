@@ -108,6 +108,36 @@
       "vis_parent": "geographical_drug_supply_pie",
       "next_vis": null,
       "is_default": false
+    },
+    {
+      "province": "british-columbia",
+      "visual_id": "checked_samples_by_expected_drug",
+      "shape": "category_treemap",
+      "metric": "checked_samples",
+      "geo_type": "site",
+      "dimension_type": "drug_category",
+      "dimension2_type": "expected_drug",
+      "substance": null,
+      "key_kind": null,
+      "chart_type": "treemap",
+      "data_types": ["counts"],
+      "menu_parent": "Drug Supply",
+      "menu_name": "Checked Samples by Expected Drug",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false,
+      "visual_options": {
+        "title": "Checked Samples by Expected Drug",
+        "subtitle": "Submitted samples sized by the drug they were expected to be, grouped by category. Filter by where and when the sample was checked.",
+        "geo_levels": ["Health Authority", "Site"],
+        "hierarchy": [
+          {"axis": "dimension", "label": "Category"},
+          {"axis": "dimension2", "label": "Expected Drug"}
+        ],
+        "filters": [{"axis": "dimension", "label": "Category"}],
+        "time": {"label": "Date checked"}
+      }
     }
   ]
 }

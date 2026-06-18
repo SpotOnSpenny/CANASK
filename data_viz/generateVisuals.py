@@ -321,6 +321,53 @@ def export_on_visual_data():
     with open("static/js/on_vis.json", "w") as file:
         json.dump(graph_data, file)
 
+def v1_drugchecking_export_clean():
+    # Pan-Canadian drug-checking harmonized data: one row per checked sample, spanning provinces.
+    # Feeds a category_treemap (Category -> Expected Drug) with Province + Site as geo levels.
+    pulled = pull_data(["drugChecking"])["drugChecking"]
+    df = pulled["dataframe"].copy()
+    last_updated = pulled["date_updated"]
+    data_until = pulled["data_until"]
+    # The raw headers carry stray leading/trailing and double spaces (e.g. "Visit Date ",
+    # "Expected Drug Category  (1)"); normalize whitespace so the column refs below are clean.
+    df.columns = df.columns.str.strip().str.replace(r"\s+", " ", regex=True)
+    # Province arrives both abbreviated and spelled out; canonicalize known abbreviations so the
+    # Province dropdown groups them as one (extend this map as new provinces appear).
+    df["Province"] = df["Province"].replace({"Sask": "Saskatchewan"})
+
+    checked_samples_by_expected_drug = {
+        "data_source": {
+            "name": "Pan-Canadian Drug Checking Data Harmonization",
+            "about": """
+This data is collected by individual organizations across Canada, and provided to the CCSA working towards the goal of data harmonization across drug checking sites.
+
+To find out more about drug checking, and the CCSA's Drug Checking working group, please visit the link below:
+            """,
+            "link": "https://www.ccsa.ca/en/data-trends/drug-checking",
+            "last_updated": last_updated,
+            "data_until": data_until
+        },
+        "data": {"counts": {}},
+    }
+    # Drop rows missing any grouping key, then parse "Visit Date" (M/D/YYYY) to a "YYYY-MM" month
+    # key -- the same month grain the BC treemap uses (client derives year/seasonal/all-time).
+    treemap_df = df.dropna(
+        subset=["Site/Organization", "Province", "Expected Drug Category (1)", "Expected Drug (1)"]).copy()
+    treemap_df["_month"] = pandas.to_datetime(
+        treemap_df["Visit Date"], format="%m/%d/%Y", errors="coerce").dt.strftime("%Y-%m")
+    treemap_df = treemap_df[treemap_df["_month"].notna()]
+    # Geo levels ordered broad -> narrow ("Province||Site") so the client's cascade is Province
+    # then Site; matches manifest geo_levels=["Province", "Site/Organization"].
+    for (province, site), site_df in treemap_df.groupby(["Province", "Site/Organization"]):
+        geo = f"{province}||{site}"
+        by_geo = checked_samples_by_expected_drug["data"]["counts"].setdefault(geo, {})
+        grouped = site_df.groupby(
+            ["_month", "Expected Drug Category (1)", "Expected Drug (1)"]).size()
+        for (month, category, drug), n in grouped.items():
+            by_geo.setdefault(month, {}).setdefault(category, {})[drug] = int(n)
+
+    return {"checked_samples_by_expected_drug": checked_samples_by_expected_drug}
+
 
 def v1_BC_export_clean():
     # Pull up data from the BC Coroners Service and BC Drug Sense
@@ -786,6 +833,40 @@ For more information visit the BCCSU's Drug Sense website by clicking the button
                 spectrometer_counts = {f"{result}_y": [spectrometer_results.count(result)] for result in set(spectrometer_results) if result != ""}
                 # Add the spectrometer counts to the regional breakdown
                 regional_drug_supply_breakdown["data"]["counts"][ha_title][str(year)][drug] = spectrometer_counts
+
+    # ----- Clean Data for the Checked-Samples-by-Expected-Drug treemap -----
+    # A reusable, granular fact set: one count per (Health Authority + Site, month, Category,
+    # Expected Drug). The generic treemap renderer derives every dropdown + the time control from
+    # these facts, so future BCCSU treemaps are just new manifest entries over the same data.
+    checked_samples_by_expected_drug = {
+        "data_source": {
+            "name": "British Columbia Centre for Substance Use (BCCSU)",
+            "about": """
+This data is collected from the British Columbia Centre on Substance Use (BCCSU) and is based on voluntary drug testing results.The data is collected from samples provided by individuals and organizations in British Columbia.The data is collected to help inform the public about the drug supply in British Columbia and to help inform harm reduction strategies.Please note that this data is not representative of the entire illicit drug supply in British Columbia,but rather provides a snapshot of the drug supply based on voluntary submissions.
+
+For more information visit the BCCSU's Drug Sense website by clicking the button below:
+            """,
+            "link": "https://drugsense.bccsu.ubc.ca/",
+            "last_updated": last_updated,
+            "data_until": data_until
+        },
+        "data": {"counts": {}},
+    }
+    # Parse "Visit Date" ("YYYY-MM-DD" in the scrape) down to a "YYYY-MM" month key.
+    treemap_df = bc_drug_sense.dropna(
+        subset=["Site", "Category", "Expected Drug", "Health Authority"]).copy()
+    treemap_df["_month"] = pandas.to_datetime(
+        treemap_df["Visit Date"], errors="coerce").dt.strftime("%Y-%m")
+    treemap_df = treemap_df[treemap_df["_month"].notna()]
+    for (ha, site), site_df in treemap_df.groupby(["Health Authority", "Site"]):
+        # Ordered geo levels matching the manifest geo_levels=["Health Authority", "Site"]; to add a
+        # Province stratifier later, prepend it here and to geo_levels. The client splits on "||".
+        geo = f"{ha}||{site}"
+        by_geo = checked_samples_by_expected_drug["data"]["counts"].setdefault(geo, {})
+        grouped = site_df.groupby(["_month", "Category", "Expected Drug"]).size()
+        for (month, category, drug), n in grouped.items():
+            by_geo.setdefault(month, {}).setdefault(category, {})[drug] = int(n)
+
     # Compile all the data to a single dictionary for export
     bc_data = {
         "drug_death_heatmap": heatmap_data,
@@ -798,6 +879,7 @@ For more information visit the BCCSU's Drug Sense website by clicking the button
         "drug_supply_geographically": geographic_map,
         "geographical_drug_supply_pie": geographical_drug_supply_pie,
         "regional_drug_supply_breakdown": regional_drug_supply_breakdown,
+        "checked_samples_by_expected_drug": checked_samples_by_expected_drug,
     }
     return bc_data
 
@@ -1276,6 +1358,8 @@ def v1_NB_export_clean():
     }
     return nb_data
 
+
+
 # Export all data to a json file, using URL friendly province names as keys
 # These keys will be passed as parameters to javascript so that we can pull the right data for each page
 def export_data_json():
@@ -1456,14 +1540,15 @@ def export_data_to_db(data=None):
         return source
 
     def add_point(source_id, geo_type, geo, time_frame, metric, data_type,
-                  dim_type=None, dim_val=None, dim2_type=None, dim2_val=None, value=None):
+                  dim_type=None, dim_val=None, dim2_type=None, dim2_val=None, value=None,
+                  time_frame_type=TIME_FRAME_TYPE):
         key = (source_id, geo_type, geo, time_frame, metric, data_type, dim_type, dim_val, dim2_type, dim2_val)
         if key in point_cache:
             return
         num, text = _split_value(value)
         point = DataPoints(
             data_source_id=source_id, geo_type=geo_type, geo=geo,
-            time_frame_type=TIME_FRAME_TYPE, time_frame=str(time_frame),
+            time_frame_type=time_frame_type, time_frame=str(time_frame),
             data_metric=metric, data_type=data_type,
             dimension_type=dim_type, dimension_value=dim_val,
             dimension2_type=dim2_type, dimension2_value=dim2_val,
@@ -1533,6 +1618,19 @@ def export_data_to_db(data=None):
                                           visual.dimension_type, drug,
                                           visual.dimension2_type, result, count_list[0])
 
+            elif shape == "category_treemap":
+                # Month-grain facts (time_frame="YYYY-MM"); geo is an ordered "||"-joined level
+                # composite (e.g. "<Health Authority>||<Site>"). dimension/dimension2 hold the
+                # treemap nesting axes; the client derives year/seasonal/all-time + every dropdown.
+                for geo, month_dict in block["data"].get("counts", {}).items():
+                    for month, cat_dict in month_dict.items():
+                        for category, drug_dict in cat_dict.items():
+                            for drug, value in drug_dict.items():
+                                add_point(source_id, geo_type, geo, month, visual.metric, "counts",
+                                          visual.dimension_type, category,
+                                          visual.dimension2_type, drug, value,
+                                          time_frame_type="month")
+
             _persist_predicates(VisualQuery, db, visual.id, predicates)
 
     db.session.commit()
@@ -1576,4 +1674,5 @@ if __name__ == '__main__':
     #data = v1_SK_export_clean()
     # data = v1_clean_national_data("New Brunswick")
     # print(data)
-    export_data_json()
+    v1_drugchecking_export_clean()
+    #export_data_json()
