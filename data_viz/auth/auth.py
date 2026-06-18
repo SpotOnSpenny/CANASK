@@ -13,8 +13,8 @@ from celery.result import AsyncResult
 # Internal imports
 from data_viz.auth import login_manager
 from data_viz.database import db
-from data_viz.database.models import User, Invites, Groups, UserGroups, UserActivity, InviteGroups, DataSources, GroupDataSources
-from data_viz.auth.auth_helpers import get_user_groups, get_assignable_roles, validate_password, create_user, create_group, assign_group, assign_site_admin, get_manageable_users, get_user_memberships_in_groups, get_manageable_groups, set_group_data_sources
+from data_viz.database.models import User, Invites, Groups, UserGroups, UserActivity, InviteGroups, DataSources, GroupDataSources, Visuals, GroupVisuals
+from data_viz.auth.auth_helpers import get_user_groups, get_assignable_roles, validate_password, create_user, create_group, assign_group, assign_site_admin, get_manageable_users, get_user_memberships_in_groups, get_manageable_groups, set_group_data_sources, owned_data_sources, can_manage_source, teams_for_source, visuals_for_source, set_group_visuals, set_visual_visibility, visibility_rows_for_source
 from data_viz.auth.role_hierarchy import ROLE_HIERARCHY
 from celery_worker.tasks.invite_jwt_expiry import expire_invite
 
@@ -218,7 +218,12 @@ def logout():
     db.session.add(logout_activity)
     db.session.commit()
     logout_user()
-    return render_template("v1/login.jinja")
+    # Public pages now exist, so drop the (now anonymous) user on a fresh home page rather than the
+    # login screen. HX-Redirect makes HTMX do a full client-side navigation, which re-renders the
+    # menu/nav for the logged-out state; fall back to a normal redirect for non-HTMX requests.
+    if request.headers.get("HX-Request") == "true":
+        return ("", 204, {"HX-Redirect": "/"})
+    return redirect(url_for("main.index"))
 
 @auth_blueprint.route("/v1/invite-user", methods=["GET", "POST"])
 @require_auth
@@ -834,6 +839,100 @@ def group_data_sources(group_id, groups_with_required_role = None):
                             group = group,
                             data_sources = group_sources,
                             source_count = len(group_sources))
+
+
+# --------------------------------------------------------------------------------------- #
+# Data Ownership: control which groups (teams) can see which visuals, scoped to data a user owns.
+# --------------------------------------------------------------------------------------- #
+
+def _team_grant(group_id, source_visual_ids):
+    """Visuals (within a source's scope) currently granted to a group, for the page/row summary."""
+    granted_ids = ({gv.visual_id for gv in GroupVisuals.query.filter_by(group_id = group_id).all()}
+                   & source_visual_ids)
+    return Visuals.query.filter(Visuals.id.in_(granted_ids)).all() if granted_ids else []
+
+
+@auth_blueprint.route("/v1/data-ownership", methods=["GET"])
+@require_auth
+@require_role("Data Owner", group_id_source = "all_groups", action = "manage data ownership")
+def data_ownership(groups_with_required_role = None):
+    ownership = []
+    for source in owned_data_sources(current_user):
+        source_visual_ids = {v.id for v in Visuals.query.filter_by(data_source_id = source.id).all()}
+        teams = [{"group": group, "granted": _team_grant(group.id, source_visual_ids)}
+                 for group in teams_for_source(source.id)]
+        ownership.append({"source": source, "teams": teams,
+                          "visibility_rows": visibility_rows_for_source(source.id),
+                          "visual_count": len(source_visual_ids)})
+
+    if request.headers.get("HX-Request") == "true":
+        return render_template("v1/data_ownership.jinja", ownership = ownership)
+    return render_template("base.jinja", include_partials = "index",
+                        dash_template = "v1/data_ownership.jinja", ownership = ownership)
+
+
+@auth_blueprint.route("/v1/groups/<int:group_id>/sources/<int:source_id>/visuals", methods=["GET", "POST"])
+@require_auth
+def group_source_visuals(group_id, source_id):
+    # Permission here is source-ownership (Data Owner of the source / site admin), not a role in the
+    # target team -- so it's checked explicitly rather than via the url-scoped require_role decorator.
+    if not can_manage_source(current_user, source_id):
+        flash("You do not have permission to manage visuals for this data source.", "danger")
+        return redirect(url_for("auth.data_ownership"))
+
+    group = Groups.query.get(group_id)
+    source = DataSources.query.get(source_id)
+    if not group or not source:
+        flash("Group or data source not found.", "danger")
+        return redirect(url_for("auth.data_ownership"))
+
+    source_visuals = Visuals.query.filter_by(data_source_id = source_id).all()
+    source_visual_ids = {v.id for v in source_visuals}
+    current_ids = ({gv.visual_id for gv in GroupVisuals.query.filter_by(group_id = group_id).all()}
+                   & source_visual_ids)
+
+    if request.method == "GET":
+        return render_template("v1/partials/group_visuals_modal.jinja",
+                            group = group, source = source,
+                            provinces = visuals_for_source(source_id), current_ids = current_ids)
+
+    # POST: reconcile this group's grants for this source's visuals only
+    submitted = [int(raw) for raw in request.form.getlist("visual_ids")
+                 if raw.isdigit() and int(raw) in source_visual_ids]
+    changes = set_group_visuals(group_id, submitted, source_visual_ids, changed_by = current_user.id)
+    if changes:
+        flash(f"Visual access for {group.name} updated.", "success")
+    return render_template("v1/partials/data_ownership_team_row.jinja",
+                        source = source, group = group,
+                        granted = _team_grant(group_id, source_visual_ids))
+
+
+@auth_blueprint.route("/v1/visuals/<int:visual_id>/visibility", methods=["POST"])
+@require_auth
+def set_visibility(visual_id):
+    # Permission is source-ownership (Data Owner of the visual's source / site admin), like the
+    # per-team grant route above -- checked explicitly rather than via a role decorator.
+    visual = Visuals.query.get(visual_id)
+    if not visual or visual.data_source_id is None or not can_manage_source(current_user, visual.data_source_id):
+        flash("You do not have permission to change this visual's visibility.", "danger")
+        return redirect(url_for("auth.data_ownership"))
+    source_id = visual.data_source_id
+    try:
+        set_visual_visibility(visual_id, request.form.get("visibility", ""), changed_by = current_user.id)
+    except ValueError as exc:
+        # Validation failure (bad value / drill-hierarchy conflict): set_visual_visibility raises
+        # before mutating, so flash (via the HX out-of-band swap) and re-render the section unchanged.
+        flash(str(exc), "danger")
+    except Exception as exc:
+        # A DB/commit failure (e.g. IntegrityError) must not 500 the HTMX partial -- roll back the
+        # session, log it, and re-render the section so the toggles reset to their persisted state.
+        db.session.rollback()
+        current_app.logger.error(f"Error setting visibility for visual {visual_id}: {exc}")
+        flash("Could not update this visual's visibility. Please try again.", "danger")
+    # Re-render the whole section: a change can cascade to descendant rows, not just this one.
+    return render_template("v1/partials/visual_visibility_section.jinja",
+                        source = DataSources.query.get(source_id),
+                        visibility_rows = visibility_rows_for_source(source_id))
 
 
 @auth_blueprint.route("/v1/accept-invite", methods=["GET", "POST"])

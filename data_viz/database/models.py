@@ -5,6 +5,9 @@ import jwt
 # Internal Imports
 from data_viz.database import db
 
+# Allowed values for Visuals.visibility (per-visual access level). Ordered most- to least-restrictive.
+VISUAL_VISIBILITY = ("private", "group", "public")
+
 class User(UserMixin, db.Model):
     __tablename__ = "users"
 
@@ -91,23 +94,59 @@ class InviteGroups(db.Model):
 
 class Visuals(db.Model):
     __tablename__ = "visuals"
+    # Defense-in-depth for the access-control invariant: visibility must be one of VISUAL_VISIBILITY.
+    # The UI write path (set_visual_visibility) already validates, but _can_see fails closed on any
+    # unrecognized value, so a stray write would silently hide a visual -- the DB constraint blocks it.
+    __table_args__ = (
+        db.CheckConstraint(
+            "visibility IN (" + ", ".join(f"'{v}'" for v in VISUAL_VISIBILITY) + ")",
+            name = "ck_visuals_visibility"),
+    )
 
     id = db.Column(db.Integer, primary_key = True)
     name = db.Column(db.String(255), nullable = False)
     about = db.Column(db.String(5000), nullable = True)
     province = db.Column(db.String(255), nullable = False)
     vis_type = db.Column(db.String(255), nullable = False)
-    data_types = db.Column(db.String(255), nullable = False)
+    data_types = db.Column(db.String(255), nullable = True)
     menu_name = db.Column(db.String(255), nullable = True)
     menu_parent = db.Column(db.String(255), nullable = True)
     level = db.Column(db.String(255), nullable = True)
-    next_vis = db.Column(db.ForeignKey("visuals.id"), nullable = True)
-    previous_vis = db.Column(db.ForeignKey("visuals.id"), nullable = True)
     # Data layer: links a visual to its source + stores the cleaned-data presentation config used to
     # reconstruct the frontend JSON shape from the normalized DataPoints rows (see visual_query.py).
     data_source_id = db.Column(db.Integer, db.ForeignKey("data_sources.id"), nullable = True)
     visual_options = db.Column(db.JSON, nullable = True)
     data_shape = db.Column(db.String(50), nullable = True)
+    # Menu/presentation config served to the frontend (DB-driven; formerly the static visuals.js).
+    # next_vis_name / vis_parent_name are string visual_ids for the drill chain (per-province).
+    chart_type = db.Column(db.String(50), nullable = True)
+    next_vis_name = db.Column(db.String(255), nullable = True)
+    vis_parent_name = db.Column(db.String(255), nullable = True)
+    is_default = db.Column(db.Boolean, nullable = True, default = False)
+    # Per-visual access level, set by Data Owners on the Data Ownership panel (see VISUAL_VISIBILITY):
+    #   private -> site admins + the source's Data Owners only
+    #   group   -> signed-in members of a group granted this visual (GroupVisuals)
+    #   public  -> anyone, no sign-in required
+    visibility = db.Column(db.String(20), nullable = False, server_default = "private", default = "private")
+    # Self-describing query definition (Stage 2): how to select + shape this visual's DataPoints,
+    # so the read path no longer needs visual_specs.VISUAL_SPECS. `metric` is the event, `geo_type`
+    # the geo granularity, `dimension_type`/`dimension2_type` the disaggregator columns the facts
+    # carry, and `drill_chain` (JSON list) the dimension nesting order used to render/drill.
+    metric = db.Column(db.String(255), nullable = True)
+    geo_type = db.Column(db.String(255), nullable = True)
+    dimension_type = db.Column(db.String(255), nullable = True)
+    dimension2_type = db.Column(db.String(255), nullable = True)
+    # Derived state: computed by visual_definitions.derive_drill_chain (from shape + dimension2_type),
+    # never authored in the manifest -- re-derived on every define-visuals, so don't hand-edit it.
+    drill_chain = db.Column(db.JSON, nullable = True)
+    # How the (dimension, dimension2) values compose into a series label/key
+    # (constant | suffix_y | plain | sex_substance | manner_substance) -- lets the generic read path
+    # and the client-side adapter build series without VISUAL_SPECS.
+    key_kind = db.Column(db.String(50), nullable = True)
+    # How the substance dimension (slot 1) is filled when persisting this visual's facts:
+    #   None / "opioids" (const) / "from_key" (parsed from the series key) / "lookup" (from a map).
+    # Authored in the visual-definition manifests; read by gen-visuals' encode_series_key.
+    substance = db.Column(db.String(50), nullable = True)
 
     def __repr__(self):
         return f"<Visual {self.name}>"

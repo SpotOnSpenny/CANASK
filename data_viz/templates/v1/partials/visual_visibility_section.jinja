@@ -1,0 +1,15 @@
+<div id="vis-section-{{ source.id }}" class="table-responsive">
+    <table class="table table-hover mb-0 align-middle">
+        <thead>
+            <tr>
+                <th>Visual</th>
+                <th>Who can see it</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in visibility_rows %}
+                {% include "v1/partials/visual_visibility_row.jinja" %}
+            {% endfor %}
+        </tbody>
+    </table>
+</div>

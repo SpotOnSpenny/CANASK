@@ -1,0 +1,38 @@
+{
+  "data_source": {
+    "name": "Pan-Canadian Drug Checking Data Harmonization",
+    "link": "https://www.ccsa.ca/en/data-trends/drug-checking"
+  },
+  "visuals": [
+    {
+      "province": "canada",
+      "visual_id": "checked_samples_by_expected_drug",
+      "shape": "category_treemap",
+      "metric": "checked_samples",
+      "geo_type": "site",
+      "dimension_type": "drug_category",
+      "dimension2_type": "expected_drug",
+      "substance": null,
+      "key_kind": null,
+      "chart_type": "treemap",
+      "data_types": ["counts"],
+      "menu_parent": "Drug Supply",
+      "menu_name": "Checked Samples by Expected Drug",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": true,
+      "visual_options": {
+        "title": "Checked Samples by Expected Drug",
+        "subtitle": "Submitted samples sized by the drug they were expected to be, grouped by category. Filter by province, site, and when the sample was checked.",
+        "geo_levels": ["Province", "Site/Organization"],
+        "hierarchy": [
+          {"axis": "dimension", "label": "Category"},
+          {"axis": "dimension2", "label": "Expected Drug"}
+        ],
+        "filters": [{"axis": "dimension", "label": "Category"}],
+        "time": {"label": "Date checked"}
+      }
+    }
+  ]
+}

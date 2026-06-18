@@ -58,20 +58,19 @@ from driver import start_driver
 #######################################################################################
 
 # Function to pull the data from the BC Coroners Report
-def bc_coronersreport_scrape(driver, expected_pages:int = 18):
+def bc_coronersreport_scrape(driver, expected_pages:int = 19):
     # Instantiate any needed variables for the function
     dataframes = []
     existing_file = None
 
     # Load the Coroners Report page and get to data, also check the date of the report against existing scrapes to see if we need to run
-    driver.get("https://app.powerbi.com/view?r=eyJrIjoiNjhiYjgxYzUtYjIyOC00ZGQ2LThhMzEtOWU5Y2Q4YWI0OTc5IiwidCI6IjZmZGI1MjAwLTNkMGQtNGE4YS1iMDM2LWQzNjg1ZTM1OWFkYyJ9")
+    driver.get("https://app.powerbi.com/view?r=eyJrIjoiYzJiNjM1MWUtZDViMS00NzRiLThiYjMtNWViY2YzZDU0OTQxIiwidCI6IjZmZGI1MjAwLTNkMGQtNGE4YS1iMDM2LWQzNjg1ZTM1OWFkYyJ9")
     time.sleep(5) # Wait for page to finish loading and settle so that we don't get stale element errors
     date = WebDriverWait(driver, 15).until(expected_conditions.presence_of_element_located((By.XPATH, "//*[contains(text(), 'refreshed')]"))).text.split("refreshed ")[1].replace(" ", "").replace(".", "")
     date = datetime.datetime.strptime(date, "%d%b%Y").strftime("%Y%m%d")
     data_until = WebDriverWait(driver, 15).until(expected_conditions.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Data up to')]"))).text.split("of ")[1].replace(" ", "").replace(".", "")
-    data_until = datetime.datetime.strptime(data_until, "%b%Y").strftime("%Y%m")
+    data_until = datetime.datetime.strptime(data_until, "%b%Y").strftime("%Y%m") + "01"
     print(f"Data refreshed on {date} with data up to {data_until}")
-    quit(1) # This is a temporary quit to stop the script from running, remove this line when ready to scrape
     output_dir, needed_files, existing_files = checkup_output(["bcCoronersReport"])
     if existing_files == []:
         print("No existing files found for this source. Scraping data...")
@@ -205,6 +204,7 @@ def bc_coronersreport_scrape(driver, expected_pages:int = 18):
 
         # Fentanyl Detected Page: This has a graph, need to ask PowerBI to show as a table, then scrape the table, and go back to the graph to click relevant options
         next_button.click()
+        drugs = ["Carfentanil", "Xylazine", "Medetomidine"]
         graph = WebDriverWait(driver, 10).until(expected_conditions.presence_of_element_located((By.XPATH, "//div[contains(@class, 'hundredPercentStackedColumnChart')]")))
         show_as_table(dataframes, driver, graph, add_to_title="All Health Authorities")
         options = WebDriverWait(driver, 10).until(expected_conditions.presence_of_all_elements_located((By.XPATH, "//div[contains(@class, 'slicerItemsContainer')]/div/div[@role='option']")))
@@ -221,24 +221,25 @@ def bc_coronersreport_scrape(driver, expected_pages:int = 18):
                         show_as_table(dataframes, driver, graph, add_to_title=f"{option.text} Health Authority")
             except StaleElementReferenceException:
                 options = WebDriverWait(driver, 10).until(expected_conditions.presence_of_all_elements_located((By.XPATH, "//div[contains(@class, 'slicerItemsContainer')]/div/div[@role='option']")))
-        # Repeat this with the carfentanil option
-        WebDriverWait(driver, 10).until(expected_conditions.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Carfentanil')]/ancestor-or-self::visual-modern"))).click()
-        graph = WebDriverWait(driver, 10).until(expected_conditions.presence_of_element_located((By.XPATH, "//div[contains(@class, ' visual-columnChart')]")))
-        show_as_table(dataframes, driver, graph, add_to_title="All Health Authorities")
-        options = WebDriverWait(driver, 10).until(expected_conditions.presence_of_all_elements_located((By.XPATH, "//div[contains(@class, 'slicerItemsContainer')]/div/div[@role='option']")))
-        len_options = len(options)
-        clicked = ["select all"]
-        while len(clicked) != len_options:
-            try:
-                for option in options:
-                    if option.text.lower() not in clicked:
-                        clicked.append(option.text.lower())
-                        option.click()
-                        time.sleep(2)
-                        graph = WebDriverWait(driver, 10).until(expected_conditions.presence_of_element_located((By.XPATH, "//div[contains(@class, ' visual-columnChart')]")))
-                        show_as_table(dataframes, driver, graph, add_to_title=f"{option.text} Health Authority")
-            except StaleElementReferenceException:
-                options = WebDriverWait(driver, 10).until(expected_conditions.presence_of_all_elements_located((By.XPATH, "//div[contains(@class, 'slicerItemsContainer')]/div/div[@role='option']")))
+        # Repeat this with the carfentanil and other drugs
+        for drug in drugs:
+            WebDriverWait(driver, 10).until(expected_conditions.presence_of_element_located((By.XPATH, f"//*[contains(text(), '{drug}')]/ancestor-or-self::visual-modern"))).click()
+            graph = WebDriverWait(driver, 10).until(expected_conditions.presence_of_element_located((By.XPATH, "//div[contains(@class, ' visual-columnChart')]")))
+            show_as_table(dataframes, driver, graph, add_to_title="All Health Authorities")
+            options = WebDriverWait(driver, 10).until(expected_conditions.presence_of_all_elements_located((By.XPATH, "//div[contains(@class, 'slicerItemsContainer')]/div/div[@role='option']")))
+            len_options = len(options)
+            clicked = ["select all"]
+            while len(clicked) != len_options:
+                try:
+                    for option in options:
+                        if option.text.lower() not in clicked:
+                            clicked.append(option.text.lower())
+                            option.click()
+                            time.sleep(2)
+                            graph = WebDriverWait(driver, 10).until(expected_conditions.presence_of_element_located((By.XPATH, "//div[contains(@class, ' visual-columnChart')]")))
+                            show_as_table(dataframes, driver, graph, add_to_title=f"{option.text} Health Authority")
+                except StaleElementReferenceException:
+                    options = WebDriverWait(driver, 10).until(expected_conditions.presence_of_all_elements_located((By.XPATH, "//div[contains(@class, 'slicerItemsContainer')]/div/div[@role='option']")))
         bar()
 
         # Fentanyl Concentration Page: A Graph, like previously, but without the Carfentanil option, so once over will do nicely
@@ -366,6 +367,23 @@ def bc_coronersreport_scrape(driver, expected_pages:int = 18):
         show_as_table(dataframes, driver, graph)
         bar()
 
+        #Occupation Industry Page: A table with options to filter by health authority. 
+        next_button.click()
+        grid_area = WebDriverWait(driver, 10).until(expected_conditions.presence_of_element_located((By.XPATH, "//div[@role='grid' and contains(@class, 'interactive-grid')]/ancestor-or-self::div[contains(@class, 'visualWrapper')]"))).get_attribute("outerHTML")
+        table = bs4.BeautifulSoup(grid_area, "html.parser")
+        dataframes.append(parse_powerBI_table(table, full_title="Unregulated Drug Deaths - Occupation Industry"))
+        options = WebDriverWait(driver, 10).until(expected_conditions.presence_of_all_elements_located((By.XPATH, "//div[contains(@class, 'slicerItemsContainer')]/div/div[@role='option']")))
+        for option in options:
+            if option.text.lower() != "select all":
+                option.click()
+                time.sleep(2)
+                grids = WebDriverWait(driver, 10).until(expected_conditions.presence_of_all_elements_located((By.XPATH, "//div[@role='grid' and contains(@class, 'interactive-grid')]/ancestor-or-self::div[contains(@class, 'visualWrapper')]")))
+                grids = [grid.get_attribute("outerHTML") for grid in grids]
+                for grid in grids:
+                    table = bs4.BeautifulSoup(grid, "html.parser")
+                    dataframes.append(parse_powerBI_table(table, full_title = "Unregulated Drug Deaths - Occupation Industry", add_to_title=f"{option.text} Health Authority"))
+        bar()
+
     # Output all the dataframes to an excel spreadsheet with different worksheets for each dataframe
     with pandas.ExcelWriter(os.path.join(output_dir, f"{date}_{data_until}_bcCoronersReport.xlsx")) as writer:
         for index, dataframe in enumerate(dataframes):
@@ -379,7 +397,7 @@ def bc_coronersreport_scrape(driver, expected_pages:int = 18):
 # Function that clicks the provided graph and returns the table generated by PowerBI as a dataframe
 def show_as_table(dataframes, driver, graph, add_to_title = None):
     ActionChains(driver).context_click(graph).perform()
-    WebDriverWait(driver, 10).until(expected_conditions.presence_of_element_located((By.XPATH, "//button[@aria-label='Show as a table']"))).click()
+    WebDriverWait(driver, 10).until(expected_conditions.presence_of_element_located((By.XPATH, "//button[@aria-description='Show as a table']"))).click()
     grids = WebDriverWait(driver, 10).until(expected_conditions.presence_of_all_elements_located((By.XPATH, "//div[contains(@class, 'interactive-grid')]")))
     grids = [grid.get_attribute("outerHTML") for grid in grids]
     title = WebDriverWait(driver, 10).until(expected_conditions.presence_of_element_located((By.XPATH, "//div[@class='popOutBar']/div[contains(@class, 'title')]"))).text
@@ -454,7 +472,7 @@ def parse_powerBI_table(table, extra_header=None, special_rows = False, full_tit
 if __name__ == "__main__":
     try:
         driver = start_driver(headless=False)
-        bc_coronersreport_scrape(driver, 18)
+        bc_coronersreport_scrape(driver, 19)
         driver.quit()
     except Exception as e:
         traceback.print_exc()

@@ -1,0 +1,93 @@
+{% macro render_node(node, current_ids, depth, parent_id) %}
+    {% set v = node.visual %}
+    <div class="mb-2 p-2 border rounded" style="margin-left: {{ depth * 1.5 }}rem;">
+        <div class="form-check mb-0">
+            <input class="form-check-input visual-check" type="checkbox" name="visual_ids"
+                   value="{{ v.id }}" id="visual_{{ v.id }}"
+                   data-vid="{{ v.id }}"{% if parent_id is not none %} data-parent="{{ parent_id }}"{% endif %}
+                   {% if v.id in current_ids %}checked{% endif %}>
+            <label class="form-check-label fw-semibold" for="visual_{{ v.id }}">
+                {{ v.menu_name or v.name }}
+                <span class="badge bg-light text-dark ms-1">L{{ v.level or 1 }} · {{ v.chart_type }}</span>
+            </label>
+        </div>
+    </div>
+    {% for child in node.children %}
+        {{ render_node(child, current_ids, depth + 1, v.id) }}
+    {% endfor %}
+{% endmacro %}
+
+<div class="modal-header">
+    <h5 class="modal-title">Visuals — {{ group.name }} · {{ source.name }}</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+</div>
+<form hx-post="/v1/groups/{{ group.id }}/sources/{{ source.id }}/visuals"
+      hx-target="#team-row-{{ source.id }}-{{ group.id }}"
+      hx-swap="outerHTML"
+      hx-on::after-request="bootstrap.Modal.getInstance(document.getElementById('adjustPermissionsModal')).hide()">
+    <div class="modal-body">
+        {% set has_visuals = provinces | selectattr('trees') | list %}
+        {% if not has_visuals %}
+            <p class="text-muted mb-0">This data source has no visuals yet.</p>
+        {% else %}
+            <p class="form-intro">Choose which visuals <strong>{{ group.name }}</strong> can see.
+                A drill-down level can only be granted if the level above it is.</p>
+            {% for p in provinces %}
+                {% if p.trees %}
+                    <p class="fw-semibold mb-1 mt-2">{{ p.province.replace("-", " ").title() }}</p>
+                    {% for node in p.trees %}
+                        {{ render_node(node, current_ids, 0, None) }}
+                    {% endfor %}
+                {% endif %}
+            {% endfor %}
+        {% endif %}
+    </div>
+    <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-primary" {% if not has_visuals %}disabled{% endif %}>Save Changes</button>
+    </div>
+</form>
+
+<script>
+    (function() {
+        const checks = Array.from(document.querySelectorAll('.visual-check'));
+        const byId = {};
+        checks.forEach(c => { byId[c.dataset.vid] = c; });
+
+        // Enforce the drill hierarchy: a child level is only enabled while its parent is checked.
+        // Checks render parent-before-child (DOM order), so a single top-down pass cascades correctly.
+        function applyHierarchy() {
+            checks.forEach(c => {
+                if (c.dataset.parent) {
+                    const parent = byId[c.dataset.parent];
+                    const parentOn = parent && parent.checked && !parent.disabled;
+                    c.disabled = !parentOn;
+                    if (!parentOn) c.checked = false;
+                }
+            });
+        }
+        checks.forEach(c => c.addEventListener('change', applyHierarchy));
+        applyHierarchy();
+
+        // Block a no-op submit (matches the data-sources modal pattern)
+        const initial = {};
+        checks.forEach(c => { initial[c.value] = c.checked; });
+        const form = document.querySelector('form');
+        if (form) {
+            form.addEventListener('htmx:configRequest', function(event) {
+                let changed = false;
+                checks.forEach(c => { if (c.checked !== initial[c.value]) changed = true; });
+                if (!changed) {
+                    event.preventDefault();
+                    const modalBody = document.querySelector('.modal-body');
+                    if (modalBody && !modalBody.querySelector('.no-change-alert')) {
+                        const alert = document.createElement('div');
+                        alert.className = 'alert alert-warning alert-dismissible fade show no-change-alert';
+                        alert.innerHTML = `No changes were made. <button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
+                        modalBody.insertBefore(alert, modalBody.firstChild);
+                    }
+                }
+            });
+        }
+    })();
+</script>

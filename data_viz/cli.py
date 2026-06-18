@@ -173,9 +173,33 @@ def register_cli(app):
         create_from_seed(admin_username = admin_username)
         print("Database seeding complete.")
 
+    @app.cli.command("define-visuals", short_help="Sync visual definitions from app_config/visuals/*.json into the database.")
+    def define_visuals():
+        from data_viz.visual_definitions import sync_visual_definitions
+        print("Syncing visual definitions from manifests...")
+        stats = sync_visual_definitions()
+        print(f"Visual definitions synced: {stats['created']} created, "
+              f"{stats['updated']} updated, {stats['pruned']} pruned.")
+
     @app.cli.command("gen-visuals", short_help="Scrape-clean the V1 data and persist it into the database.")
-    def gen_visuals():
-        from data_viz.generateVisuals import export_data_to_db
-        print("Generating V1 visual data into the database...")
-        export_data_to_db()
+    @click.option("--only", "only", multiple=True,
+                  help="Regenerate only these target/province keys (e.g. --only canada). "
+                       "Repeatable. Drops & rewrites just those targets' rows. Default: all.")
+    def gen_visuals(only):
+        from data_viz.generate_visuals import export_data_to_db
+        from data_viz.auth.auth_helpers import reconcile_source_aliases
+        targets = list(only) or None
+        print("Generating V1 visual data into the database"
+              + (f" (only: {', '.join(targets)})" if targets else "") + "...")
+        export_data_to_db(only=targets)
+        # Keep group access pointing at the canonical pipeline data sources.
+        merges = reconcile_source_aliases()
+        if merges:
+            print("Reconciled duplicate data sources:", ", ".join(merges))
         print("Visual data generation complete.")
+
+    @app.cli.command("reconcile-sources", short_help="Merge legacy/seed-named data sources into their pipeline equivalents.")
+    def reconcile_sources():
+        from data_viz.auth.auth_helpers import reconcile_source_aliases
+        merges = reconcile_source_aliases()
+        print("Reconciled:", ", ".join(merges) if merges else "nothing to merge.")

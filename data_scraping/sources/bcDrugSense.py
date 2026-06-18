@@ -20,7 +20,7 @@ from checkUps import checkup_output
 #######################################################################################
 #                                       Notes:                                        #
 # This script is used to scrape the results table from the BC Drug sense website,     #
-# which can be found at https://bccsu-drugsense.onrender.com/. This data is           #
+# which can be found at https://drugsense.bccsu.ubc.ca/. This data is                 #
 # just in a plain HTML table and so it's easy enough to start up a selenium           #
 # instance, click the "results" tab, and then scrape each row of the table. The       #
 # structure of the scraped data has been formatted to match the existing structure    #
@@ -79,7 +79,7 @@ def bc_drugsense_scrape(driver):
     table_pages = int(WebDriverWait(driver, 10).until(expected_conditions.presence_of_element_located((By.XPATH, "//div[contains(@class, 'last-page')]"))).text)
     current_page = int(WebDriverWait(driver, 10).until(expected_conditions.presence_of_element_located((By.XPATH, "//div[contains(@class, 'current-page-container')]"))).text)
     # Instantiate a dataframe that matches the DAS data structure
-    drug_data = pandas.DataFrame(columns=["Visit Date", "City", "Health Authority", "Site", "Expected Drug", "Category", "Colour", "Description", "Fentanyl Strip", "Benzo Strip", "Spectrometer"])
+    drug_data = pandas.DataFrame(columns=["Visit Date", "Expected Drug", "Category", "Colour", "Texture", "Fentanyl Strip", "Benzo Strip", "Medetomidine Strip", "Spectrometer"])
     # Loop through each page of the table
     with alive_bar(len(list(range(0, table_pages))), theme="smooth", title="Collecting pagainated table data...") as bar:
         while current_page <= table_pages:
@@ -91,16 +91,14 @@ def bc_drugsense_scrape(driver):
                 # Otherwise, extract the data from each cell into a dictionary to append to the dataframe
                 data = {
                     "Visit Date": row.find_elements(By.XPATH, "td")[0].text,
-                    "City": row.find_elements(By.XPATH, "td")[1].text,
-                    "Health Authority": row.find_elements(By.XPATH, "td")[2].text,
-                    "Site": row.find_elements(By.XPATH, "td")[3].text,
-                    "Expected Drug": row.find_elements(By.XPATH, "td")[4].text,
-                    "Category": row.find_elements(By.XPATH, "td")[5].text,
-                    "Colour": row.find_elements(By.XPATH, "td")[6].text,
-                    "Description": row.find_elements(By.XPATH, "td")[7].text,
-                    "Fentanyl Strip": row.find_elements(By.XPATH, "td")[8].text,
-                    "Benzo Strip": row.find_elements(By.XPATH, "td")[9].text,
-                    "Spectrometer": row.find_elements(By.XPATH, "td")[10].text
+                    "Expected Drug": row.find_elements(By.XPATH, "td")[1].text,
+                    "Category": row.find_elements(By.XPATH, "td")[2].text,
+                    "Colour": row.find_elements(By.XPATH, "td")[3].text,
+                    "Texture": row.find_elements(By.XPATH, "td")[4].text,
+                    "Fentanyl Strip": row.find_elements(By.XPATH, "td")[5].text,
+                    "Benzo Strip": row.find_elements(By.XPATH, "td")[6].text,
+                    "Medetomidine Strip": row.find_elements(By.XPATH, "td")[7].text,
+                    "Spectrometer": row.find_elements(By.XPATH, "td")[8].text
                 }
                 drug_data = pandas.concat([drug_data, pandas.DataFrame(data, index=[0])], ignore_index=True)
                 # If we are only scraping new data, compare the tail of this data to the head of the existing data

@@ -37,6 +37,8 @@
                         <div id="data-type-toggle" class="d-flex btn-group mb-2 align-items-start" role="group" aria-label="Basic radio toggle button group">
                             <!-- Data type toggles will be dynamically generated here -->
                         </div>
+                        <!-- Config-driven treemap stratifier dropdowns + time control are generated here -->
+                        <div id="vis-stratifiers" class="d-flex flex-column gap-1 mb-2 treemap-controls"></div>
                         <div class="d-flex flex-column gap-2 align-items-start">
                             <button type="button" class="btn btn-secondary d-none" id="back-button"
                                 onclick="resetVisual()" title="Back to Visualizations">
@@ -91,21 +93,32 @@
         </div>
     </div>
     <script type="text/javascript">
-    (async function() {
-        try{
+    (function() {
+        async function initProvince() {
             province = "{{province}}";
-            currentVisual = visuals["default-visuals"][province];
-            createMenu(province);
-            await fetchRegionData(province);
-            masterLoop();
-        } catch(error) {
-            document.addEventListener('DOMContentLoaded', async function () {
-            province = "{{province}}";
-            currentVisual = visuals["default-visuals"][province];
-            createMenu(province);
-            await fetchRegionData(province);
-            masterLoop();
-            });
+            try {
+                // fetch first: it populates the menu config (visuals) from the DB before we read it
+                await fetchRegionData(province);
+                currentVisual = visuals["default-visuals"][province];
+                createMenu(province);
+                masterLoop();
+            } catch (error) {
+                // Surface a real failure state instead of retrying the identical sequence: a failed
+                // fetch/parse won't succeed on a second identical attempt, leaving the user on the
+                // skeleton loaders forever.
+                console.error("Failed to load province '" + province + "':", error);
+                const visDiv = document.getElementById("vis-div");
+                if (visDiv) {
+                    visDiv.innerHTML = '<p class="text-danger text-center py-5">Sorry, we couldn\'t load the data for this province. Please refresh to try again.</p>';
+                }
+            }
+        }
+        // The earlier failure mode was the script running before the DOM was ready; gate on
+        // readyState rather than catching and re-running.
+        if (document.readyState === "loading") {
+            document.addEventListener("DOMContentLoaded", initProvince);
+        } else {
+            initProvince();
         }
     })();
     </script>

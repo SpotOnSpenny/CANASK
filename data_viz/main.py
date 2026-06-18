@@ -10,7 +10,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 # Internal Dependency Imports
-from .generateVisuals import pull_data, filter_data
+from .generate_visuals import pull_data, filter_data
 from data_viz.auth.auth import require_auth
 
 #######################################################################################
@@ -30,8 +30,9 @@ main_blueprint = Blueprint("main", __name__)
 
 ##################################### ROUTES ###########################################
 # Routes for main index page
+# Public landing: anonymous visitors get the home page, but the menu/payload only surfaces visuals
+# whose visibility is "public" (the access filtering lives in visual_query.allowed_visuals).
 @main_blueprint.route("/")
-@require_auth
 def index():
     if request.headers.get("HX-Request") == "true":
         return render_template("introduction.jinja")
@@ -117,9 +118,10 @@ def feedback():
 # Route for V1 data visuals
 # Could automate this "active provinces check" but honestly this is easier and works fine for now
 active_provinces = ["alberta", "british-columbia", "saskatchewan", "manitoba", "ontario", "new-brunswick", "nova-scotia"]
+# Public-capable: anonymous visitors may load a province page; build_province_generic/menu filter the
+# content down to that viewer's accessible (e.g. public-only) visuals.
 @main_blueprint.route("/v1/province/<province>")
-@require_auth
-def v1_province(province): 
+def v1_province(province):
     if province not in active_provinces:
         return redirect(url_for("main.page_not_found"))
     if request.headers.get("HX-Request") == "true":
@@ -129,12 +131,18 @@ def v1_province(province):
 
 # JSON API the V1 frontend fetches its precomputed visual data from (DB-backed, was visual_data.json)
 @main_blueprint.route("/api/v1/province/<province>/data")
-@require_auth
 def v1_province_data(province):
     if province not in active_provinces:
         return jsonify({"error": "unknown province"}), 404
-    from .visual_query import build_province_payload
-    return jsonify(build_province_payload(province))
+    from flask_login import current_user
+    from .visual_query import build_province_menu
+    from .visual_generic import build_province_generic
+    # `data` is the normalized fact-based contract the frontend adapts client-side; config/default
+    # drive the menu. Both are filtered to what the current user may see.
+    return jsonify({
+        "data": build_province_generic(province, current_user),
+        **build_province_menu(province, current_user),
+    })
 
 
 ################################# Test Code Below ######################################

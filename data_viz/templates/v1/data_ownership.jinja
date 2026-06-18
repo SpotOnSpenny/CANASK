@@ -1,0 +1,71 @@
+<div id="data-ownership-div" class="container py-4">
+    <div class="row justify-content-center">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="mb-0">Data Ownership</h5>
+            </div>
+
+            {% if not ownership %}
+                <p class="text-muted text-center py-4 mb-0">
+                    You don't own any data sources with visuals yet.
+                </p>
+            {% endif %}
+
+            {% for entry in ownership %}
+                {% set source = entry.source %}
+                <div class="card shadow-sm mb-4">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0">{{ source.name }}</h6>
+                        <span class="badge bg-secondary">
+                            {{ entry.visual_count }} visual{{ '' if entry.visual_count == 1 else 's' }}
+                        </span>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="px-3 pt-3">
+                            <h6 class="mb-1">Visibility</h6>
+                            <p class="text-muted small mb-2">
+                                <strong>Private</strong>: only you and site admins ·
+                                <strong>Group</strong>: signed-in members of teams granted the visual below ·
+                                <strong>Public</strong>: anyone, no sign-in required.
+                                Drill-downs can't be made more visible than the access point they open from.
+                            </p>
+                        </div>
+                        {% set source = entry.source %}
+                        {% set visibility_rows = entry.visibility_rows %}
+                        {% include "v1/partials/visual_visibility_section.jinja" %}
+                        <hr class="my-0">
+                        <div class="px-3 pt-3">
+                            <h6 class="mb-1">Group access (for the &ldquo;Group&rdquo; level)</h6>
+                            <p class="text-muted small mb-2">Choose which teams can see each
+                                &ldquo;Group&rdquo;-level visual. Has no effect on Private or Public visuals.</p>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Team</th>
+                                        <th>Visible visuals</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for team in entry.teams %}
+                                        {% set group = team.group %}
+                                        {% set granted = team.granted %}
+                                        {% include "v1/partials/data_ownership_team_row.jinja" %}
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        {% if not entry.teams %}
+                            <p class="text-muted text-center py-3 mb-0">
+                                No teams have access to this data source yet. Grant a group access to it
+                                on the Group Management page first.
+                            </p>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>

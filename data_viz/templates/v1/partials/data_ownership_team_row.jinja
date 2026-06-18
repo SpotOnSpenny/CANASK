@@ -1,0 +1,23 @@
+<tr id="team-row-{{ source.id }}-{{ group.id }}">
+    <td class="fw-semibold">{{ group.name }}</td>
+    <td>
+        {% if granted %}
+            {% for v in granted %}
+                <span class="badge bg-secondary">
+                    {{ v.menu_name or v.name }}{% if v.level and v.level != "1" %} · L{{ v.level }}{% endif %}
+                </span>
+            {% endfor %}
+        {% else %}
+            <span class="text-muted">No visuals</span>
+        {% endif %}
+    </td>
+    <td>
+        <button type="button" class="btn btn-sm btn-outline-primary text-nowrap"
+                hx-get="/v1/groups/{{ group.id }}/sources/{{ source.id }}/visuals"
+                hx-target="#modal-container"
+                hx-swap="innerHTML"
+                hx-on::after-request="new bootstrap.Modal(document.getElementById('adjustPermissionsModal')).show()">
+            <i class="bi bi-sliders me-1"></i>Manage visuals
+        </button>
+    </td>
+</tr>

@@ -120,7 +120,11 @@
 }
 
 /* ------------------------------- Base ----------------------------------- */
-html { height: 100%; }
+/* Base scale: bump root so every rem-based size across the app reads larger.
+   The home page (#home-orient) is pinned to fixed px below so it is unaffected. */
+/* Lock the shell to the viewport: the window itself never scrolls (both axes
+   clipped). The only scroll region is #content-div below. */
+html { height: 100%; overflow: hidden; font-size: 110%; }
 
 body {
   height: 100%;
@@ -161,7 +165,7 @@ a { text-decoration: none; }
    to resolve against, so the page grew past the viewport and the body clipped
    the lower sections instead of letting #content-div scroll. */
 #partial-inclusions { height: 100%; }
-#page-container { display: flex; flex-direction: row; height: 100%; }
+#page-container { display: flex; flex-direction: row; height: 100%; min-height: 0; overflow: hidden; }
 
 #content-div {
   /* As a flex item, the default min-height:auto would let this grow to its
@@ -169,10 +173,12 @@ a { text-decoration: none; }
      scroll never engaged and the lower dashboard sections were unreachable.
      Pinning the height and resetting min-height makes it a true scroll pane. */
   flex: 1 1 auto;
+  min-width: 0;
   height: 100%;
   min-height: 0;
   max-height: 100%;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 4px 6px;
   scroll-behavior: smooth;
 }
@@ -183,7 +189,9 @@ a { text-decoration: none; }
 /* ------------------------------ Sidebar --------------------------------- */
 #desktop-nav {
   width: 264px;
-  height: 100vh;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
   flex-shrink: 0;
   background: var(--c-rail-bg) !important;
   color: var(--c-rail-text) !important;
@@ -298,6 +306,7 @@ a { text-decoration: none; }
 }
 .accordion-innard .nav-ic, #desktop-nav .nav-ic {
   width: 16px; text-align: center; opacity: 0.85; font-size: 0.95rem;
+  margin-right: 0.55rem;
 }
 
 /* Nav items are now native <a>/<button>; reset the button so Logout matches
@@ -371,6 +380,21 @@ a { text-decoration: none; }
 /* The main visualization surface — let the data breathe */
 #viz-card { background: var(--c-surface); border-radius: var(--radius); }
 #vis-div { width: 100%; }
+/* While loading, stretch the chart skeleton to the full card height (its height:100% needs a
+   definite parent). Scoped to the skeleton so the rendered chart, which sizes itself, is untouched. */
+#vis-div:has(.skeleton-chart) { height: 100%; }
+
+/* Treemap stratifier dropdowns + time slider, overlaid top-left of the chart. Compact, with a
+   translucent backing so they stay legible over the treemap. Driven entirely by visual_options. */
+.treemap-controls { max-width: 14rem; }
+.treemap-controls .treemap-control {
+  background: color-mix(in srgb, var(--c-surface) 88%, transparent);
+  border-radius: var(--radius);
+  padding: 0.2rem 0.4rem;
+  backdrop-filter: blur(2px);
+}
+.treemap-controls .form-select-sm { font-size: 0.78rem; }
+.treemap-controls .form-range { padding: 0; }
 
 /* ---------------------------- Breadcrumb -------------------------------- */
 .vis-breadcrumb {
@@ -613,6 +637,9 @@ a { text-decoration: none; }
   white-space: nowrap;
 }
 .table.table-bordered { border-color: var(--c-border); }
+/* Drill-down rows in the Data Ownership visibility table — subtle, theme-aware tint via the same
+   surface token the table striping uses, so it adapts to dark mode (Bootstrap's table-light does not). */
+.card-body .table tr.vis-drill-row { --bs-table-bg: var(--c-surface-2); }
 #table-title { font-size: 0.95rem; font-weight: 600; color: var(--c-text); }
 
 /* Invite management sortable headers */
@@ -652,7 +679,7 @@ a { text-decoration: none; }
 }
 .home-hero { margin: 0; }
 .home-title {
-  font-size: clamp(1.55rem, 1.2rem + 1vw, 2rem);
+  font-size: clamp(24.8px, 19.2px + 1vw, 32px);
   font-weight: 700;
   letter-spacing: -0.015em;
   margin: 0 0 12px;
@@ -661,7 +688,7 @@ a { text-decoration: none; }
 .home-lede {
   max-width: 62ch;
   color: var(--c-text-2);
-  font-size: 1.05rem;
+  font-size: 16.8px;
   line-height: 1.65;
   margin: 0;
   text-wrap: pretty;
@@ -669,7 +696,7 @@ a { text-decoration: none; }
 
 .home-section { margin: 0; }
 .home-section-title {
-  font-size: 0.74rem;
+  font-size: 11.8px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.07em;
@@ -708,11 +735,11 @@ a { text-decoration: none; }
   color: var(--c-text);
 }
 .region-tile:focus-visible { outline: none; box-shadow: var(--ring); border-color: var(--c-accent); }
-.region-tile-ic { color: var(--c-accent); font-size: 1.05rem; flex-shrink: 0; }
-.region-tile-name { font-weight: 600; font-size: 0.92rem; flex: 1 1 auto; white-space: nowrap; }
+.region-tile-ic { color: var(--c-accent); font-size: 16.8px; flex-shrink: 0; }
+.region-tile-name { font-weight: 600; font-size: 14.7px; flex: 1 1 auto; white-space: nowrap; }
 .region-tile-arrow {
   color: var(--c-muted);
-  font-size: 0.95rem;
+  font-size: 15.2px;
   flex-shrink: 0;
   transition: transform 150ms ease, color 150ms ease;
 }
@@ -729,13 +756,13 @@ a { text-decoration: none; }
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 0.98rem;
+  font-size: 15.7px;
   font-weight: 600;
   margin: 0 0 10px;
   color: var(--c-text);
 }
 .home-about-title i { color: var(--c-accent); }
-.home-about-text { color: var(--c-text-2); font-size: 0.92rem; line-height: 1.6; margin: 0; max-width: 92ch; }
+.home-about-text { color: var(--c-text-2); font-size: 14.7px; line-height: 1.6; margin: 0; max-width: 92ch; }
 .home-facts {
   list-style: none;
   margin: 16px 0 0;
@@ -747,16 +774,16 @@ a { text-decoration: none; }
 }
 @media (max-width: 640px) { .home-facts { grid-template-columns: 1fr; gap: 14px; } }
 .home-facts li { display: flex; align-items: flex-start; gap: 10px; }
-.home-facts li > i { color: var(--c-accent); font-size: 1.05rem; margin-top: 2px; flex-shrink: 0; }
+.home-facts li > i { color: var(--c-accent); font-size: 16.8px; margin-top: 2px; flex-shrink: 0; }
 .home-facts li > span {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  font-size: 0.85rem;
+  font-size: 13.6px;
   line-height: 1.45;
   color: var(--c-text-2);
 }
-.home-facts li strong { font-weight: 600; font-size: 0.9rem; color: var(--c-text); }
+.home-facts li strong { font-weight: 600; font-size: 14.4px; color: var(--c-text); }
 
 /* Partners band: larger, clickable logos */
 .home-partners {
@@ -767,7 +794,7 @@ a { text-decoration: none; }
   gap: 12px;
 }
 .home-partners-label {
-  font-size: 0.72rem;
+  font-size: 11.5px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.07em;
@@ -982,7 +1009,7 @@ a { text-decoration: none; }
 .accordion-innard { padding-left: 22px; }
 
 /* ============================ Feedback widget =========================== */
-.feedback-form { position: fixed; bottom: 0; left: 0; width: 100vw; z-index: 1000; color: white; }
+.feedback-form { position: fixed; bottom: 0; left: 0; width: 100%; z-index: 1000; color: white; }
 .feedback-toggle {
   visibility: visible;
   opacity: 1;
@@ -1017,7 +1044,7 @@ a { text-decoration: none; }
   color: var(--c-text);
   position: fixed;
   bottom: 0;
-  width: 100vw;
+  width: 100%;
   display: flex;
   flex-direction: column;
   justify-content: center;

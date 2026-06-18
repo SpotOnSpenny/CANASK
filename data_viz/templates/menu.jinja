@@ -11,7 +11,15 @@
     <hr>
 
     <p class="rail-section-label">Dashboards</p>
+    {% if not current_user.is_authenticated and not accessible_provinces %}
+    <div class="rail-empty nav-link text-muted">
+        <i class="bi bi-lock nav-ic"></i>
+        <span>No visualizations are publicly available.
+            <a href="/v1/login">Sign in</a> to view data shared with your groups.</span>
+    </div>
+    {% else %}
     <div class="accordion accordion-flush" id="accordionFlushMenu">
+        {% if current_user.is_authenticated %}
         <div class="accordion-item">
             <h2 class="accordion-header" id="flush-headingOne">
                 <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
@@ -30,6 +38,7 @@
                 </div>
             </div>
         </div>
+        {% endif %}
         <div class="accordion-item">
             <h2 class="accordion-header" id="flush-headingProvinces">
                 <button class="accordion-button" type="button" data-bs-toggle="collapse"
@@ -41,46 +50,61 @@
             <div id="flush-collapseProvinces" class="accordion-collapse collapse show"
                 aria-labelledby="flush-headingProvinces" data-bs-parent="#accordionFlushMenu">
                 <div class="accordion-body bg-transparent p-0">
+                    {% if 'british-columbia' in accessible_provinces %}
                     <a href="/v1/province/british-columbia" hx-get="/v1/province/british-columbia" hx-trigger="click"
                         hx-target="#content-div" hx-swap="innerHTML swap:1s settle:1s"
                         hx-push-url="/v1/province/british-columbia" class="nav-link htmx-element accordion-innard">
                         British Columbia
                     </a>
+                    {% endif %}
+                    {% if 'alberta' in accessible_provinces %}
                     <a href="/v1/province/alberta" hx-get="/v1/province/alberta" hx-trigger="click"
                         hx-target="#content-div" hx-swap="innerHTML swap:1s settle:1s"
                         hx-push-url="/v1/province/alberta" class="nav-link htmx-element accordion-innard">
                         Alberta
                     </a>
+                    {% endif %}
+                    {% if 'saskatchewan' in accessible_provinces %}
                     <a href="/v1/province/saskatchewan" hx-get="/v1/province/saskatchewan" hx-trigger="click"
                         hx-target="#content-div" hx-swap="innerHTML swap:1s settle:1s"
                         hx-push-url="/v1/province/saskatchewan" class="nav-link htmx-element accordion-innard">
                         Saskatchewan
                     </a>
+                    {% endif %}
+                    {% if 'manitoba' in accessible_provinces %}
                     <a href="/v1/province/manitoba" hx-get="/v1/province/manitoba" hx-trigger="click"
                         hx-target="#content-div" hx-swap="innerHTML swap:1s settle:1s"
                         hx-push-url="/v1/province/manitoba" class="nav-link htmx-element accordion-innard">
                         Manitoba
                     </a>
+                    {% endif %}
+                    {% if current_user.is_authenticated %}
                     <a href="/province/ontario" hx-get="/province/ontario" hx-trigger="click" hx-target="#content-div"
                         hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/province/ontario"
                         class="nav-link htmx-element accordion-innard">
                         Ontario
                     </a>
+                    {% endif %}
+                    {% if 'new-brunswick' in accessible_provinces %}
                     <a href="/v1/province/new-brunswick" hx-get="/v1/province/new-brunswick" hx-trigger="click"
                         hx-target="#content-div" hx-swap="innerHTML swap:1s settle:1s"
                         hx-push-url="/v1/province/new-brunswick" class="nav-link htmx-element accordion-innard">
                         New Brunswick
                     </a>
+                    {% endif %}
                 </div>
             </div>
         </div>
     </div>
+    {% endif %}
 
     <div class="rail-spacer"></div>
 
     <hr>
 
+    {% if current_user.is_authenticated %}
     <p class="rail-section-label">Account</p>
+    {% if nav_perms.manage_users %}
     <a href="/v1/invite-user" hx-get="/v1/invite-user" hx-trigger="click" hx-target="#content-div"
         hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/v1/invite-user" class="nav-link htmx-element">
         <i class="bi bi-person-plus nav-ic"></i>Invite a user
@@ -93,14 +117,26 @@
         hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/v1/user-management" class="nav-link htmx-element">
         <i class="bi bi-people-fill nav-ic"></i>User management
     </a>
+    {% endif %}
+    {% if nav_perms.manage_data %}
     <a href="/v1/group-management" hx-get="/v1/group-management" hx-trigger="click" hx-target="#content-div"
         hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/v1/group-management" class="nav-link htmx-element">
         <i class="bi bi-collection nav-ic"></i>Group management
     </a>
-    <button type="button" hx-post="/v1/logout" hx-trigger="click" hx-target="#partial-inclusions"
-        hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/v1/login" class="nav-link htmx-element rail-logout">
+    <a href="/v1/data-ownership" hx-get="/v1/data-ownership" hx-trigger="click" hx-target="#content-div"
+        hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/v1/data-ownership" class="nav-link htmx-element">
+        <i class="bi bi-shield-lock nav-ic"></i>Data ownership
+    </a>
+    {% endif %}
+    <button type="button" hx-post="/v1/logout" hx-trigger="click"
+        class="nav-link htmx-element rail-logout">
         <i class="bi bi-box-arrow-right nav-ic"></i>Logout
     </button>
+    {% else %}
+    <a href="/v1/login" class="nav-link htmx-element rail-logout">
+        <i class="bi bi-box-arrow-in-right nav-ic"></i>Sign in
+    </a>
+    {% endif %}
 </div>
 
 <div id="mobile-nav">
@@ -116,47 +152,78 @@
         </h1>
     </div>
     <div id="mobile-nav-link-container">
+        {% if not current_user.is_authenticated and not accessible_provinces %}
+        <p class="mobile-nav-link text-muted">No visualizations are publicly available.
+            <a href="/v1/login">Sign in</a> to view data shared with your groups.</p>
+        {% else %}
+        {% if current_user.is_authenticated %}
         <h2 class="nav-title">National Trends</h2>
         <a href="/toxicity-deaths" hx-get="/toxicity-deaths" hx-trigger="click" hx-target="#content-div"
             hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/toxicity-deaths" class="mobile-nav-link htmx-element">
             Total Toxicity Deaths
         </a>
+        {% endif %}
         <h2 class="nav-title">Provincial Trends</h2>
+        {% if 'british-columbia' in accessible_provinces %}
         <a href="/v1/province/british-columbia" hx-get="/v1/province/british-columbia" hx-trigger="click"
             hx-target="#content-div" hx-swap="innerHTML swap:1s settle:1s"
             hx-push-url="/v1/province/british-columbia" class="mobile-nav-link htmx-element">
             British Columbia
         </a>
+        {% endif %}
+        {% if 'alberta' in accessible_provinces %}
         <a href="/v1/province/alberta" hx-get="/v1/province/alberta" hx-trigger="click" hx-target="#content-div"
             hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/v1/province/alberta" class="mobile-nav-link htmx-element">
             Alberta
         </a>
+        {% endif %}
+        {% if 'saskatchewan' in accessible_provinces %}
         <a href="/v1/province/saskatchewan" hx-get="/v1/province/saskatchewan" hx-trigger="click"
             hx-target="#content-div" hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/v1/province/saskatchewan"
             class="mobile-nav-link htmx-element">
             Saskatchewan
         </a>
+        {% endif %}
+        {% if 'manitoba' in accessible_provinces %}
         <a href="/v1/province/manitoba" hx-get="/v1/province/manitoba" hx-trigger="click" hx-target="#content-div"
             hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/v1/province/manitoba" class="mobile-nav-link htmx-element">
             Manitoba
         </a>
+        {% endif %}
+        {% if current_user.is_authenticated %}
         <a href="/province/ontario" hx-get="/province/ontario" hx-trigger="click" hx-target="#content-div"
             hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/province/ontario" class="mobile-nav-link htmx-element">
             Ontario
         </a>
+        {% endif %}
+        {% if 'new-brunswick' in accessible_provinces %}
         <a href="/v1/province/new-brunswick" hx-get="/v1/province/new-brunswick" hx-trigger="click"
             hx-target="#content-div" hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/v1/province/new-brunswick"
             class="mobile-nav-link htmx-element">
             New Brunswick
         </a>
+        {% endif %}
+        {% if nav_perms.manage_users %}
         <h2 class="nav-title">Account</h2>
         <a href="/v1/user-management" hx-get="/v1/user-management" hx-trigger="click" hx-target="#content-div"
             hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/v1/user-management" class="mobile-nav-link htmx-element">
             User management
         </a>
+        {% if nav_perms.manage_data %}
         <a href="/v1/group-management" hx-get="/v1/group-management" hx-trigger="click" hx-target="#content-div"
             hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/v1/group-management" class="mobile-nav-link htmx-element">
             Group management
         </a>
+        <a href="/v1/data-ownership" hx-get="/v1/data-ownership" hx-trigger="click" hx-target="#content-div"
+            hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/v1/data-ownership" class="mobile-nav-link htmx-element">
+            Data ownership
+        </a>
+        {% endif %}
+        {% endif %}
+        {% if not current_user.is_authenticated %}
+        <h2 class="nav-title">Account</h2>
+        <a href="/v1/login" class="mobile-nav-link htmx-element">Sign in</a>
+        {% endif %}
+        {% endif %}
     </div>
 </div>
