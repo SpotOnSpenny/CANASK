@@ -223,7 +223,7 @@ def bc_coronersreport_scrape(driver, expected_pages:int = 19):
                 options = WebDriverWait(driver, 10).until(expected_conditions.presence_of_all_elements_located((By.XPATH, "//div[contains(@class, 'slicerItemsContainer')]/div/div[@role='option']")))
         # Repeat this with the carfentanil and other drugs
         for drug in drugs:
-            WebDriverWait(driver, 10).until(expected_conditions.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Carfentanil')]/ancestor-or-self::visual-modern"))).click()
+            WebDriverWait(driver, 10).until(expected_conditions.presence_of_element_located((By.XPATH, f"//*[contains(text(), '{drug}')]/ancestor-or-self::visual-modern"))).click()
             graph = WebDriverWait(driver, 10).until(expected_conditions.presence_of_element_located((By.XPATH, "//div[contains(@class, ' visual-columnChart')]")))
             show_as_table(dataframes, driver, graph, add_to_title="All Health Authorities")
             options = WebDriverWait(driver, 10).until(expected_conditions.presence_of_all_elements_located((By.XPATH, "//div[contains(@class, 'slicerItemsContainer')]/div/div[@role='option']")))
@@ -371,7 +371,7 @@ def bc_coronersreport_scrape(driver, expected_pages:int = 19):
         next_button.click()
         grid_area = WebDriverWait(driver, 10).until(expected_conditions.presence_of_element_located((By.XPATH, "//div[@role='grid' and contains(@class, 'interactive-grid')]/ancestor-or-self::div[contains(@class, 'visualWrapper')]"))).get_attribute("outerHTML")
         table = bs4.BeautifulSoup(grid_area, "html.parser")
-        dataframes.append(parse_powerBI_table(table))
+        dataframes.append(parse_powerBI_table(table, full_title="Unregulated Drug Deaths - Occupation Industry"))
         options = WebDriverWait(driver, 10).until(expected_conditions.presence_of_all_elements_located((By.XPATH, "//div[contains(@class, 'slicerItemsContainer')]/div/div[@role='option']")))
         for option in options:
             if option.text.lower() != "select all":
@@ -472,7 +472,7 @@ def parse_powerBI_table(table, extra_header=None, special_rows = False, full_tit
 if __name__ == "__main__":
     try:
         driver = start_driver(headless=False)
-        bc_coronersreport_scrape(driver, 18)
+        bc_coronersreport_scrape(driver, 19)
         driver.quit()
     except Exception as e:
         traceback.print_exc()
