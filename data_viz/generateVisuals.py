@@ -1295,17 +1295,18 @@ def export_data_json():
         json.dump(data, file, indent=4)
 
 ###########################################################################################
-#                          DB persistence (replaces the JSON sink)                        #
-# Reuses the exact same cleaned dicts the v1_*_export_clean() functions already produce,   #
-# then walks each visual per its VISUAL_SPECS entry and writes normalized rows:            #
-#   DataSources (about + scrape dates), Visuals (presentation config), DataPoints (facts), #
-#   VisualQuery (the predicates that select a visual's facts -- the visual<->data link).   #
+#                          DB persistence (the data layer)                                #
+# Reuses the exact same cleaned dicts the v1_*_export_clean() functions already produce and #
+# writes their facts as normalized rows: DataSources (about + scrape dates), DataPoints     #
+# (facts), and VisualQuery (the predicates that select a visual's facts). The Visuals rows  #
+# that *describe* each visual (shape/metric/dimensions/key encoding/menu config) are        #
+# authored separately from JSON manifests by data_viz/visual_definitions.py                 #
+# (`flask define-visuals`); this layer reads each Visuals row to learn how to map its       #
+# cleaned block into facts -- there is no hard-coded VISUAL_SPECS / VISUAL_MENU registry.   #
 ###########################################################################################
 
 # --------------------------------------------------------------------------------------- #
-# Write-side authoring registry (formerly data_viz/visual_specs.py). Drives how each cleaned
-# block is turned into normalized DataPoints + self-describing Visuals rows. The read path is
-# fully DB-driven, so this lives entirely on the write side now.
+# Write-side constants + helpers for mapping cleaned blocks into normalized facts.
 # --------------------------------------------------------------------------------------- #
 
 # URL-friendly province -> the display/Region name used as the geo for province-level facts
@@ -1317,7 +1318,6 @@ PROVINCE_DISPLAY = {
     "new-brunswick": "New Brunswick",
 }
 
-PROVINCE_GEO_TYPE = "province"
 TIME_FRAME_TYPE = "year"
 ADDITIONAL_DIM_TYPE = "additional_label"   # tags a table-only total row in dimension2
 
@@ -1332,179 +1332,16 @@ def additional_metric(label):
     return "total_" + label.replace("Total ", "").strip().replace(" ", "_").lower()
 
 
-# Each visual_id maps to how its series are encoded. visual_id is unique within a province;
-# shared ids (national death visuals, drug_death_heatmap) reuse one spec.
-#   shape          : geo_series | flat_series | pie_nested | regional | map_none
-#   metric         : the event (data_metric)
-#   geo_type       : geo_type for the nested geo (geo_series / pie_nested / regional)
-#   dimension2_type: the primary disaggregator type carried in the series key
-#   substance      : how to fill the substance dimension (slot 1):
-#                      None / "opioids" (const) / "from_key" (parsed) / "lookup" (from a map)
-#   key            : constant | suffix_y | plain | sex_substance | manner_substance
-#   key_constant   : the literal series key for `constant` (e.g. "y")
-VISUAL_SPECS = {
-    # ---- BC Coroners (unregulated drug toxicity deaths) ----
-    "drug_death_heatmap": {
-        "shape": "geo_series", "geo_type": "health_authority",
-        "metric": "deaths", "dimension2_type": None, "substance": None,
-        "key": "constant", "key_constant": "y",
-    },
-    "deaths_by_sex_line": {
-        "shape": "geo_series", "geo_type": "health_authority",
-        "metric": "deaths", "dimension2_type": "sex", "substance": None,
-        "key": "suffix_y",
-    },
-    "toxicity_deaths_per_drug_by_year": {
-        "shape": "flat_series",
-        "metric": "deaths", "dimension2_type": "drug_type", "substance": None,
-        "key": "suffix_y",
-    },
-    "drug_toxicity_deaths_by_age": {
-        "shape": "flat_series",
-        "metric": "deaths", "dimension2_type": "age_group", "substance": None,
-        "key": "suffix_y",
-    },
-    # ---- BC Centre for Substance Use (drug supply / testing) ----
-    "drug_supply_by_year": {
-        "shape": "flat_series",
-        "metric": "samples", "dimension2_type": "drug_category", "substance": None,
-        "key": "suffix_y",
-    },
-    "fent_benz_by_year": {
-        "shape": "flat_series",
-        "metric": "strip_positive", "dimension2_type": "drug", "substance": None,
-        "key": "plain",
-    },
-    "opioid_types_by_year": {
-        "shape": "flat_series",
-        "metric": "spectrometer_opioid_positive", "dimension2_type": "opioid_type", "substance": None,
-        "key": "plain",
-    },
-    "drug_supply_geographically": {
-        "shape": "map_none",
-    },
-    "geographical_drug_supply_pie": {
-        "shape": "pie_nested", "geo_type": "health_authority",
-        "metric": "samples", "dimension2_type": "drug_category",
-    },
-    "regional_drug_supply_breakdown": {
-        "shape": "regional", "geo_type": "health_authority",
-        "metric": "spectrometer_positive",
-        "dimension_type": "drug_category", "dimension2_type": "result",
-        "grid_from": "geographical_drug_supply_pie",
-    },
-    # ---- National (Health Infobase): shared by AB / SK / MB / NB ----
-    "opioid_deaths_by_age": {
-        "shape": "flat_series",
-        "metric": "deaths", "dimension2_type": "age_group", "substance": "opioids",
-        "key": "suffix_y",
-    },
-    "deaths_by_age": {  # Manitoba's id for the same national age visual
-        "shape": "flat_series",
-        "metric": "deaths", "dimension2_type": "age_group", "substance": "opioids",
-        "key": "suffix_y",
-    },
-    "deaths_by_drug_type": {
-        "shape": "flat_series",
-        "metric": "deaths", "dimension2_type": "drug_type", "substance": "lookup",
-        "key": "suffix_y",
-    },
-    "deaths_by_sex": {
-        "shape": "flat_series",
-        "metric": "deaths", "dimension2_type": "sex", "substance": "from_key",
-        "key": "sex_substance",
-    },
-    "deaths_by_manner": {
-        "shape": "flat_series",
-        "metric": "deaths", "dimension2_type": "manner", "substance": "from_key",
-        "key": "manner_substance",
-    },
-    # ---- SK Coroners only ----
-    "deaths_by_opioid_type": {
-        "shape": "flat_series",
-        "metric": "deaths", "dimension2_type": "drug_type", "substance": None,
-        "key": "suffix_y",
-    },
-}
-
-# Menu / presentation config (formerly the static visuals.js), keyed by visual_id using the exact
-# key names the frontend reads. Province-specific drill links live in PROVINCE_NEXT_VIS_OVERRIDE;
-# per-province landing visuals in DEFAULT_VISUALS.
-VISUAL_MENU = {
-    "drug_death_heatmap": {"type": "heatmap", "data-types": ["counts"],
-        "menu-parent": "Deaths and Demographics", "menu-name": "Drug Toxicity Deaths by Health Authority",
-        "level": 1, "vis-parent": None, "next-vis": None},
-    "deaths_by_sex_line": {"type": "line", "data-types": ["counts", "rates"],
-        "menu-parent": None, "menu-name": None,
-        "level": 2, "vis-parent": "drug_death_heatmap", "next-vis": None},
-    "toxicity_deaths_per_drug_by_year": {"type": "bar", "data-types": ["counts", "rates", "percentages"],
-        "menu-parent": "Deaths and Demographics", "menu-name": "Unregulated Drug Toxicity Deaths by Drug Type",
-        "level": 1, "vis-parent": None, "next-vis": None},
-    "drug_toxicity_deaths_by_age": {"type": "line", "data-types": ["counts", "rates"],
-        "menu-parent": "Deaths and Demographics", "menu-name": "Unregulated Drug Toxicity Deaths by Age Group",
-        "level": 1, "vis-parent": None, "next-vis": None},
-    "drug_supply_by_year": {"type": "line", "data-types": ["counts", "rates"],
-        "menu-parent": "Drug Supply", "menu-name": "Drugs by Category",
-        "level": 1, "vis-parent": None, "next-vis": None},
-    "fent_benz_by_year": {"type": "line", "data-types": ["counts", "rates"],
-        "menu-parent": "Drug Supply", "menu-name": "Presence of Fentanly and Benzodiazepines",
-        "level": 1, "vis-parent": None, "next-vis": None},
-    "opioid_types_by_year": {"type": "line", "data-types": ["counts", "rates"],
-        "menu-parent": "Drug Supply", "menu-name": "Presence of Opioid Types",
-        "level": 1, "vis-parent": None, "next-vis": None},
-    "drug_supply_geographically": {"type": "map", "data-types": None,
-        "menu-parent": "Drug Supply", "menu-name": "Drug Supply by Health Authority",
-        "level": 1, "vis-parent": None, "next-vis": None},
-    "geographical_drug_supply_pie": {"type": "pie", "data-types": ["counts"],
-        "menu-parent": None, "menu-name": None,
-        "level": 2, "vis-parent": "drug_supply_geographically", "next-vis": "regional_drug_supply_breakdown"},
-    "regional_drug_supply_breakdown": {"type": "bar", "data-types": ["counts"],
-        "menu-parent": None, "menu-name": None,
-        "level": 3, "vis-parent": "geographical_drug_supply_pie", "next-vis": None},
-    "opioid_deaths_by_age": {"type": "line", "data-types": ["counts", "percentages"],
-        "menu-parent": "Deaths and Demographics", "menu-name": "Opioid Deaths by Age Group",
-        "level": 1, "vis-parent": None, "next-vis": None},
-    "deaths_by_age": {"type": "line", "data-types": ["counts", "percentages"],
-        "menu-parent": "Deaths and Demographics", "menu-name": "Opioid Deaths by Age Group",
-        "level": 1, "vis-parent": None, "next-vis": None},
-    "deaths_by_drug_type": {"type": "bar", "data-types": ["counts", "rates", "percentages"],
-        "menu-parent": "Deaths and Demographics", "menu-name": "Opioid Deaths by Drug Type",
-        "level": 1, "vis-parent": None, "next-vis": None},
-    "deaths_by_sex": {"type": "line", "data-types": ["counts", "rates", "percentages"],
-        "menu-parent": "Deaths and Demographics", "menu-name": "Opioid Deaths by Sex",
-        "level": 1, "vis-parent": None, "next-vis": None},
-    "deaths_by_manner": {"type": "line", "data-types": ["counts", "rates", "percentages"],
-        "menu-parent": "Deaths and Demographics", "menu-name": "Unregulated Drug Toxicity Deaths by Manner of Death",
-        "level": 1, "vis-parent": None, "next-vis": None},
-    "deaths_by_opioid_type": {"type": "bar", "data-types": ["counts", "rates", "percentages"],
-        "menu-parent": "Deaths and Demographics", "menu-name": "Opioid Deaths by Drug Type",
-        "level": 1, "vis-parent": None, "next-vis": None},
-}
-
-PROVINCE_NEXT_VIS_OVERRIDE = {
-    ("british-columbia", "drug_death_heatmap"): "deaths_by_sex_line",
-    ("british-columbia", "drug_supply_geographically"): "geographical_drug_supply_pie",
-}
-
-DEFAULT_VISUALS = {
-    "british-columbia": "drug_death_heatmap",
-    "alberta": "opioid_deaths_by_age",
-    "saskatchewan": "opioid_deaths_by_age",
-    "manitoba": "deaths_by_age",
-    "new-brunswick": "opioid_deaths_by_age",
-    "nova-scotia": "drug_supply_geographically",
-}
-
-
-def encode_series_key(spec, key, substance_map=None):
+def encode_series_key(visual, key, substance_map=None):
     """Legacy series key -> (dimension_value, dimension2_value) for the substance + disaggregator dims.
-    dimension (slot 1) holds the substance; dimension2 (slot 2) holds the key's disaggregator."""
-    kind = spec["key"]
+    dimension (slot 1) holds the substance; dimension2 (slot 2) holds the key's disaggregator.
+    `visual` is the Visuals row -- its key_kind / substance columns drive the encoding."""
+    kind = visual.key_kind
     if kind == "constant":
         return None, None
     if kind in ("suffix_y", "plain"):
         disaggregator = key[:-2] if (kind == "suffix_y" and key.endswith("_y")) else key
-        return _resolve_substance(spec, disaggregator, substance_map), disaggregator
+        return _resolve_substance(visual, disaggregator, substance_map), disaggregator
     if kind == "sex_substance":
         base = key[:-2] if key.endswith("_y") else key
         sex, token = base.rsplit(" ", 1)
@@ -1516,8 +1353,8 @@ def encode_series_key(spec, key, substance_map=None):
     raise ValueError(f"Unknown key kind: {kind}")
 
 
-def _resolve_substance(spec, disaggregator, substance_map):
-    mode = spec.get("substance")
+def _resolve_substance(visual, disaggregator, substance_map):
+    mode = visual.substance
     if mode == "opioids":
         return "opioids"
     if mode == "lookup" and substance_map:
@@ -1573,32 +1410,29 @@ def _primary_x(block):
 
 
 def export_data_to_db(data=None):
-    """Build the V1 cleaned data (same dicts as export_data_json) and persist them into the DB.
+    """Build the V1 cleaned data (same dicts as export_data_json) and persist its DataPoints.
+
+    Visual *definitions* (the Visuals rows -- shape / metric / dimensions / key encoding / menu
+    config) are authored separately by data_viz.visual_definitions.sync_visual_definitions
+    (`flask define-visuals`). This function only (re)builds the data layer: for each cleaned block it
+    looks up the matching Visuals row and reads its self-describing columns to map the block into
+    normalized DataPoints + VisualQuery predicates.
 
     `data` may be injected ({province: {visual_id: block}}) to persist already-cleaned dicts
     without re-scraping (used by the round-trip verification against the golden visual_data.json).
     """
     from data_viz.database import db
-    from data_viz.database.models import DataSources, DataPoints, Visuals, VisualQuery, GroupVisuals
+    from data_viz.database.models import DataSources, DataPoints, Visuals, VisualQuery
 
     if data is None:
         data = {province: builder() for province, builder in V1_PROVINCES.items()}
     substance_map = _national_substance_map()
 
-    # The Visuals / VisualQuery / DataPoints tables are owned entirely by this pipeline, so a clean
-    # wipe-and-rebuild keeps regeneration idempotent. DataSources rows are shared (seed + access
-    # control), so they are upserted by name rather than deleted.
-    # visibility and GroupVisuals grants are owner-managed state (not derived from the scrape), so
-    # preserve them across the wipe-and-rebuild by snapshotting per (province, name) -- visual.id
-    # changes on rebuild, so grants are re-matched by name below.
-    visuals_by_id = {v.id: v for v in Visuals.query.all()}
-    visibility_snapshot = {(v.province, v.name): v.visibility for v in visuals_by_id.values()}
-    grant_snapshot = {(gv.group_id, visuals_by_id[gv.visual_id].province, visuals_by_id[gv.visual_id].name)
-                      for gv in GroupVisuals.query.all() if gv.visual_id in visuals_by_id}
-
-    GroupVisuals.query.delete()   # FK -> visuals; restored by name after the rebuild
+    # The VisualQuery / DataPoints tables are owned entirely by this pipeline, so a clean
+    # wipe-and-rebuild keeps regeneration idempotent. Visuals definitions + their visibility /
+    # GroupVisuals grants are owned by define-visuals / the UI, so they are left in place (we only
+    # refresh each DataSource's about / scrape-date strings from the freshly scraped block).
     VisualQuery.query.delete()
-    Visuals.query.delete()
     DataPoints.query.delete()
     db.session.flush()
 
@@ -1640,110 +1474,45 @@ def export_data_to_db(data=None):
 
     for province, visuals in data.items():
         for visual_id, block in visuals.items():
-            spec = VISUAL_SPECS[visual_id]
-            shape = spec["shape"]
+            visual = Visuals.query.filter_by(province=province, name=visual_id).first()
+            if visual is None:
+                print(f"  ! No definition for {province}/{visual_id} -- "
+                      f"run `flask define-visuals` first. Skipping its data.")
+                continue
+            shape = visual.data_shape
+            # Refresh the source's about / scrape-date strings from this run's block; the visual's
+            # data_source_id was already authored by define-visuals (resolved by the same name).
             source = get_source(block["data_source"]) if "data_source" in block else None
-            source_id = source.id if source else None
-
-            # Menu/presentation config -> DB columns (the read path serves these instead of VISUAL_MENU).
-            menu = VISUAL_MENU[visual_id]
-            next_vis = PROVINCE_NEXT_VIS_OVERRIDE.get((province, visual_id), menu.get("next-vis"))
-            menu_data_types = menu.get("data-types")
-
-            # Keep an owner's prior visibility; otherwise default sourceless scaffolding maps to
-            # "public" (no data to protect) and data-bearing visuals to "private" (owner opts in).
-            visibility = visibility_snapshot.get((province, visual_id))
-            if visibility is None:
-                visibility = "public" if source_id is None else "private"
-
-            # Self-describing query definition (Stage 2): lets the read path select + shape this
-            # visual's DataPoints without VISUAL_SPECS. drill_chain is the dimension nesting order.
-            geo_type = spec.get("geo_type") or ("province" if shape == "flat_series" else None)
-            dim2_type = spec.get("dimension2_type")
-            if shape == "geo_series":
-                drill_chain = ["geo"] + (["dimension2"] if dim2_type else [])
-            elif shape == "pie_nested":
-                drill_chain = ["geo", "time", "dimension2"]
-            elif shape == "regional":
-                drill_chain = ["geo", "time", "dimension", "dimension2"]
-            elif shape == "flat_series":
-                drill_chain = ["dimension2"] if dim2_type else []
-            else:
-                drill_chain = []
-
-            visual = Visuals(
-                name=visual_id, province=province,
-                vis_type=shape, data_shape=shape,
-                data_source_id=source_id, visual_options=block.get("visual_options"),
-                chart_type=menu["type"],
-                data_types=",".join(menu_data_types) if menu_data_types else None,
-                menu_name=menu.get("menu-name"), menu_parent=menu.get("menu-parent"),
-                level=str(menu["level"]),
-                vis_parent_name=menu.get("vis-parent"), next_vis_name=next_vis,
-                is_default=(DEFAULT_VISUALS.get(province) == visual_id),
-                visibility=visibility,
-                metric=spec.get("metric"), geo_type=geo_type,
-                dimension_type=spec.get("dimension_type"), dimension2_type=dim2_type,
-                drill_chain=drill_chain, key_kind=spec.get("key"),
-            )
-            db.session.add(visual)
-            db.session.flush()
-
-            predicates = []   # (filter_type, filter_value)
+            source_id = source.id if source else visual.data_source_id
 
             if shape == "map_none":
-                _persist_predicates(VisualQuery, db, visual.id, predicates)
-                continue
+                continue   # no facts; the read path renders it from visual_options only
 
-            geo_type = spec.get("geo_type", PROVINCE_GEO_TYPE)
-            predicates.append(("source", block["data_source"]["name"]))
-            predicates.append(("geo_type", geo_type))
+            geo_type = visual.geo_type
+            # Only the predicates the read path consumes are persisted: `geo` (scopes the shared
+            # province-level facts to this province) and `additional_metric` (table-only totals).
+            # Everything else the read path needs lives on the Visuals row itself.
+            predicates = []
 
             if shape == "flat_series":
                 geo = PROVINCE_DISPLAY[province]
                 predicates.append(("geo", geo))
-                predicates.append(("metric", spec["metric"]))
-                if spec.get("dimension2_type"):
-                    predicates.append(("dimension2_type", spec["dimension2_type"]))
                 for dtype, series in block["data"].items():
-                    x = series.get("x", [])
-                    for series_key, values in series.items():
-                        if series_key == "x":
-                            continue
-                        dim_val, dim2_val = encode_series_key(spec, series_key, substance_map)
-                        dim_type = "substance" if dim_val is not None else None
-                        for i, year in enumerate(x):
-                            if i < len(values):
-                                add_point(source_id, geo_type, geo, year, spec["metric"], dtype,
-                                          dim_type, dim_val, spec.get("dimension2_type"), dim2_val, values[i])
+                    _persist_series(add_point, source_id, geo_type, geo, visual, dtype, series, substance_map)
                 _persist_additional(add_point, predicates, block, source_id, geo_type, geo)
 
             elif shape == "geo_series":
-                predicates.append(("metric", spec["metric"]))
-                if spec.get("dimension2_type"):
-                    predicates.append(("dimension2_type", spec["dimension2_type"]))
                 for dtype, geo_dict in block["data"].items():
                     for geo, series in geo_dict.items():
-                        x = series.get("x", [])
-                        for series_key, values in series.items():
-                            if series_key == "x":
-                                continue
-                            dim_val, dim2_val = encode_series_key(spec, series_key, substance_map)
-                            dim_type = "substance" if dim_val is not None else None
-                            for i, year in enumerate(x):
-                                if i < len(values):
-                                    add_point(source_id, geo_type, geo, year, spec["metric"], dtype,
-                                              dim_type, dim_val, spec.get("dimension2_type"), dim2_val, values[i])
+                        _persist_series(add_point, source_id, geo_type, geo, visual, dtype, series, substance_map)
 
             elif shape == "pie_nested":
-                predicates.append(("metric", spec["metric"]))
-                predicates.append(("dimension2_type", spec["dimension2_type"]))
                 predicates.append(("additional_metric", additional_metric("Total Samples")))
                 for geo, year_dict in block["data"]["counts"].items():
                     for year, drug_dict in year_dict.items():
                         for drug, value in drug_dict.items():
-                            add_point(source_id, geo_type, geo, year, spec["metric"], "counts",
-                                      None, None, spec["dimension2_type"], drug, value)
+                            add_point(source_id, geo_type, geo, year, visual.metric, "counts",
+                                      None, None, visual.dimension2_type, drug, value)
                 # Total Samples (table-only) per health authority / year
                 for geo, tabular in block.get("tabular_data", {}).items():
                     totals = tabular.get("Total Samples", [])
@@ -1755,38 +1524,33 @@ def export_data_to_db(data=None):
                                       ADDITIONAL_DIM_TYPE, "Total Samples", None, None, totals[i])
 
             elif shape == "regional":
-                predicates.append(("metric", spec["metric"]))
-                predicates.append(("dimension_type", spec["dimension_type"]))
                 for geo, year_dict in block["data"].get("counts", {}).items():
                     for year, drug_dict in year_dict.items():
                         for drug, result_dict in drug_dict.items():
                             for result_key, count_list in result_dict.items():
                                 result = result_key[:-2] if result_key.endswith("_y") else result_key
-                                add_point(source_id, geo_type, geo, year, spec["metric"], "counts",
-                                          spec["dimension_type"], drug,
-                                          spec["dimension2_type"], result, count_list[0])
+                                add_point(source_id, geo_type, geo, year, visual.metric, "counts",
+                                          visual.dimension_type, drug,
+                                          visual.dimension2_type, result, count_list[0])
 
             _persist_predicates(VisualQuery, db, visual.id, predicates)
 
-    # Drill-heading maps carry no data source of their own; inherit it from their drill child so the
-    # whole L1(map) -> L2 -> L3 chain is owned/restrictable as a unit (standalone maps stay ungated).
-    for visual in Visuals.query.filter_by(data_shape="map_none").all():
-        if visual.next_vis_name and visual.data_source_id is None:
-            child = Visuals.query.filter_by(province=visual.province, name=visual.next_vis_name).first()
-            if child and child.data_source_id is not None:
-                visual.data_source_id = child.data_source_id
-    db.session.flush()
-
-    # Restore the snapshotted GroupVisuals grants, re-matching by (province, name) to the new ids.
-    if grant_snapshot:
-        rebuilt = {(v.province, v.name): v.id for v in Visuals.query.all()}
-        for group_id, province, name in grant_snapshot:
-            visual_id = rebuilt.get((province, name))
-            if visual_id is not None:
-                db.session.add(GroupVisuals(group_id=group_id, visual_id=visual_id))
-    db.session.flush()
-
     db.session.commit()
+
+
+def _persist_series(add_point, source_id, geo_type, geo, visual, dtype, series, substance_map):
+    """Persist one (data_type, geo) series block (shared by flat_series and geo_series): every non-x
+    key is a legacy series key decoded into (substance, disaggregator) dims, one fact per (year, value)."""
+    x = series.get("x", [])
+    for series_key, values in series.items():
+        if series_key == "x":
+            continue
+        dim_val, dim2_val = encode_series_key(visual, series_key, substance_map)
+        dim_type = "substance" if dim_val is not None else None
+        for i, year in enumerate(x):
+            if i < len(values):
+                add_point(source_id, geo_type, geo, year, visual.metric, dtype,
+                          dim_type, dim_val, visual.dimension2_type, dim2_val, values[i])
 
 
 def _persist_additional(add_point, predicates, block, source_id, geo_type, geo):

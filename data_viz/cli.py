@@ -173,6 +173,14 @@ def register_cli(app):
         create_from_seed(admin_username = admin_username)
         print("Database seeding complete.")
 
+    @app.cli.command("define-visuals", short_help="Sync visual definitions from app_config/visuals/*.json into the database.")
+    def define_visuals():
+        from data_viz.visual_definitions import sync_visual_definitions
+        print("Syncing visual definitions from manifests...")
+        stats = sync_visual_definitions()
+        print(f"Visual definitions synced: {stats['created']} created, "
+              f"{stats['updated']} updated, {stats['pruned']} pruned.")
+
     @app.cli.command("gen-visuals", short_help="Scrape-clean the V1 data and persist it into the database.")
     def gen_visuals():
         from data_viz.generateVisuals import export_data_to_db

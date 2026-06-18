@@ -1,0 +1,43 @@
+{
+  "data_source": {
+    "name": "Saskatchewan Coroners Service",
+    "link": "https://publications.saskatchewan.ca/#/products/90505"
+  },
+  "visuals": [
+    {
+      "province": "saskatchewan",
+      "visual_id": "deaths_by_opioid_type",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "drug_type",
+      "substance": null,
+      "key_kind": "suffix_y",
+      "chart_type": "bar",
+      "data_types": ["counts", "rates", "percentages"],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Opioid Deaths by Drug Type",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "saskatchewan",
+      "visual_id": "drug_death_heatmap",
+      "shape": "geo_series",
+      "metric": "deaths",
+      "geo_type": "health_authority",
+      "dimension2_type": null,
+      "substance": null,
+      "key_kind": "constant",
+      "chart_type": "heatmap",
+      "data_types": ["counts"],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Drug Toxicity Deaths by Health Authority",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    }
+  ]
+}

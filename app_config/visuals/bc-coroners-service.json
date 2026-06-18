@@ -1,0 +1,78 @@
+{
+  "data_source": {
+    "name": "BC Coroners Service",
+    "link": "https://app.powerbi.com/view?r=eyJrIjoiNjhiYjgxYzUtYjIyOC00ZGQ2LThhMzEtOWU5Y2Q4YWI0OTc5IiwidCI6IjZmZGI1MjAwLTNkMGQtNGE4YS1iMDM2LWQzNjg1ZTM1OWFkYyJ9"
+  },
+  "visuals": [
+    {
+      "province": "british-columbia",
+      "visual_id": "drug_death_heatmap",
+      "shape": "geo_series",
+      "metric": "deaths",
+      "geo_type": "health_authority",
+      "dimension2_type": null,
+      "substance": null,
+      "key_kind": "constant",
+      "chart_type": "heatmap",
+      "data_types": ["counts"],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Drug Toxicity Deaths by Health Authority",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": "deaths_by_sex_line",
+      "is_default": true
+    },
+    {
+      "province": "british-columbia",
+      "visual_id": "deaths_by_sex_line",
+      "shape": "geo_series",
+      "metric": "deaths",
+      "geo_type": "health_authority",
+      "dimension2_type": "sex",
+      "substance": null,
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": ["counts", "rates"],
+      "menu_parent": null,
+      "menu_name": null,
+      "level": 2,
+      "vis_parent": "drug_death_heatmap",
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "british-columbia",
+      "visual_id": "toxicity_deaths_per_drug_by_year",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "drug_type",
+      "substance": null,
+      "key_kind": "suffix_y",
+      "chart_type": "bar",
+      "data_types": ["counts", "rates", "percentages"],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Unregulated Drug Toxicity Deaths by Drug Type",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "british-columbia",
+      "visual_id": "drug_toxicity_deaths_by_age",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "age_group",
+      "substance": null,
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": ["counts", "rates"],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Unregulated Drug Toxicity Deaths by Age Group",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    }
+  ]
+}

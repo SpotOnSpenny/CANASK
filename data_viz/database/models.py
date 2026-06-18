@@ -104,8 +104,6 @@ class Visuals(db.Model):
     menu_name = db.Column(db.String(255), nullable = True)
     menu_parent = db.Column(db.String(255), nullable = True)
     level = db.Column(db.String(255), nullable = True)
-    next_vis = db.Column(db.ForeignKey("visuals.id"), nullable = True)
-    previous_vis = db.Column(db.ForeignKey("visuals.id"), nullable = True)
     # Data layer: links a visual to its source + stores the cleaned-data presentation config used to
     # reconstruct the frontend JSON shape from the normalized DataPoints rows (see visual_query.py).
     data_source_id = db.Column(db.Integer, db.ForeignKey("data_sources.id"), nullable = True)
@@ -135,6 +133,10 @@ class Visuals(db.Model):
     # (constant | suffix_y | plain | sex_substance | manner_substance) -- lets the generic read path
     # and the client-side adapter build series without VISUAL_SPECS.
     key_kind = db.Column(db.String(50), nullable = True)
+    # How the substance dimension (slot 1) is filled when persisting this visual's facts:
+    #   None / "opioids" (const) / "from_key" (parsed from the series key) / "lookup" (from a map).
+    # Authored in the visual-definition manifests; read by gen-visuals' encode_series_key.
+    substance = db.Column(db.String(50), nullable = True)
 
     def __repr__(self):
         return f"<Visual {self.name}>"

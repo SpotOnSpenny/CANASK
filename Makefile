@@ -37,8 +37,14 @@ migrate:
 seed:
 	docker compose --env-file app_config/.env.dev exec web flask seed-db
 
+define-visuals:
+	docker compose --env-file app_config/.env.dev exec web flask define-visuals
+
 gen-visuals:
 	docker compose --env-file app_config/.env.dev exec web flask gen-visuals
+
+# Sync visual definitions from the manifests, then (re)generate their data points.
+build-visuals: define-visuals gen-visuals
 
 init-db:
 	docker compose --env-file app_config/.env.dev exec web flask init-db

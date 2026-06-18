@@ -100,7 +100,13 @@ def build_province_menu(province, user=None):
     if default is None:
         default = next((v.name for v in allowed if v.level == "1"),
                        allowed[0].name if allowed else None)
-    return {"config": config, "default": default}
+    # Top-level menu dropdowns, derived from the level-1 visuals' menu_parent (ordered by first
+    # appearance) -- the frontend builds its menu categories from this instead of a hard-coded list.
+    categories = []
+    for visual in allowed:
+        if visual.level == "1" and visual.menu_parent and visual.menu_parent not in categories:
+            categories.append(visual.menu_parent)
+    return {"config": config, "default": default, "categories": categories}
 
 
 # --------------------------------------------------------------------------------------- #

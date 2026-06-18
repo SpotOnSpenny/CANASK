@@ -9,6 +9,71 @@ let lastLocation = null;
 // (replaces the formerly-static visuals.js). Shape mirrors the old global: {province: {visual_id: cfg},
 // "default-visuals": {province: visual_id}} so the existing visuals[province][...] reads work unchanged.
 let visuals = {};
+// Ordered top-level menu dropdown names for the current province, served by the DB (build_province_menu)
+// rather than hard-coded -- derived from the visuals' menu-parent values.
+let menuCategories = [];
+
+// Slugify a display name into the DOM-id form used for menu dropdowns ("Drug Supply" -> "drug-supply").
+function slugify(str) {
+  return str.toLowerCase().replace(/ /g, "-");
+}
+
+// ---- Shared rendering helpers (used across the heatmap / line / bar / pie renderers) ----
+
+// "About these Data" panel HTML built from a visual's data_source block.
+function buildAboutDataHTML(source) {
+  let header = `<h4 class="card-title text-center"> About these Data</h4>
+  <hr />
+  <h5 class="text-center">This data set was last updated in ${source["last_updated"] + " "} and contains data up until ${source["data_until"]}.</h5>
+  `;
+  let button = `<div class="text-center pb-3">
+    <a target="_blank" href="${source["link"]}" role="button"
+          class="btn btn-primary">${source["name"]}</a>
+  </div>
+  `;
+  return `${header}
+  ${source["about"]}
+  <br></br>
+  ${button}
+  `;
+}
+
+// Responsive Plotly legend/margin: defaults on desktop, stacked horizontal legend on narrow screens.
+function responsiveLegend() {
+  return window.innerWidth > 768
+    ? {}
+    : { orientation: "h", x: 0, y: -0.2, xanchor: "middle", yanchor: "top", tracegroupgap: 200 };
+}
+function responsiveMargin() {
+  return window.innerWidth > 768 ? {} : { r: 0, l: 65 };
+}
+
+// Build the counts/rates/percentages radio toggle group. onSelect(type) recreates the renderer with
+// the chosen data type; a control reset happens first. No-op when only one data type is available.
+function buildDataTypeToggles(container, dataTypes, currentDataType, onSelect) {
+  if (!dataTypes || dataTypes.length <= 1) return;
+  for (const type of dataTypes) {
+    let toggle = document.createElement("input");
+    toggle.type = "radio";
+    toggle.className = "btn-check";
+    toggle.name = "data-toggle";
+    toggle.id = `${type}-toggle`;
+    toggle.autocomplete = "off";
+    if (type === currentDataType) {
+      toggle.checked = true;
+    }
+    toggle.onclick = function () {
+      resetVisualControl();
+      onSelect(type);
+    };
+    let label = document.createElement("label");
+    label.className = "btn btn-outline-primary";
+    label.setAttribute("for", `${type}-toggle`);
+    label.innerText = type.charAt(0).toUpperCase() + type.slice(1);
+    container.appendChild(toggle);
+    container.appendChild(label);
+  }
+}
 
 // Function to dynamically create the menu based on the visuals object and current province
 function createMenu(province) {
@@ -16,22 +81,22 @@ function createMenu(province) {
   // Create the menu and add all parent categories
   let menu = document.getElementById("vis-selection-menu");
   menu.innerHTML = ""; // Clear existing menu items
-  let parentCategories = ["Drug Supply", "Deaths and Demographics", "Naloxone", "Safe Consumption and Drug Checking Sites", "Miscellaneous"];
-  // create a menu dropdown for each parent category
-  for (const parent of parentCategories) {
+  // Parent categories come from the DB (menuCategories), so adding a visual under a new menu-parent
+  // surfaces a new dropdown with no frontend change.
+  for (const parent of menuCategories) {
     let li = document.createElement("li");
     li.className = "nav-item dropdown";
     let a = document.createElement("a");
     a.className = "nav-link dropdown-toggle";
     a.href = "";
-    a.id = `${parent.toLowerCase().replace(/ /g, "-")}-dropdown`;
+    a.id = `${slugify(parent)}-dropdown`;
     a.setAttribute("role", "button");
     a.setAttribute("data-bs-toggle", "dropdown");
     a.textContent = parent;
     li.appendChild(a);
     let ul = document.createElement("ul");
     ul.className = "dropdown-menu";
-    ul.id = `${parent.toLowerCase().replace(/ /g, "-")}-dropdown-menu`;
+    ul.id = `${slugify(parent)}-dropdown-menu`;
     li.appendChild(ul);
     menu.appendChild(li);
   }
@@ -45,7 +110,7 @@ function createMenu(province) {
     // Create a new list item for each visual
     let li = document.createElement("li");
     li.className = "nav-item";
-    
+
     // Create the anchor element for the visual
     let a = document.createElement("a");
     a.className = "nav-link";
@@ -53,60 +118,17 @@ function createMenu(province) {
     a.href = "#";
     a.textContent = details["menu-name"];
     li.appendChild(a);
-    
-    // Add an onclick event to set the current visual and create the visual
-    switch (details["type"]) {
-      case "heatmap":
-        a.onclick = function () {
-          resetVisualControl();
-          currentVisual = visual;
-          masterLoop();
-        };
-        break;
-      case "line":
-        a.onclick = function () {
-          resetVisualControl();
-          currentVisual = visual;
-          masterLoop();
-        };
-        break;
-      case "bar":
-        a.onclick = function () {
-          resetVisualControl();
-          currentVisual = visual;
-          masterLoop();
-        };
-        break;
-      case "map":
-        a.onclick = function () {
-          currentVisual = visual;
-          masterLoop();
-        };
-        break;
-    }
-    
-    // append the menu item to the appropriate parent category
-    document.getElementById(`${details["menu-parent"].toLowerCase().replace(/ /g, "-")}-dropdown-menu`).appendChild(li);
-  }
 
-  for (const parent of parentCategories) {
-  let dropdownMenu = document.getElementById(`${parent.toLowerCase().replace(/ /g, "-")}-dropdown-menu`);
-  if (dropdownMenu.children.length === 0) {
-    // Find the parent li element
-    let parentLi = document.querySelector(`li.dropdown > a#${parent.toLowerCase().replace(/ /g, "-")}-dropdown`).parentElement;
-    
-    // Clear the li content and replace with a disabled link
-    parentLi.innerHTML = "";
-    parentLi.className = "nav-item"; // Remove dropdown class
-    
-    let disabledA = document.createElement("a");
-    disabledA.className = "nav-link disabled";
-    disabledA.href = "";
-    disabledA.textContent = `${parent}`;
-    
-    parentLi.appendChild(disabledA);
+    // Selecting any menu item switches to that visual; only maps skip the control reset.
+    a.onclick = function () {
+      if (details["type"] !== "map") resetVisualControl();
+      currentVisual = visual;
+      masterLoop();
+    };
+
+    // append the menu item to the appropriate parent category
+    document.getElementById(`${slugify(details["menu-parent"])}-dropdown-menu`).appendChild(li);
   }
-}
 }
 
 // ---- Client-side adapter from the generic fact contract to the legacy block shape ----
@@ -225,11 +247,12 @@ async function fetchRegionData(province){
     ]);
     const payload = await data.json();
     const geojsonJson = await geojson.json();
-    // payload = { data: {visual_id: {facts, key_kind, shape, ...}}, config: {visual_id: menuCfg}, default }
+    // payload = { data: {visual_id: {facts, key_kind, shape, ...}}, config: {visual_id: menuCfg}, default, categories }
     visuals = {
         [province]: payload.config || {},
         "default-visuals": { [province]: payload["default"] },
     };
+    menuCategories = payload.categories || [];
     currentData = payload.data;   // generic blocks; renderers derive their data from .facts (above)
     currentGeojson = geojsonJson;
 }
@@ -413,21 +436,7 @@ async function createVisualHeatMap(province, visualToGen, geojson, mapData, mapS
   );
 
   //Generate the About these Data section and insert the html
-  let header =`<h4 class="card-title text-center"> About these Data</h4>
-  <hr />
-  <h5 class="text-center">This data set was last updated in ${mapSource["last_updated"] + " "} and contains data up until ${mapSource["data_until"]}.</h5>
-  `;
-  let button = `<div class="text-center pb-3">
-    <a target="_blank" href="${mapSource["link"]}" role="button"
-          class="btn btn-primary">${mapSource["name"]}</a>
-  </div>
-  `;
-  let aboutHTML = `${header}
-  ${mapSource["about"]}
-  <br></br>
-  ${button}
-  `;
-  aboutDataDiv.innerHTML = aboutHTML;
+  aboutDataDiv.innerHTML = buildAboutDataHTML(mapSource);
 
   // Create and insert the tabular data
   table.setAttribute(
@@ -639,18 +648,8 @@ async function createVisualLine(province, lineData, currentVisual, dataType, lin
       width: $("#viz-card").width(),
       height: window.innerWidth > 768 ? $("#viz-card").height() : "auto",
       title: visualOptions[`${dataType}-title`].replace("replace_with_health_authority", visualOptions["location"] || "").replace("replace_with_category", visualOptions["category"] || ""),
-      legend:
-        window.innerWidth > 768
-          ? {}
-          : {
-              orientation: "h",
-              x: 0,
-              y: -0.2,
-              xanchor: "middle",
-              yanchor: "top",
-              tracegroupgap: 200,
-            },
-      margin: window.innerWidth > 768 ? {} : { r: 0, l: 65 },
+      legend: responsiveLegend(),
+      margin: responsiveMargin(),
     }),
     (config = {
       displaylogo: false,
@@ -705,52 +704,11 @@ async function createVisualLine(province, lineData, currentVisual, dataType, lin
   if (dataTypes == null) {
     dataTypes = visuals[province][currentVisual]["data-types"];
   }
-
-  if (dataTypes.length > 1) {
-    for (const type of dataTypes) {
-      // Create a toggle for each data type
-      let toggle = document.createElement("input");
-      toggle.type = "radio";
-      toggle.className = "btn-check";
-      toggle.name = "data-toggle";
-      toggle.id = `${type}-toggle`;
-      toggle.autocomplete = "off";
-      if (dataType === type) {
-        toggle.checked = true;
-      }
-      // Add an event listener to the toggle
-      toggle.onclick = function () {
-        // Reset the count/rate toggle
-        resetVisualControl();
-        // Recreate the line visual with the selected data type
-        createVisualLine(province, lineData, currentVisual, type, lineSource, visualOptions, additionalRows, dataTypes);
-      };
-      let label = document.createElement("label");
-      label.className = "btn btn-outline-primary";
-      label.setAttribute("for", `${type}-toggle`);
-      label.innerText = type.charAt(0).toUpperCase() + type.slice(1);
-      
-      dataTypeToggle.appendChild(toggle);
-      dataTypeToggle.appendChild(label);
-    }
-  }
+  buildDataTypeToggles(dataTypeToggle, dataTypes, dataType, (type) =>
+    createVisualLine(province, lineData, currentVisual, type, lineSource, visualOptions, additionalRows, dataTypes));
 
   // Generate the About these Data section and insert the html
-  let header = `<h4 class="card-title text-center"> About these Data</h4>
-  <hr />
-  <h5 class="text-center">This data set was last updated in ${lineSource["last_updated"] + " "} and contains data up until ${lineSource["data_until"]}.</h5>
-  `;
-  let button = `<div class="text-center pb-3">
-    <a target="_blank" href="${lineSource["link"]}" role="button"
-          class="btn btn-primary">${lineSource["name"]}</a>
-  </div>
-  `;
-  let aboutHTML = `${header}
-  ${lineSource["about"]}
-  <br></br>
-  ${button}
-  `;
-  aboutDataDiv.innerHTML = aboutHTML;
+  aboutDataDiv.innerHTML = buildAboutDataHTML(lineSource);
 }
 
 // Function to generate a bar chart
@@ -837,23 +795,10 @@ async function createVisualBar(province, barData, currentVisual, dataType, barSo
       hovermode: visualOptions["hover-type"],
       autosize: false,
       width: $("#viz-card").width(),
-      height:
-        window.innerWidth > 768
-          ? $("#viz-card").height()
-          : $("#viz-card").height(),
+      height: $("#viz-card").height(),
       title: visualOptions[`${dataType}-title`].replace("replace_with_health_authority", visualOptions["location"] || "").replace("replace_with_category", visualOptions["category"] || ""),
-      legend:
-        window.innerWidth > 768
-          ? {}
-          : {
-              orientation: "h",
-              x: 0,
-              y: -0.2,
-              xanchor: "middle",
-              yanchor: "top",
-              tracegroupgap: 200,
-            },
-      margin: window.innerWidth > 768 ? {} : { r: 0, l: 65 },
+      legend: responsiveLegend(),
+      margin: responsiveMargin(),
     }),
     (config = {
       displaylogo: false,
@@ -894,51 +839,10 @@ async function createVisualBar(province, barData, currentVisual, dataType, barSo
   if (dataTypes == null) {
     dataTypes = visuals[province][currentVisual]["data-types"];
   }
-
-  if (dataTypes.length > 1) {
-    for (const data of dataTypes) {
-      // Create a toggle for each data type
-      let toggle = document.createElement("input");
-      toggle.type = "radio";
-      toggle.className = "btn-check";
-      toggle.name = "data-toggle";
-      toggle.id = `${data}-toggle`;
-      toggle.autocomplete = "off";
-      if (data === dataType) {
-        toggle.checked = true;
-      }
-      // Add an event listener to the toggle
-      toggle.onclick = function () {
-        // Reset the count/rate toggle
-        resetVisualControl(true);
-        // Recreate the line visual with the selected data type
-        createVisualBar(province, barData, currentVisual, data, barSource, visualOptions, dataTypes);
-      };
-      let label = document.createElement("label");
-      label.className = "btn btn-outline-primary";
-      label.setAttribute("for", `${data}-toggle`);
-      label.innerText = data.charAt(0).toUpperCase() + data.slice(1);
-      
-      dataTypeToggle.appendChild(toggle);
-      dataTypeToggle.appendChild(label);
-    }
-  }
+  buildDataTypeToggles(dataTypeToggle, dataTypes, dataType, (data) =>
+    createVisualBar(province, barData, currentVisual, data, barSource, visualOptions, dataTypes));
   // Generate the About these Data section and insert the html
-  let header = `<h4 class="card-title text-center"> About these Data</h4>
-  <hr />
-  <h5 class="text-center">This data set was last updated in ${barSource["last_updated"] + " "} and contains data up until ${barSource["data_until"]}.</h5>
-  `;
-  let button = `<div class="text-center pb-3">
-    <a target="_blank" href="${barSource["link"]}" role="button"
-          class="btn btn-primary">${barSource["name"]}</a>
-  </div>
-  `;
-  let aboutHTML = `${header}
-  ${barSource["about"]}
-  <br></br>
-  ${button}
-  `;
-  aboutDataDiv.innerHTML = aboutHTML;
+  aboutDataDiv.innerHTML = buildAboutDataHTML(barSource);
 }
 
 async function createVisualPie(province, pieData, pieSource, visualOptions, tabularData, location = null) {
@@ -1077,21 +981,7 @@ async function createVisualPie(province, pieData, pieSource, visualOptions, tabu
   });
 
   //Generate the About these Data section and insert the html
-  let header =`<h4 class="card-title text-center"> About these Data</h4>
-  <hr />
-  <h5 class="text-center">This data set was last updated in ${pieSource["last_updated"] + " "} and contains data up until ${pieSource["data_until"]}.</h5>
-  `;
-  let button = `<div class="text-center pb-3">
-    <a target="_blank" href="${pieSource["link"]}" role="button"
-          class="btn btn-primary">${pieSource["name"]}</a>
-  </div>
-  `;
-  let aboutHTML = `${header}
-  ${pieSource["about"]}
-  <br></br>
-  ${button}
-  `;
-  aboutDataDiv.innerHTML = aboutHTML;
+  aboutDataDiv.innerHTML = buildAboutDataHTML(pieSource);
 
   table.setAttribute(
     "class",
@@ -1300,10 +1190,10 @@ function setActiveVisual(province, currentVisual) {
 
   // Add the active class to the parent dropdown if it exists
   if (route.length > 0) {
-    let parentElement = document.querySelector(`#${route[0].toLowerCase().replace(/ /g, "-")}-dropdown`);
+    let parentElement = document.querySelector(`#${slugify(route[0])}-dropdown`);
     parentElement.classList.add("active");
   } else {
-    let parentElement = document.querySelector(`#${visuals[province][currentVisual]["menu-parent"].toLowerCase().replace(/ /g, "-")}-dropdown`);
+    let parentElement = document.querySelector(`#${slugify(visuals[province][currentVisual]["menu-parent"])}-dropdown`);
     parentElement.classList.add("active");
   }
 }
