@@ -14,7 +14,7 @@ from celery.result import AsyncResult
 from data_viz.auth import login_manager
 from data_viz.database import db
 from data_viz.database.models import User, Invites, Groups, UserGroups, UserActivity, InviteGroups, DataSources, GroupDataSources, Visuals, GroupVisuals
-from data_viz.auth.auth_helpers import get_user_groups, get_assignable_roles, validate_password, create_user, create_group, assign_group, assign_site_admin, get_manageable_users, get_user_memberships_in_groups, get_manageable_groups, set_group_data_sources, owned_data_sources, can_manage_source, teams_for_source, visuals_for_source, set_group_visuals, set_visual_visibility, visibility_rows_for_source
+from data_viz.auth.auth_helpers import get_user_groups, get_assignable_roles, validate_password, create_user, create_group, assign_group, assign_site_admin, get_manageable_users, get_user_memberships_in_groups, get_manageable_groups, set_group_data_sources, owned_data_sources, can_manage_source, teams_for_source, visuals_for_source, set_group_visuals, set_visual_visibility, set_province_default_visual, visibility_rows_for_source
 from data_viz.auth.role_hierarchy import ROLE_HIERARCHY
 from celery_worker.tasks.invite_jwt_expiry import expire_invite
 
@@ -933,6 +933,39 @@ def set_visibility(visual_id):
     return render_template("v1/partials/visual_visibility_section.jinja",
                         source = DataSources.query.get(source_id),
                         visibility_rows = visibility_rows_for_source(source_id))
+
+
+@auth_blueprint.route("/v1/visuals/<int:visual_id>/default", methods=["POST"])
+@require_auth
+def set_default_visual(visual_id):
+    # Permission is source-ownership (Data Owner of the visual's source / site admin), like the
+    # visibility route above -- checked explicitly rather than via a role decorator.
+    visual = Visuals.query.get(visual_id)
+    if not visual or visual.data_source_id is None or not can_manage_source(current_user, visual.data_source_id):
+        flash("You do not have permission to change this visual's default status.", "danger")
+        return redirect(url_for("auth.data_ownership"))
+    source_id = visual.data_source_id
+    try:
+        set_province_default_visual(visual_id, changed_by = current_user.id)
+    except ValueError as exc:
+        # Validation failure (not found / not a root visual): set_province_default_visual raises
+        # before mutating, so flash (via the HX out-of-band swap) and re-render the section unchanged.
+        flash(str(exc), "danger")
+    except Exception as exc:
+        # A DB/commit failure must not 500 the HTMX partial -- roll back, log, and re-render so the
+        # star resets to its persisted state.
+        db.session.rollback()
+        current_app.logger.error(f"Error setting default for visual {visual_id}: {exc}")
+        flash("Could not update this visual's default status. Please try again.", "danger")
+    # The default is one-per-province, but a province's visuals can live in several source sections,
+    # so setting one default clears the star in another source's card. Re-render the posted source as
+    # the swap target and every other owned source as an out-of-band swap so all cards stay in sync.
+    def _section(src, oob):
+        return render_template("v1/partials/visual_visibility_section.jinja",
+                            source = src, visibility_rows = visibility_rows_for_source(src.id), oob = oob)
+    sections = [_section(DataSources.query.get(source_id), False)]
+    sections += [_section(src, True) for src in owned_data_sources(current_user) if src.id != source_id]
+    return "".join(sections)
 
 
 @auth_blueprint.route("/v1/accept-invite", methods=["GET", "POST"])

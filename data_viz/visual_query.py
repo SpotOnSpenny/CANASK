@@ -51,21 +51,28 @@ def _can_see(visual, signed_in, site_admin, owned_sources, granted):
     return False   # private, and the viewer is neither site admin nor an owner of the source
 
 
-def _filter_visible(visuals, ctx):
-    """Filter one province's Visuals to the visible set, given a precomputed viewer context `ctx`
-    (from _viewer_context): apply each visual's visibility level, then prune any drill-child whose
-    in-province parent chain was filtered out (no orphaned children in the menu)."""
-    visible = {v.id for v in visuals if _can_see(v, *ctx)}
+def _prune_orphans(visuals, kept):
+    """Remove from `kept` (a set of visual ids) any drill-child whose in-province parent chain is not
+    also kept, so a child is never shown without its parent. Mutates and returns `kept`."""
     by_name = {v.name: v for v in visuals}
     changed = True
     while changed:
         changed = False
         for v in visuals:
-            if v.id in visible and v.vis_parent_name:
+            if v.id in kept and v.vis_parent_name:
                 parent = by_name.get(v.vis_parent_name)
-                if parent is None or parent.id not in visible:
-                    visible.discard(v.id)
+                if parent is None or parent.id not in kept:
+                    kept.discard(v.id)
                     changed = True
+    return kept
+
+
+def _filter_visible(visuals, ctx):
+    """Filter one province's Visuals to the visible set, given a precomputed viewer context `ctx`
+    (from _viewer_context): apply each visual's visibility level, then prune any drill-child whose
+    in-province parent chain was filtered out (no orphaned children in the menu)."""
+    visible = {v.id for v in visuals if _can_see(v, *ctx)}
+    _prune_orphans(visuals, visible)
     return [v for v in visuals if v.id in visible]
 
 
@@ -77,17 +84,58 @@ def allowed_visuals(user, province):
     return _filter_visible(visuals, _viewer_context(user))
 
 
+def _visual_has_data(visual):
+    """Whether a visual has anything to show. Structural visuals (no metric -- maps / drill headings /
+    sourceless scaffolding) always count. A data-bearing visual counts only if it has at least one
+    REPORTED, non-zero fact -- matching the frontend, which hides series that are entirely zero,
+    suppressed, or not reported. So e.g. a territory whose every breakdown is suppressed is dropped
+    from the menu instead of opening to an empty chart."""
+    if not visual.metric:
+        return True
+    preds = _predicates(visual.id)
+    if visual.geo_type == "province" and not preds.get("geo"):
+        return False   # province-level visual not scoped to a geo -> no data of its own
+    query = DataPoints.query.filter(
+        DataPoints.data_source_id == visual.data_source_id,
+        DataPoints.data_metric == visual.metric,
+        DataPoints.data_type != "additional_rows",
+        DataPoints.data_value.isnot(None),   # suppressed / not-reported have no numeric value
+        DataPoints.data_value != 0,          # all-zero series are hidden, like the frontend does
+    )
+    if visual.geo_type:
+        query = query.filter(DataPoints.geo_type == visual.geo_type)
+    if visual.dimension2_type is not None:
+        query = query.filter(DataPoints.dimension2_type == visual.dimension2_type)
+    else:
+        query = query.filter(DataPoints.dimension2_type.is_(None))
+    if visual.geo_type == "province":
+        query = query.filter(DataPoints.geo == preds["geo"][0])
+    return query.first() is not None
+
+
+def displayable_visuals(user, province):
+    """`allowed_visuals` (visibility) further filtered to the visuals that actually have data to show
+    (structural maps kept), with orphaned drill-children pruned. The single source the menu and the
+    fact payload share, so they never disagree -- a visual the menu hides is never in the data."""
+    allowed = allowed_visuals(user, province)
+    kept = {v.id for v in allowed if _visual_has_data(v)}
+    _prune_orphans(allowed, kept)
+    return [v for v in allowed if v.id in kept]
+
+
 def accessible_provinces(user):
-    """The set of provinces where the user can see at least one visual -- used to gate the province
-    nav links so users only see provinces they have access to. Runs on every request (nav context
-    processor), so the viewer context is derived once and all visuals are loaded in a single query
-    and grouped by province, rather than re-deriving the context + re-querying per province."""
+    """The set of provinces where the user can see at least one visual that has data -- used to gate
+    the province nav links so a province whose every visual is hidden (RBAC) or empty (all
+    suppressed / not reported, e.g. a small territory) doesn't show a dead link. Runs on every request
+    (nav context processor): the viewer context is derived once and all visuals are loaded in one
+    query; the per-visual data check short-circuits on the first visual with data (and a structural
+    map returns immediately without a query)."""
     ctx = _viewer_context(user)
     by_province = defaultdict(list)
     for visual in Visuals.query.all():
         by_province[visual.province].append(visual)
     return {province for province, visuals in by_province.items()
-            if _filter_visible(visuals, ctx)}
+            if any(_visual_has_data(v) for v in _filter_visible(visuals, ctx))}
 
 
 def _menu_level(visual):
@@ -105,12 +153,14 @@ def _menu_level(visual):
 
 def build_province_menu(province, user=None):
     """Return the menu/presentation config for a province plus its default visual, read from the
-    Visuals table and filtered to what `user` may see. Replaces the static visuals.js."""
-    allowed = allowed_visuals(user, province)
+    Visuals table and filtered to what `user` may see and to visuals that have data. Replaces the
+    static visuals.js."""
+    allowed = displayable_visuals(user, province)
     config = {}
     for visual in allowed:
         config[visual.name] = {
             "type": visual.chart_type,
+            "slug": visual.slug,
             "data-types": visual.data_types.split(",") if visual.data_types else None,
             "menu-parent": visual.menu_parent,
             "menu-name": visual.menu_name,

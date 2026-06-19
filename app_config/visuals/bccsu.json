@@ -19,7 +19,16 @@
       "level": 1,
       "vis_parent": null,
       "next_vis": null,
-      "is_default": false
+      "is_default": false,
+      "visual_options": {
+        "rates-title": "Percent of Submitted Samples Belonging to Major Drug Categories in British Columbia by Year",
+        "counts-title": "Number of Submitted Samples Belonging to Major Drug Categories in British Columbia by Year",
+        "table-title": "Major Drug Categories in Submitted Samples by Year",
+        "rates-y-axis-title": "Percent of Samples Belonging to Category of Drug",
+        "counts-y-axis-title": "Number of Samples Belonging to Category of Drug",
+        "table-rates-row": "Percent of Samples Classified as replace_me",
+        "table-counts-row": "Number of Samples Classified as replace_me"
+      }
     },
     {
       "province": "british-columbia",
@@ -32,11 +41,20 @@
       "chart_type": "line",
       "data_types": ["counts", "rates"],
       "menu_parent": "Drug Supply",
-      "menu_name": "Presence of Fentanly and Benzodiazepines",
+      "menu_name": "Presence of Fentanyl, Benzodiazepines and Medetomidine",
       "level": 1,
       "vis_parent": null,
       "next_vis": null,
-      "is_default": false
+      "is_default": false,
+      "visual_options": {
+        "rates-title": "Percent of Submitted Samples Containing Fentanyl, Benzodiazepines or Medetomidine in British Columbia by Year",
+        "counts-title": "Number of Submitted Samples Containing Fentanyl, Benzodiazepines or Medetomidine in British Columbia by Year",
+        "table-title": "Presence of Fentanyl, Benzodiazepines and Medetomidine in Submitted Samples by Year",
+        "rates-y-axis-title": "Percent of Samples Containing Drug",
+        "counts-y-axis-title": "Number of Samples Containing Drug",
+        "table-rates-row": "Percent of Samples Pos. for replace_me",
+        "table-counts-row": "Number of Samples Pos. for replace_me"
+      }
     },
     {
       "province": "british-columbia",
@@ -53,90 +71,15 @@
       "level": 1,
       "vis_parent": null,
       "next_vis": null,
-      "is_default": false
-    },
-    {
-      "province": "british-columbia",
-      "visual_id": "drug_supply_geographically",
-      "shape": "map_none",
-      "metric": null,
-      "dimension2_type": null,
-      "substance": null,
-      "key_kind": null,
-      "chart_type": "map",
-      "data_types": null,
-      "menu_parent": "Drug Supply",
-      "menu_name": "Drug Supply by Health Authority",
-      "level": 1,
-      "vis_parent": null,
-      "next_vis": "geographical_drug_supply_pie",
-      "is_default": false
-    },
-    {
-      "province": "british-columbia",
-      "visual_id": "geographical_drug_supply_pie",
-      "shape": "pie_nested",
-      "metric": "samples",
-      "geo_type": "health_authority",
-      "dimension2_type": "drug_category",
-      "substance": null,
-      "key_kind": null,
-      "chart_type": "pie",
-      "data_types": ["counts"],
-      "menu_parent": null,
-      "menu_name": null,
-      "level": 2,
-      "vis_parent": "drug_supply_geographically",
-      "next_vis": "regional_drug_supply_breakdown",
-      "is_default": false
-    },
-    {
-      "province": "british-columbia",
-      "visual_id": "regional_drug_supply_breakdown",
-      "shape": "regional",
-      "metric": "spectrometer_positive",
-      "geo_type": "health_authority",
-      "dimension_type": "drug_category",
-      "dimension2_type": "result",
-      "substance": null,
-      "key_kind": null,
-      "chart_type": "bar",
-      "data_types": ["counts"],
-      "menu_parent": null,
-      "menu_name": null,
-      "level": 3,
-      "vis_parent": "geographical_drug_supply_pie",
-      "next_vis": null,
-      "is_default": false
-    },
-    {
-      "province": "british-columbia",
-      "visual_id": "checked_samples_by_expected_drug",
-      "shape": "category_treemap",
-      "metric": "checked_samples",
-      "geo_type": "site",
-      "dimension_type": "drug_category",
-      "dimension2_type": "expected_drug",
-      "substance": null,
-      "key_kind": null,
-      "chart_type": "treemap",
-      "data_types": ["counts"],
-      "menu_parent": "Drug Supply",
-      "menu_name": "Checked Samples by Expected Drug",
-      "level": 1,
-      "vis_parent": null,
-      "next_vis": null,
       "is_default": false,
       "visual_options": {
-        "title": "Checked Samples by Expected Drug",
-        "subtitle": "Submitted samples sized by the drug they were expected to be, grouped by category. Filter by where and when the sample was checked.",
-        "geo_levels": ["Health Authority", "Site"],
-        "hierarchy": [
-          {"axis": "dimension", "label": "Category"},
-          {"axis": "dimension2", "label": "Expected Drug"}
-        ],
-        "filters": [{"axis": "dimension", "label": "Category"}],
-        "time": {"label": "Date checked"}
+        "rates-title": "Percent of Submitted Samples Containing Opioid Types by Year as per Voluntary Drug Testing Results",
+        "counts-title": "Number of Submitted Samples Containing Opioid Types by Year as per Voluntary Drug Testing Results",
+        "table-title": "Presence of Opioid Types in Submitted Samples by Year",
+        "rates-y-axis-title": "Percent of Samples Containing Opioid Types",
+        "counts-y-axis-title": "Number of Samples Containing Opioid Types",
+        "table-rates-row": "Percent of Samples Pos. for replace_me",
+        "table-counts-row": "Number of Samples Pos. for replace_me"
       }
     }
   ]

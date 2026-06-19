@@ -1,0 +1,32 @@
+{
+  "data_source": {
+    "name": "Ontario Drug Policy Research Network (ODPRN)",
+    "link": "https://odprn.ca/occ-opioid-and-suspect-drug-related-death-data/"
+  },
+  "visuals": [
+    {
+      "province": "ontario",
+      "visual_id": "deaths_by_health_unit",
+      "shape": "geo_series",
+      "metric": "deaths",
+      "geo_type": "health_authority",
+      "dimension2_type": null,
+      "substance": null,
+      "key_kind": "constant",
+      "chart_type": "heatmap",
+      "data_types": ["counts"],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Opioid Toxicity Deaths by Public Health Unit",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false,
+      "visual_options": {
+        "heatmap-title": "Confirmed & Probable Opioid Toxicity Deaths in Ontario by Public Health Unit",
+        "table-title": "Confirmed & Probable Opioid Toxicity Deaths in replace_with_health_authority",
+        "table-geo-header": "Public Health Unit",
+        "table-row-title": "replace_location"
+      }
+    }
+  ]
+}

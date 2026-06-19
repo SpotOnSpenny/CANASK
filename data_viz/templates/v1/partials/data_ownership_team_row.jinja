@@ -4,7 +4,7 @@
         {% if granted %}
             {% for v in granted %}
                 <span class="badge bg-secondary">
-                    {{ v.menu_name or v.name }}{% if v.level and v.level != "1" %} · L{{ v.level }}{% endif %}
+                    {{ v | visual_label }}{% if v.level and v.level != "1" %} · L{{ v.level }}{% endif %}
                 </span>
             {% endfor %}
         {% else %}

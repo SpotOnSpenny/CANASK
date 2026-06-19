@@ -3,7 +3,7 @@
     <td>
         <div style="padding-left: {{ row.depth * 1.5 }}rem;">
             {% if not row.is_root %}<i class="bi bi-arrow-return-right text-body-secondary me-1" aria-hidden="true"></i>{% endif %}
-            <span class="fw-semibold">{{ v.menu_name or v.name }}</span>
+            <span class="fw-semibold">{{ v | visual_label }}</span>
             {% if not row.is_root %}
                 <span class="badge bg-body-tertiary text-body-secondary border ms-1">Drill-down · L{{ v.level }}</span>
             {% endif %}
@@ -12,7 +12,7 @@
     </td>
     <td>
         <div class="btn-group btn-group-sm" role="group"
-             aria-label="Visibility for {{ v.menu_name or v.name }}">
+             aria-label="Visibility for {{ v | visual_label }}">
             {% for level, label, icon in [("private", "Private", "bi-lock"), ("group", "Group", "bi-people"), ("public", "Public", "bi-globe")] %}
             {% set is_current = (v.visibility == level) %}
             {% set is_allowed = row.allowed[level] %}
@@ -30,5 +30,22 @@
             </button>
             {% endfor %}
         </div>
+    </td>
+    <td>
+        {% if row.is_root %}
+            <button type="button"
+                class="btn btn-sm {{ 'btn-primary opacity-100' if v.is_default else 'btn-outline-secondary' }}"
+                hx-post="/v1/visuals/{{ v.id }}/default"
+                hx-target="#vis-section-{{ v.data_source_id }}"
+                hx-swap="outerHTML"
+                {% if v.is_default %}aria-pressed="true"
+                title="Default visual for this page (click to unset)"
+                aria-label="Default visual for {{ v | visual_label }} (click to unset)"
+                {% else %}aria-pressed="false"
+                title="Make this the page's default visual"
+                aria-label="Make {{ v | visual_label }} the page's default visual"{% endif %}>
+                <i class="bi {{ 'bi-star-fill' if v.is_default else 'bi-star' }}"></i>
+            </button>
+        {% endif %}
     </td>
 </tr>

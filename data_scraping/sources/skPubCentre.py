@@ -30,7 +30,7 @@ from checkUps import checkup_output
 # machine readable format like a CSV, as we have been for the other databases. PyPDF  #
 # seems to be the best library for this task, so this file will use that.             #
 #                                                                                     #
-# The data source page is https://publications.saskatchewan.ca/#/products/90505, and  #
+# The data source page is https://publications.saskatchewan.ca/#/products/128069, and  #
 # there contains a link to the PDF that will allow us to download the report. Just to #
 # be sure that we're getting the most up to date report, the script also will go to   #
 # the data source page, and click the download link, in case the URL changes when the #
@@ -64,7 +64,7 @@ def sk_pubcentre_scrape(driver, expected_pages):
     # Instantiate the http pool for requests
     http = urllib3.PoolManager()
     # Navigate to the data source page
-    driver.get("https://publications.saskatchewan.ca/#/products/90505")
+    driver.get("https://publications.saskatchewan.ca/#/products/128069")
     # Find the download link for the report
     try:
         download_link = WebDriverWait(driver, 10).until(expected_conditions.presence_of_element_located((By.XPATH, "//li[@class='ng-scope']/a"))).get_attribute("href")

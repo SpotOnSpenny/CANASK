@@ -1,9 +1,10 @@
-<div id="vis-section-{{ source.id }}" class="table-responsive">
+<div id="vis-section-{{ source.id }}" class="table-responsive"{% if oob %} hx-swap-oob="true"{% endif %}>
     <table class="table table-hover mb-0 align-middle">
         <thead>
             <tr>
                 <th>Visual</th>
                 <th>Who can see it</th>
+                <th>Page default</th>
             </tr>
         </thead>
         <tbody>

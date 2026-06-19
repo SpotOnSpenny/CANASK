@@ -30,6 +30,15 @@ var CANASK_COLORWAY_DARK = [
   "#22d3ee", "#cdd45a", "#f472b6", "#2dd4bf", "#fbbf24",
 ];
 
+// The active categorical palette for the current theme. Charts that build multi-trace series
+// (e.g. a solid line plus a dashed "bridge" overlay for suppressed points) read this so both
+// traces share one explicit color, matching the colorway Plotly would otherwise auto-assign.
+function canaskColorway() {
+  return document.documentElement.getAttribute("data-theme") === "dark"
+    ? CANASK_COLORWAY_DARK
+    : CANASK_COLORWAY_LIGHT;
+}
+
 // A quiet, non-color cue for line series: a distinct marker shape each, so
 // series stay distinguishable without busy dash patterns. (Bars rely on the
 // data table below the chart as their non-color alternative.)

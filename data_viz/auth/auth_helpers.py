@@ -463,6 +463,43 @@ def set_visual_visibility(visual_id, visibility, changed_by = None):
     db.session.commit()
     return visibility
 
+def set_province_default_visual(visual_id, changed_by = None):
+    """Set (or unset) the landing visual for a province page. The caller must already have verified
+    the user may manage the visual's data source (can_manage_source).
+
+    Only a root/level-1 visual may be the default -- the landing visual renders without drill-chain
+    context, so a drill child would have no access point above it (raises ValueError). The default is
+    a single per-province pointer: setting one clears is_default on every other visual in that
+    province (across all sources). Clicking the current default again unsets it, reverting the page to
+    the automatic level-1 fallback. Logs a UserActivity row and returns the new is_default state."""
+    visual = Visuals.query.get(visual_id)
+    if not visual:
+        raise ValueError("Visual not found.")
+    if visual.level not in (None, "1"):
+        raise ValueError(f'"{_label(visual)}" is a drill-down and can\'t be the page default. '
+                         "Only top-level visuals can be the landing visual.")
+
+    new_state = not visual.is_default   # toggle
+    # The landing visual is one per province: clear every other flagged visual in this province.
+    for other in Visuals.query.filter(Visuals.province == visual.province,
+                                      Visuals.id != visual.id, Visuals.is_default.is_(True)).all():
+        other.is_default = False
+    visual.is_default = new_state
+
+    changer = User.query.get(changed_by) if changed_by else None
+    changer_name = changer.username if changer else f"user ID {changed_by}"
+    action = "set as" if new_state else "cleared as"
+    db.session.add(UserActivity(
+        user_id = changed_by,
+        activity_type = "visual_default_updated",
+        activity_target_type = "visual",
+        activity_target_id = visual.id,
+        details = (f"Visual {_label(visual)} {action} the default for "
+                   f"{visual.province} by {changer_name}.")
+    ))
+    db.session.commit()
+    return new_state
+
 def visibility_rows_for_source(source_id):
     """Flatten a source's drill-trees into ordered display rows for the Data Ownership visibility
     table: [{visual, depth, is_root, allowed}] where allowed maps each level -> bool (False when that

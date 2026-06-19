@@ -74,6 +74,9 @@ def sync_visual_definitions(manifest_dir=None, prune=True):
                 # visuals default to private until an owner opts in. Existing rows keep their
                 # owner-set visibility (we never touch it on update).
                 visual.visibility = "public" if source_id is None else "private"
+                # is_default is owner-managed like visibility: seed the landing visual from the
+                # manifest on create, then leave it to the Data Ownership UI (never touched on update).
+                visual.is_default = bool(entry.get("is_default", False))
                 db.session.add(visual)
                 existing[key] = visual
                 created += 1
@@ -111,12 +114,15 @@ def _upsert_source(data_source):
 
 
 def _apply_definition(visual, entry, source_id):
-    """Write a manifest entry's definition + menu fields onto a Visuals row (visibility excluded --
-    that is UI-owned)."""
+    """Write a manifest entry's definition + menu fields onto a Visuals row (visibility and
+    is_default excluded -- both are UI-owned, seeded once on create)."""
     shape = entry["shape"]
     dim2 = entry.get("dimension2_type")
     visual.province = entry["province"]
     visual.name = entry["visual_id"]
+    # Deep-link URL slug: explicit manifest override, else auto-derived from the (per-province-unique)
+    # visual_id so every visual is addressable without mandatory manifest edits.
+    visual.slug = entry.get("slug") or entry["visual_id"].replace("_", "-").lower()
     visual.vis_type = shape
     visual.data_shape = shape
     visual.data_source_id = source_id
@@ -128,10 +134,13 @@ def _apply_definition(visual, entry, source_id):
     visual.substance = entry.get("substance")
     visual.key_kind = entry.get("key_kind")
     visual.drill_chain = derive_drill_chain(shape, dim2)
-    # Generic per-visual presentation/stratifier config (served as-is by _base_block). Most visuals
-    # omit it (kept None, renderers fall back to hardcoded titles); config-driven visuals such as
-    # the category_treemap declare their geo levels / hierarchy / filters / time control here.
-    visual.visual_options = entry.get("visual_options")
+    # Generic per-visual presentation/stratifier config (served as-is by _base_block). Two authoring
+    # sources: config-driven visuals (e.g. category_treemap) declare it in the manifest, while
+    # line/bar/pie/heatmap visuals get their titles/axis/table labels from the cleaned block at
+    # gen-visuals time. Only overwrite from the manifest when it actually provides one, so re-syncing
+    # definitions (e.g. a slug change) never wipes the gen-visuals block-derived options.
+    if entry.get("visual_options") is not None:
+        visual.visual_options = entry["visual_options"]
     # Menu / presentation config (served to the frontend; formerly the static visuals.js).
     visual.chart_type = entry.get("chart_type")
     data_types = entry.get("data_types")
@@ -145,7 +154,6 @@ def _apply_definition(visual, entry, source_id):
     visual.level = str(level) if level is not None else None
     visual.vis_parent_name = entry.get("vis_parent")
     visual.next_vis_name = entry.get("next_vis")
-    visual.is_default = bool(entry.get("is_default", False))
 
 
 def _inherit_map_sources():

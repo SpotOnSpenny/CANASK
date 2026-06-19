@@ -44,3 +44,4 @@ six
 typing_extensions
 celery[redis]
 pandas
+python-calamine

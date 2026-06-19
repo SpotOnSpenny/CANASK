@@ -384,17 +384,24 @@ a { text-decoration: none; }
    definite parent). Scoped to the skeleton so the rendered chart, which sizes itself, is untouched. */
 #vis-div:has(.skeleton-chart) { height: 100%; }
 
-/* Treemap stratifier dropdowns + time slider, overlaid top-left of the chart. Compact, with a
-   translucent backing so they stay legible over the treemap. Driven entirely by visual_options. */
-.treemap-controls { max-width: 14rem; }
-.treemap-controls .treemap-control {
-  background: color-mix(in srgb, var(--c-surface) 88%, transparent);
-  border-radius: var(--radius);
-  padding: 0.2rem 0.4rem;
-  backdrop-filter: blur(2px);
+/* Treemap layout: title on top, the chart in the middle, and a horizontal filter bar beneath it --
+   all stacked inside #vis-div. Driven entirely by visual_options. */
+#vis-div.treemap-layout { display: flex; flex-direction: column; height: 100%; }
+.treemap-header { width: 100%; padding: 0 0.25rem; }
+.treemap-title { font-size: 1.05rem; font-weight: 600; text-align: center; margin-bottom: 0.4rem; }
+.treemap-chart { width: 100%; flex: 1 1 auto; min-height: 0; }
+.treemap-footer { width: 100%; padding: 0 0.25rem; margin-top: 0.4rem; }
+/* The filter dropdowns + time slider laid out as a centered, wrapping row. */
+.treemap-controls-row {
+  display: flex;
+  flex-flow: row wrap;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 0.35rem 0.9rem;
 }
-.treemap-controls .form-select-sm { font-size: 0.78rem; }
-.treemap-controls .form-range { padding: 0; }
+.treemap-controls-row .treemap-control { text-align: start; }
+.treemap-controls-row .form-select-sm { font-size: 0.78rem; min-width: 8.5rem; }
+.treemap-controls-row .form-range { padding: 0; }
 
 /* ---------------------------- Breadcrumb -------------------------------- */
 .vis-breadcrumb {
@@ -1201,6 +1208,20 @@ a { text-decoration: none; }
   .feedback-content-container { padding: 22px 0 28px; }
   #form-alerts { top: -27%; width: 80%; }
   .no-data-body { height: auto; }
+}
+
+/* Collapsible data-source cards (Data Ownership page): match the site's accordion chevrons -- when
+   the body is open (header not .collapsed) the chevron flips upside down and turns the brand accent;
+   when collapsed it points down in the default color. Bootstrap adds .collapsed to the header (the
+   toggler) while the body is hidden. */
+.card-header[data-bs-toggle="collapse"] .bi-chevron-down {
+  /* inline-block so the rotate transform applies -- transforms are ignored on inline elements. */
+  display: inline-block;
+  transition: transform 200ms ease, color 200ms ease;
+}
+.card-header[data-bs-toggle="collapse"]:not(.collapsed) .bi-chevron-down {
+  transform: rotate(180deg);
+  color: var(--c-accent-hover);
 }
 
 /* --------------------------- Reduced motion ----------------------------- */
