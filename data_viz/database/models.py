@@ -149,11 +149,6 @@ class Visuals(db.Model):
     # (constant | suffix_y | plain | sex_substance | manner_substance) -- lets the generic read path
     # and the client-side adapter build series without VISUAL_SPECS.
     key_kind = db.Column(db.String(50), nullable = True)
-    # How the substance dimension (slot 1) was filled when persisting this visual's facts:
-    #   None / "opioids" (const) / "from_key" (parsed from the series key) / "lookup" (from a map).
-    # Authored in the visual-definition manifests. NOTE: now unread -- the cleaners set substance
-    # dimensions explicitly, so the former gen-visuals decoder is gone; kept for the manifests/schema.
-    substance = db.Column(db.String(50), nullable = True)
 
     def __repr__(self):
         return f"<Visual {self.name}>"

@@ -10,7 +10,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "age_group",
-      "substance": "opioids",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -30,7 +29,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "drug_type",
-      "substance": "lookup",
       "key_kind": "suffix_y",
       "chart_type": "bar",
       "data_types": [
@@ -51,7 +49,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "sex",
-      "substance": "from_key",
       "key_kind": "sex_substance",
       "chart_type": "line",
       "data_types": [
@@ -72,7 +69,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "manner",
-      "substance": "from_key",
       "key_kind": "manner_substance",
       "chart_type": "line",
       "data_types": [
@@ -93,7 +89,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "age_group",
-      "substance": "opioids",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -113,7 +108,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "drug_type",
-      "substance": "lookup",
       "key_kind": "suffix_y",
       "chart_type": "bar",
       "data_types": [
@@ -134,7 +128,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "sex",
-      "substance": "from_key",
       "key_kind": "sex_substance",
       "chart_type": "line",
       "data_types": [
@@ -155,7 +148,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "manner",
-      "substance": "from_key",
       "key_kind": "manner_substance",
       "chart_type": "line",
       "data_types": [
@@ -176,7 +168,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "age_group",
-      "substance": "opioids",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -196,7 +187,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "drug_type",
-      "substance": "lookup",
       "key_kind": "suffix_y",
       "chart_type": "bar",
       "data_types": [
@@ -217,7 +207,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "sex",
-      "substance": "from_key",
       "key_kind": "sex_substance",
       "chart_type": "line",
       "data_types": [
@@ -238,7 +227,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "manner",
-      "substance": "from_key",
       "key_kind": "manner_substance",
       "chart_type": "line",
       "data_types": [
@@ -259,7 +247,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "age_group",
-      "substance": "opioids",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -279,7 +266,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "drug_type",
-      "substance": "lookup",
       "key_kind": "suffix_y",
       "chart_type": "bar",
       "data_types": [
@@ -300,7 +286,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "sex",
-      "substance": "from_key",
       "key_kind": "sex_substance",
       "chart_type": "line",
       "data_types": [
@@ -321,7 +306,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "manner",
-      "substance": "from_key",
       "key_kind": "manner_substance",
       "chart_type": "line",
       "data_types": [
@@ -342,7 +326,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "age_group",
-      "substance": "opioids",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -362,7 +345,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "drug_type",
-      "substance": "lookup",
       "key_kind": "suffix_y",
       "chart_type": "bar",
       "data_types": [
@@ -383,7 +365,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "sex",
-      "substance": "from_key",
       "key_kind": "sex_substance",
       "chart_type": "line",
       "data_types": [
@@ -404,7 +385,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "manner",
-      "substance": "from_key",
       "key_kind": "manner_substance",
       "chart_type": "line",
       "data_types": [
@@ -425,7 +405,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "age_group",
-      "substance": "opioids",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -445,7 +424,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "drug_type",
-      "substance": "lookup",
       "key_kind": "suffix_y",
       "chart_type": "bar",
       "data_types": [
@@ -466,7 +444,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "sex",
-      "substance": "from_key",
       "key_kind": "sex_substance",
       "chart_type": "line",
       "data_types": [
@@ -487,7 +464,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "manner",
-      "substance": "from_key",
       "key_kind": "manner_substance",
       "chart_type": "line",
       "data_types": [
@@ -508,7 +484,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "age_group",
-      "substance": "opioids",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -528,7 +503,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "drug_type",
-      "substance": "lookup",
       "key_kind": "suffix_y",
       "chart_type": "bar",
       "data_types": [
@@ -549,7 +523,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "sex",
-      "substance": "from_key",
       "key_kind": "sex_substance",
       "chart_type": "line",
       "data_types": [
@@ -570,7 +543,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "manner",
-      "substance": "from_key",
       "key_kind": "manner_substance",
       "chart_type": "line",
       "data_types": [
@@ -591,7 +563,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "age_group",
-      "substance": "opioids",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -611,7 +582,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "drug_type",
-      "substance": "lookup",
       "key_kind": "suffix_y",
       "chart_type": "bar",
       "data_types": [
@@ -632,7 +602,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "sex",
-      "substance": "from_key",
       "key_kind": "sex_substance",
       "chart_type": "line",
       "data_types": [
@@ -653,7 +622,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "manner",
-      "substance": "from_key",
       "key_kind": "manner_substance",
       "chart_type": "line",
       "data_types": [
@@ -674,7 +642,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "age_group",
-      "substance": "opioids",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -694,7 +661,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "drug_type",
-      "substance": "lookup",
       "key_kind": "suffix_y",
       "chart_type": "bar",
       "data_types": [
@@ -715,7 +681,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "sex",
-      "substance": "from_key",
       "key_kind": "sex_substance",
       "chart_type": "line",
       "data_types": [
@@ -736,7 +701,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "manner",
-      "substance": "from_key",
       "key_kind": "manner_substance",
       "chart_type": "line",
       "data_types": [
@@ -757,7 +721,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "age_group",
-      "substance": "opioids",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -777,7 +740,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "drug_type",
-      "substance": "lookup",
       "key_kind": "suffix_y",
       "chart_type": "bar",
       "data_types": [
@@ -798,7 +760,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "sex",
-      "substance": "from_key",
       "key_kind": "sex_substance",
       "chart_type": "line",
       "data_types": [
@@ -819,7 +780,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "manner",
-      "substance": "from_key",
       "key_kind": "manner_substance",
       "chart_type": "line",
       "data_types": [
@@ -840,7 +800,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "age_group",
-      "substance": "opioids",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -860,7 +819,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "drug_type",
-      "substance": "lookup",
       "key_kind": "suffix_y",
       "chart_type": "bar",
       "data_types": [
@@ -881,7 +839,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "sex",
-      "substance": "from_key",
       "key_kind": "sex_substance",
       "chart_type": "line",
       "data_types": [
@@ -902,7 +859,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "manner",
-      "substance": "from_key",
       "key_kind": "manner_substance",
       "chart_type": "line",
       "data_types": [
@@ -923,7 +879,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "age_group",
-      "substance": "opioids",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -943,7 +898,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "sex",
-      "substance": "from_key",
       "key_kind": "sex_substance",
       "chart_type": "line",
       "data_types": [
@@ -964,7 +918,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "manner",
-      "substance": "from_key",
       "key_kind": "manner_substance",
       "chart_type": "line",
       "data_types": [
@@ -985,7 +938,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "origin",
-      "substance": "opioids",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1006,7 +958,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "origin",
-      "substance": "opioids",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1027,7 +978,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "origin",
-      "substance": "opioids",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1048,7 +998,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "origin",
-      "substance": "opioids",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1069,7 +1018,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "origin",
-      "substance": "opioids",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1090,7 +1038,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "origin",
-      "substance": "opioids",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1111,7 +1058,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "origin",
-      "substance": "opioids",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1132,7 +1078,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "origin",
-      "substance": "opioids",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1153,7 +1098,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "co_substance",
-      "substance": "from_key",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1173,7 +1117,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "co_substance",
-      "substance": "from_key",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1193,7 +1136,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "co_substance",
-      "substance": "from_key",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1213,7 +1155,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "co_substance",
-      "substance": "from_key",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1233,7 +1174,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "co_substance",
-      "substance": "from_key",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1253,7 +1193,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "co_substance",
-      "substance": "from_key",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1273,7 +1212,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "co_substance",
-      "substance": "from_key",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1293,7 +1231,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "co_substance",
-      "substance": "from_key",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1313,7 +1250,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "co_substance",
-      "substance": "from_key",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1333,7 +1269,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "co_substance",
-      "substance": "from_key",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1353,7 +1288,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "co_substance",
-      "substance": "from_key",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1373,7 +1307,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "co_substance",
-      "substance": "from_key",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1393,7 +1326,6 @@
       "shape": "flat_series",
       "metric": "harms",
       "dimension2_type": "harm_type",
-      "substance": "opioids",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1412,7 +1344,6 @@
       "shape": "flat_series",
       "metric": "harms",
       "dimension2_type": "harm_type",
-      "substance": "stimulants",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1431,7 +1362,6 @@
       "shape": "flat_series",
       "metric": "harms",
       "dimension2_type": "harm_type",
-      "substance": "opioids",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1450,7 +1380,6 @@
       "shape": "flat_series",
       "metric": "harms",
       "dimension2_type": "harm_type",
-      "substance": "stimulants",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1469,7 +1398,6 @@
       "shape": "flat_series",
       "metric": "harms",
       "dimension2_type": "harm_type",
-      "substance": "opioids",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1488,7 +1416,6 @@
       "shape": "flat_series",
       "metric": "harms",
       "dimension2_type": "harm_type",
-      "substance": "stimulants",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1507,7 +1434,6 @@
       "shape": "flat_series",
       "metric": "harms",
       "dimension2_type": "harm_type",
-      "substance": "opioids",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1526,7 +1452,6 @@
       "shape": "flat_series",
       "metric": "harms",
       "dimension2_type": "harm_type",
-      "substance": "stimulants",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1545,7 +1470,6 @@
       "shape": "flat_series",
       "metric": "harms",
       "dimension2_type": "harm_type",
-      "substance": "opioids",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1564,7 +1488,6 @@
       "shape": "flat_series",
       "metric": "harms",
       "dimension2_type": "harm_type",
-      "substance": "stimulants",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1583,7 +1506,6 @@
       "shape": "flat_series",
       "metric": "harms",
       "dimension2_type": "harm_type",
-      "substance": "opioids",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1602,7 +1524,6 @@
       "shape": "flat_series",
       "metric": "harms",
       "dimension2_type": "harm_type",
-      "substance": "stimulants",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1621,7 +1542,6 @@
       "shape": "flat_series",
       "metric": "harms",
       "dimension2_type": "harm_type",
-      "substance": "opioids",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1640,7 +1560,6 @@
       "shape": "flat_series",
       "metric": "harms",
       "dimension2_type": "harm_type",
-      "substance": "stimulants",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1659,7 +1578,6 @@
       "shape": "flat_series",
       "metric": "harms",
       "dimension2_type": "harm_type",
-      "substance": "opioids",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1678,7 +1596,6 @@
       "shape": "flat_series",
       "metric": "harms",
       "dimension2_type": "harm_type",
-      "substance": "stimulants",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1697,7 +1614,6 @@
       "shape": "flat_series",
       "metric": "harms",
       "dimension2_type": "harm_type",
-      "substance": "opioids",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1716,7 +1632,6 @@
       "shape": "flat_series",
       "metric": "harms",
       "dimension2_type": "harm_type",
-      "substance": "stimulants",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1735,7 +1650,6 @@
       "shape": "flat_series",
       "metric": "harms",
       "dimension2_type": "harm_type",
-      "substance": "opioids",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1754,7 +1668,6 @@
       "shape": "flat_series",
       "metric": "harms",
       "dimension2_type": "harm_type",
-      "substance": "stimulants",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1773,7 +1686,6 @@
       "shape": "flat_series",
       "metric": "harms",
       "dimension2_type": "harm_type",
-      "substance": "opioids",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1792,7 +1704,6 @@
       "shape": "flat_series",
       "metric": "harms",
       "dimension2_type": "harm_type",
-      "substance": "stimulants",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1811,7 +1722,6 @@
       "shape": "flat_series",
       "metric": "harms",
       "dimension2_type": "harm_type",
-      "substance": "opioids",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1830,7 +1740,6 @@
       "shape": "flat_series",
       "metric": "harms",
       "dimension2_type": "harm_type",
-      "substance": "stimulants",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1849,7 +1758,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "origin",
-      "substance": "opioids",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1870,7 +1778,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "co_substance",
-      "substance": "from_key",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1890,7 +1797,6 @@
       "shape": "flat_series",
       "metric": "harms",
       "dimension2_type": "harm_type",
-      "substance": "opioids",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1909,7 +1815,6 @@
       "shape": "flat_series",
       "metric": "harms",
       "dimension2_type": "harm_type",
-      "substance": "stimulants",
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": [
@@ -1930,7 +1835,6 @@
       "geo_type": "province",
       "dimension_type": "age_group",
       "dimension2_type": "sex_substance",
-      "substance": null,
       "key_kind": null,
       "chart_type": "stacked_bar",
       "data_types": [
@@ -1951,7 +1855,6 @@
       "geo_type": "province",
       "dimension_type": "age_group",
       "dimension2_type": "sex_substance",
-      "substance": null,
       "key_kind": null,
       "chart_type": "stacked_bar",
       "data_types": [
@@ -1972,7 +1875,6 @@
       "geo_type": "province",
       "dimension_type": "age_group",
       "dimension2_type": "sex_substance",
-      "substance": null,
       "key_kind": null,
       "chart_type": "stacked_bar",
       "data_types": [
@@ -1993,7 +1895,6 @@
       "geo_type": "province",
       "dimension_type": "age_group",
       "dimension2_type": "sex_substance",
-      "substance": null,
       "key_kind": null,
       "chart_type": "stacked_bar",
       "data_types": [
@@ -2014,7 +1915,6 @@
       "geo_type": "province",
       "dimension_type": "age_group",
       "dimension2_type": "sex_substance",
-      "substance": null,
       "key_kind": null,
       "chart_type": "stacked_bar",
       "data_types": [
@@ -2035,7 +1935,6 @@
       "geo_type": "province",
       "dimension_type": "age_group",
       "dimension2_type": "sex_substance",
-      "substance": null,
       "key_kind": null,
       "chart_type": "stacked_bar",
       "data_types": [
@@ -2056,7 +1955,6 @@
       "geo_type": "province",
       "dimension_type": "age_group",
       "dimension2_type": "sex_substance",
-      "substance": null,
       "key_kind": null,
       "chart_type": "stacked_bar",
       "data_types": [
@@ -2077,7 +1975,6 @@
       "geo_type": "province",
       "dimension_type": "age_group",
       "dimension2_type": "sex_substance",
-      "substance": null,
       "key_kind": null,
       "chart_type": "stacked_bar",
       "data_types": [
@@ -2098,7 +1995,6 @@
       "geo_type": "province",
       "dimension_type": "age_group",
       "dimension2_type": "sex_substance",
-      "substance": null,
       "key_kind": null,
       "chart_type": "stacked_bar",
       "data_types": [

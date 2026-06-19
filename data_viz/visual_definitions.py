@@ -131,7 +131,6 @@ def _apply_definition(visual, entry, source_id):
     visual.geo_type = entry.get("geo_type") or ("province" if shape == "flat_series" else None)
     visual.dimension_type = entry.get("dimension_type")
     visual.dimension2_type = dim2
-    visual.substance = entry.get("substance")
     visual.key_kind = entry.get("key_kind")
     visual.drill_chain = derive_drill_chain(shape, dim2)
     # Generic per-visual presentation/stratifier config (served as-is by _base_block). Two authoring

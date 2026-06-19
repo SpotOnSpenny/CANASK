@@ -12,7 +12,6 @@
       "geo_type": "site",
       "dimension_type": "drug_category",
       "dimension2_type": "expected_drug",
-      "substance": null,
       "key_kind": null,
       "chart_type": "treemap",
       "data_types": ["counts"],

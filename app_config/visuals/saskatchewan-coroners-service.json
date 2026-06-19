@@ -10,7 +10,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "drug_type",
-      "substance": null,
       "key_kind": "suffix_y",
       "visual_options": {
         "counts-title": "Deaths in Saskatchewan Attributed to Unregulated Drugs by Drug Type",
@@ -42,7 +41,6 @@
       "metric": "deaths",
       "geo_type": "health_authority",
       "dimension2_type": null,
-      "substance": null,
       "key_kind": "constant",
       "visual_options": {
         "heatmap-title": "Unregulated Drug Deaths in Saskatchewan by Health Authority",
