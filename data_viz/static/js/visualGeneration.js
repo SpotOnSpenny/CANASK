@@ -220,10 +220,15 @@ function renderEmptyVisual(message) {
   const tableDiv = document.getElementById("data-table");
   const toggle = document.getElementById("data-type-toggle");
   const aboutDiv = document.getElementById("about-data");
-  if (visDiv) { Plotly.purge(visDiv); visDiv.innerHTML = `<p class="text-muted text-center py-5">${message}</p>`; }
+  const stratifiers = document.getElementById("vis-stratifiers");
+  // Reset the treemap's "treemap-layout" class so the empty state doesn't inherit its flex/100%-height
+  // sizing, and clear any leftover stratifier dropdowns -- both are reachable when the empty state
+  // follows a treemap (the class is set in createVisualTreemap and never otherwise cleared here).
+  if (visDiv) { Plotly.purge(visDiv); visDiv.className = ""; visDiv.innerHTML = `<p class="text-muted text-center py-5">${message}</p>`; }
   if (tableDiv) tableDiv.innerHTML = "";
   if (toggle) toggle.innerHTML = "";
   if (aboutDiv) aboutDiv.innerHTML = "";
+  if (stratifiers) stratifiers.innerHTML = "";
 }
 
 // Series key/label composed straight from the dimension values (no legacy "_y" suffix). The
@@ -1909,6 +1914,11 @@ function resetVisualControl() {
   // clear any treemap stratifier dropdowns so they don't linger on a non-treemap visual
   let stratifiers = document.getElementById("vis-stratifiers");
   if (stratifiers) stratifiers.innerHTML = "";
+  // Reset the treemap's "treemap-layout" class so a later non-treemap visual doesn't inherit its
+  // flex/100%-height sizing (the class is set in createVisualTreemap and the stratified-bar renderer,
+  // and is never otherwise cleared). resetVisualControl runs at level 1 before the next renderer draws.
+  let visDiv = document.getElementById("vis-div");
+  if (visDiv) visDiv.className = "";
   // remove the back button if it exists and toggle only is false
   if (route.length == 0){
     let backButton = document.getElementById("back-button");

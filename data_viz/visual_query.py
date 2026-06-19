@@ -7,9 +7,23 @@
 
 from collections import defaultdict
 
+from flask import g
+
 from data_viz.database.models import (Visuals, VisualQuery, DataPoints, DataSources,
                                        UserGroups, GroupVisuals, GroupDataSources)
 from data_viz.auth.role_hierarchy import ROLE_HIERARCHY
+
+
+def _request_cache():
+    """A per-request memo dict on flask.g (created lazily). Returns a throwaway dict outside an app
+    context (CLI / tests) so callers never need to special-case it."""
+    try:
+        cache = getattr(g, "_visual_query_cache", None)
+        if cache is None:
+            cache = g._visual_query_cache = {}
+        return cache
+    except RuntimeError:   # working outside of application context
+        return {}
 
 
 def _viewer_context(user):
@@ -84,16 +98,20 @@ def allowed_visuals(user, province):
     return _filter_visible(visuals, _viewer_context(user))
 
 
-def _visual_has_data(visual):
+def _visual_has_data(visual, geo_values=None):
     """Whether a visual has anything to show. Structural visuals (no metric -- maps / drill headings /
     sourceless scaffolding) always count. A data-bearing visual counts only if it has at least one
     REPORTED, non-zero fact -- matching the frontend, which hides series that are entirely zero,
     suppressed, or not reported. So e.g. a territory whose every breakdown is suppressed is dropped
-    from the menu instead of opening to an empty chart."""
+    from the menu instead of opening to an empty chart.
+
+    `geo_values` is this visual's geo predicate list; pass it pre-loaded (e.g. batched in one query by
+    accessible_provinces) to avoid a per-visual `_predicates` round-trip, else it's looked up here."""
     if not visual.metric:
         return True
-    preds = _predicates(visual.id)
-    if visual.geo_type == "province" and not preds.get("geo"):
+    if geo_values is None:
+        geo_values = _predicates(visual.id).get("geo", [])
+    if visual.geo_type == "province" and not geo_values:
         return False   # province-level visual not scoped to a geo -> no data of its own
     query = DataPoints.query.filter(
         DataPoints.data_source_id == visual.data_source_id,
@@ -109,7 +127,7 @@ def _visual_has_data(visual):
     else:
         query = query.filter(DataPoints.dimension2_type.is_(None))
     if visual.geo_type == "province":
-        query = query.filter(DataPoints.geo == preds["geo"][0])
+        query = query.filter(DataPoints.geo == geo_values[0])
     return query.first() is not None
 
 
@@ -129,13 +147,31 @@ def accessible_provinces(user):
     suppressed / not reported, e.g. a small territory) doesn't show a dead link. Runs on every request
     (nav context processor): the viewer context is derived once and all visuals are loaded in one
     query; the per-visual data check short-circuits on the first visual with data (and a structural
-    map returns immediately without a query)."""
+    map returns immediately without a query).
+
+    Memoized per request (it runs in the nav context processor on every render) and the per-visual geo
+    predicates are batch-loaded in one query instead of a `_predicates` round-trip per visual."""
+    cache = _request_cache()
+    cache_key = ("accessible_provinces",
+                 getattr(user, "id", None) if getattr(user, "is_authenticated", False) else None)
+    if cache_key in cache:
+        return cache[cache_key]
+
     ctx = _viewer_context(user)
     by_province = defaultdict(list)
     for visual in Visuals.query.all():
         by_province[visual.province].append(visual)
-    return {province for province, visuals in by_province.items()
-            if any(_visual_has_data(v) for v in _filter_visible(visuals, ctx))}
+    # Batch every geo predicate up front (one query) so the has-data check below doesn't fire a
+    # `_predicates` query per visual.
+    geo_preds = defaultdict(list)
+    for row in VisualQuery.query.filter_by(filter_type="geo").all():
+        geo_preds[row.for_visual_id].append(row.filter_value)
+
+    result = {province for province, visuals in by_province.items()
+              if any(_visual_has_data(v, geo_preds.get(v.id, []))
+                     for v in _filter_visible(visuals, ctx))}
+    cache[cache_key] = result
+    return result
 
 
 def _menu_level(visual):

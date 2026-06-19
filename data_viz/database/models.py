@@ -108,7 +108,10 @@ class Visuals(db.Model):
     about = db.Column(db.String(5000), nullable = True)
     province = db.Column(db.String(255), nullable = False)
     # URL slug for deep-linking straight to a visual (/v1/province/<province>/<slug>). Authored in the
-    # manifests (auto-derived from visual_id when omitted); unique per province by construction.
+    # manifests (auto-derived from visual_id when omitted). Expected to be unique per province, but this
+    # is NOT DB-enforced -- a manifest `slug` override could collide, and the deep-link lookup in
+    # main.py resolves to the first match. Keep manifest slugs distinct per province (or add a
+    # UniqueConstraint("province","slug") + a backfilling migration if collisions become a risk).
     slug = db.Column(db.String(255), nullable = True)
     vis_type = db.Column(db.String(255), nullable = False)
     data_types = db.Column(db.String(255), nullable = True)

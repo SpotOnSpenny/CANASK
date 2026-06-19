@@ -471,7 +471,17 @@ def set_province_default_visual(visual_id, changed_by = None):
     context, so a drill child would have no access point above it (raises ValueError). The default is
     a single per-province pointer: setting one clears is_default on every other visual in that
     province (across all sources). Clicking the current default again unsets it, reverting the page to
-    the automatic level-1 fallback. Logs a UserActivity row and returns the new is_default state."""
+    the automatic level-1 fallback. Logs a UserActivity row and returns the new is_default state.
+
+    INTENTIONAL cross-source clear: a province's visuals can live in several data sources, but the
+    landing default is one-per-province by design (build_province_menu picks a single is_default
+    visual). So setting a default necessarily clears whatever default another source held for the same
+    province -- even one set by a different source's Data Owner. Scoping the clear to only the actor's
+    manageable sources would let two visuals in the same province both stay flagged, which
+    build_province_menu would then resolve nondeterministically (first by query order). The route
+    (set_default_visual) re-renders every owned source card so the moved star stays visually in sync.
+    The actor still needs can_manage_source on the visual they are *setting*; this shared-province
+    coupling is accepted."""
     visual = Visuals.query.get(visual_id)
     if not visual:
         raise ValueError("Visual not found.")
