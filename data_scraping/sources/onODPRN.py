@@ -11,8 +11,7 @@ import openpyxl
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions
 from selenium.webdriver.support.ui import WebDriverWait
-from selenium.common.exceptions import (TimeoutException, NoSuchElementException,
-                                         WebDriverException)
+from selenium.common.exceptions import WebDriverException
 
 # Internal Dependency Imports
 sys.dont_write_bytecode = True
@@ -57,11 +56,12 @@ def scrape_national_dashboard(driver, file_in_dir = False, final_data_path = Non
             download_button = monthly_data.find_element(By.XPATH, ".//a")
             download_link = download_button.get_attribute("href")
             last_updated = download_button.text
-        except (TimeoutException, NoSuchElementException, WebDriverException) as e:
-            # Narrowed so an unrelated bug (or KeyboardInterrupt/SystemExit) isn't masked, and the real
-            # exception is surfaced instead of a misleading "couldn't find the button". Re-raise so a
-            # failed scrape fails loudly rather than silently returning None (which downstream cleaning
-            # would read as "no data" and quietly produce nothing).
+        except WebDriverException as e:
+            # WebDriverException is the base of TimeoutException/NoSuchElementException, so it covers the
+            # whole step while still being narrow enough that an unrelated bug (or KeyboardInterrupt/
+            # SystemExit) isn't masked. Surface the real exception instead of a misleading "couldn't find
+            # the button", and re-raise so a failed scrape fails loudly rather than silently returning
+            # None (which downstream cleaning would read as "no data" and quietly produce nothing).
             print(f"onODPRN: failed to reach the Monthly Data download button "
                   f"({type(e).__name__}: {e})")
             raise
@@ -121,9 +121,11 @@ def scrape_national_dashboard(driver, file_in_dir = False, final_data_path = Non
     if not file_in_dir:
         if os.path.exists(raw_data_path):
             os.remove(raw_data_path)
-        if existing_files != []:
-            print(f"onODPRN: removing superseded file {existing_files[0]}")
-            os.remove(os.path.join(output_dir, existing_files[0]))
+        # Remove every superseded prior output, not just the first -- pull_data() picks by filename date,
+        # so any stale *_onODPRN.xlsx left behind could be read instead of the one just written.
+        for stale in existing_files:
+            print(f"onODPRN: removing superseded file {stale}")
+            os.remove(os.path.join(output_dir, stale))
 
 #######################################################################################
 

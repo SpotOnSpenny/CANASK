@@ -151,6 +151,9 @@ def accessible_provinces(user):
 
     Memoized per request (it runs in the nav context processor on every render) and the per-visual geo
     predicates are batch-loaded in one query instead of a `_predicates` round-trip per visual."""
+    # Cached by (user) for the duration of one request. This is a render-time, read-only helper (the nav
+    # context processor), so it assumes no visibility/data mutation happens-then-gets-re-read within the
+    # same request -- a POST mutates and only then renders, so the nav recompute already sees the change.
     cache = _request_cache()
     cache_key = ("accessible_provinces",
                  getattr(user, "id", None) if getattr(user, "is_authenticated", False) else None)
@@ -162,7 +165,8 @@ def accessible_provinces(user):
     for visual in Visuals.query.all():
         by_province[visual.province].append(visual)
     # Batch every geo predicate up front (one query) so the has-data check below doesn't fire a
-    # `_predicates` query per visual.
+    # `_predicates` query per visual. _visual_has_data only reads geo_values[0], and only for province
+    # visuals -- which carry a single geo predicate -- so the (unordered) grouping here is deterministic.
     geo_preds = defaultdict(list)
     for row in VisualQuery.query.filter_by(filter_type="geo").all():
         geo_preds[row.for_visual_id].append(row.filter_value)
