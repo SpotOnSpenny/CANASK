@@ -492,7 +492,11 @@ function buildVisualUrl(location, year, category) {
     if (location != null) path += "/" + urlSegment(location);
     if (category != null) path += "/" + urlSegment(category);
   }
-  return path + (year != null ? "?y=" + encodeURIComponent(year) : "");
+  // year rides as ?y=; a treemap's filter state rides as its own t.* params (no location/category path).
+  const query = [];
+  if (year != null) query.push("y=" + encodeURIComponent(year));
+  if (rootCfg && rootCfg["type"] === "treemap" && activeTreemapParams) query.push(activeTreemapParams);
+  return path + (query.length ? "?" + query.join("&") : "");
 }
 
 // Keep the address bar in sync with the current render. No-op while replaying (popstate/deep link).
@@ -651,10 +655,15 @@ function renderEmptyVisual(message) {
   const tableDiv = document.getElementById("data-table");
   const toggle = document.getElementById("data-type-toggle");
   const aboutDiv = document.getElementById("about-data");
-  if (visDiv) { Plotly.purge(visDiv); visDiv.innerHTML = `<p class="text-muted text-center py-5">${message}</p>`; }
+  const stratifiers = document.getElementById("vis-stratifiers");
+  // Reset the treemap's "treemap-layout" class so the empty state doesn't inherit its flex/100%-height
+  // sizing, and clear any leftover stratifier dropdowns -- both are reachable when the empty state
+  // follows a treemap (the class is set in createVisualTreemap and never otherwise cleared here).
+  if (visDiv) { Plotly.purge(visDiv); visDiv.className = ""; visDiv.innerHTML = `<p class="text-muted text-center py-5">${message}</p>`; }
   if (tableDiv) tableDiv.innerHTML = "";
   if (toggle) toggle.innerHTML = "";
   if (aboutDiv) aboutDiv.innerHTML = "";
+  if (stratifiers) stratifiers.innerHTML = "";
 }
 
 // Series key/label composed straight from the dimension values (no legacy "_y" suffix). The
@@ -1819,9 +1828,66 @@ async function createVisualTreemap(province, block, currentVisual, source) {
     });
   }
 
-  // Clear every geo/filter selection + time control back to its default ("All" / all-time) and
-  // rebuild the controls so their displayed values match. buildControls() always renders selects at
-  // "All", so resetting `sel` first keeps state and UI in sync.
+  // ---- URL <-> selection (deep-linkable filters) ----
+  // Values travel as slugs (the same slugify used for the path), so the query string stays readable and
+  // round-trips through reverse-matching against the live facts. First slug-equal candidate wins.
+  function matchSlug(candidates, raw) {
+    for (const c of candidates) { if (slugify(c) === raw) return c; }
+    return null;
+  }
+
+  // Serialize the current selection into a query string: geo levels -> t.g<i>, filters -> t.f<i>
+  // (index into cfg.filters), time -> t.u (unit) + t.b (bucket). Defaults ("All"/all-time) are omitted
+  // so an unfiltered treemap keeps a clean URL.
+  function treemapSelToParams() {
+    const p = new URLSearchParams();
+    geoLevels.forEach(function (lvl, i) { if (sel.geo[i] != null) p.set("t.g" + i, slugify(sel.geo[i])); });
+    filters.forEach(function (flt, i) {
+      if (sel.filters[flt.axis] != null) p.set("t.f" + i, slugify(sel.filters[flt.axis]));
+    });
+    if (sel.unit !== "all") {
+      p.set("t.u", sel.unit);
+      if (sel.bucket != null) p.set("t.b", slugify(sel.bucket));
+    }
+    return p.toString();
+  }
+
+  // Seed `sel` from the current URL (deep link / Back-Forward). Geo levels are reverse-matched top-down
+  // so each level's cascade sees the parent already chosen; unknown/stale slugs are ignored (stay "All").
+  function seedSelFromUrl() {
+    const params = new URLSearchParams(window.location.search || "");
+    geoLevels.forEach(function (lvl, i) {
+      const raw = params.get("t.g" + i);
+      if (!raw) return;
+      const m = matchSlug(geoOptions(i), raw);
+      if (m != null) sel.geo[i] = m;
+    });
+    filters.forEach(function (flt, i) {
+      const raw = params.get("t.f" + i);
+      if (!raw) return;
+      const m = matchSlug(distinct(function (f) { return axisValue(f, flt.axis); }), raw);
+      if (m != null) sel.filters[flt.axis] = m;
+    });
+    const u = params.get("t.u");
+    if (u === "year" || u === "month" || u === "seasonal") {
+      sel.unit = u;
+      const b = params.get("t.b");
+      if (b) {
+        const found = treemapTimeBuckets(facts, u).find(function (bk) { return slugify(bk.value) === b; });
+        if (found) sel.bucket = found.value;
+      }
+    }
+  }
+
+  // Push the current selection onto the address bar through the shared syncUrl (which handles the
+  // first-render replaceState + isReplaying guard). buildVisualUrl reads activeTreemapParams.
+  function syncTreemapUrl() {
+    activeTreemapParams = treemapSelToParams();
+    syncUrl(null, null, null);
+  }
+
+  // Clear every geo/filter selection + time control back to its default ("All" / all-time), rebuild the
+  // controls so their displayed values match, and drop the filter params from the URL.
   function resetFilters() {
     sel.geo = geoLevels.map(function () { return null; });
     filters.forEach(function (flt) { sel.filters[flt.axis] = null; });
@@ -1829,6 +1895,7 @@ async function createVisualTreemap(province, block, currentVisual, source) {
     sel.bucket = null;
     buildControls();
     render();
+    syncTreemapUrl();
   }
 
   // True when any geo/filter/time control is away from its default -- drives the reset button's
@@ -1844,7 +1911,8 @@ async function createVisualTreemap(province, block, currentVisual, source) {
     const geoSelects = [];
     geoLevels.forEach(function (levelLabel, i) {
       const select = makeControl(levelLabel);
-      setSelectOptions(select, geoOptions(i), null);
+      // Reflect the live selection (seeded from the URL on a deep link), not always "All".
+      setSelectOptions(select, geoOptions(i), sel.geo[i]);
       select.onchange = function () {
         sel.geo[i] = select.value === "__all__" ? null : select.value;
         // Re-cascade: clear and repopulate every lower level for the new parent choice.
@@ -1853,16 +1921,18 @@ async function createVisualTreemap(province, block, currentVisual, source) {
           setSelectOptions(geoSelects[j], geoOptions(j), null);
         }
         render();
+        syncTreemapUrl();
       };
       geoSelects.push(select);
     });
 
     filters.forEach(function (flt) {
       const select = makeControl(flt.label || flt.axis);
-      setSelectOptions(select, distinct(function (f) { return axisValue(f, flt.axis); }), null);
+      setSelectOptions(select, distinct(function (f) { return axisValue(f, flt.axis); }), sel.filters[flt.axis]);
       select.onchange = function () {
         sel.filters[flt.axis] = select.value === "__all__" ? null : select.value;
         render();
+        syncTreemapUrl();
       };
     });
 
@@ -1879,6 +1949,7 @@ async function createVisualTreemap(province, block, currentVisual, source) {
         opt.value = u[0]; opt.innerText = u[1];
         unitSelect.appendChild(opt);
       });
+      unitSelect.value = sel.unit;   // reflect a URL-seeded unit, not always "All time"
       const sliderWrap = document.createElement("div");
       sliderWrap.className = "mt-1";
       const slider = document.createElement("input");
@@ -1901,12 +1972,21 @@ async function createVisualTreemap(province, block, currentVisual, source) {
         } else {
           sliderWrap.style.display = "";
           slider.max = buckets.length - 1;
-          slider.value = buckets.length - 1;   // default to the most recent bucket
+          // Honor a URL-seeded bucket if it still exists; otherwise default to the most recent.
+          let idx = buckets.length - 1;
+          if (sel.bucket != null) {
+            const found = buckets.findIndex(function (b) { return b.value === sel.bucket; });
+            if (found >= 0) idx = found;
+          }
+          slider.value = idx;
           applyBucket();
         }
       }
-      unitSelect.onchange = function () { sel.unit = unitSelect.value; rebuildBuckets(); render(); };
+      // Switching unit resets to the latest bucket (clear the seeded one first so rebuild picks default).
+      unitSelect.onchange = function () { sel.unit = unitSelect.value; sel.bucket = null; rebuildBuckets(); render(); syncTreemapUrl(); };
+      // Live-render while dragging, but only push history once on release (oninput would spam the stack).
       slider.oninput = function () { applyBucket(); render(); };
+      slider.onchange = function () { syncTreemapUrl(); };
       wrap.appendChild(lab); wrap.appendChild(unitSelect); wrap.appendChild(sliderWrap);
       controlHost.appendChild(wrap);
       rebuildBuckets();
@@ -1977,6 +2057,11 @@ async function createVisualTreemap(province, block, currentVisual, source) {
     if (resetBtn) resetBtn.disabled = !filtersActive();   // keep reset button in sync with live filters
   }
 
+  // Seed the selection from the URL (deep link / Back-Forward) before building the controls, and prime
+  // activeTreemapParams so masterLoop's trailing syncUrl canonicalizes the address bar with these filters
+  // (replaceState on first load, otherwise a no-op since the URL already matches).
+  seedSelFromUrl();
+  activeTreemapParams = treemapSelToParams();
   buildControls();
   render();
 }
@@ -2264,6 +2349,11 @@ function resetVisualControl() {
   // clear any treemap stratifier dropdowns so they don't linger on a non-treemap visual
   let stratifiers = document.getElementById("vis-stratifiers");
   if (stratifiers) stratifiers.innerHTML = "";
+  // Reset the treemap's "treemap-layout" class so a later non-treemap visual doesn't inherit its
+  // flex/100%-height sizing (the class is set in createVisualTreemap and the stratified-bar renderer,
+  // and is never otherwise cleared). resetVisualControl runs at level 1 before the next renderer draws.
+  let visDiv = document.getElementById("vis-div");
+  if (visDiv) visDiv.className = "";
   // remove the back button if it exists and toggle only is false
   if (route.length == 0){
     let backButton = document.getElementById("back-button");
