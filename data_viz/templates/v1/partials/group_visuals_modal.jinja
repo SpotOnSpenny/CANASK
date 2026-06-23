@@ -7,7 +7,7 @@
                    data-vid="{{ v.id }}"{% if parent_id is not none %} data-parent="{{ parent_id }}"{% endif %}
                    {% if v.id in current_ids %}checked{% endif %}>
             <label class="form-check-label fw-semibold" for="visual_{{ v.id }}">
-                {{ v.menu_name or v.name }}
+                {{ v | visual_label }}
                 <span class="badge bg-light text-dark ms-1">L{{ v.level or 1 }} · {{ v.chart_type }}</span>
             </label>
         </div>

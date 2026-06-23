@@ -107,6 +107,12 @@ class Visuals(db.Model):
     name = db.Column(db.String(255), nullable = False)
     about = db.Column(db.String(5000), nullable = True)
     province = db.Column(db.String(255), nullable = False)
+    # URL slug for deep-linking straight to a visual (/v1/province/<province>/<slug>). Authored in the
+    # manifests (auto-derived from visual_id when omitted). Expected to be unique per province, but this
+    # is NOT DB-enforced -- a manifest `slug` override could collide, and the deep-link lookup in
+    # main.py resolves to the first match. Keep manifest slugs distinct per province (or add a
+    # UniqueConstraint("province","slug") + a backfilling migration if collisions become a risk).
+    slug = db.Column(db.String(255), nullable = True)
     vis_type = db.Column(db.String(255), nullable = False)
     data_types = db.Column(db.String(255), nullable = True)
     menu_name = db.Column(db.String(255), nullable = True)
@@ -143,16 +149,13 @@ class Visuals(db.Model):
     # (constant | suffix_y | plain | sex_substance | manner_substance) -- lets the generic read path
     # and the client-side adapter build series without VISUAL_SPECS.
     key_kind = db.Column(db.String(50), nullable = True)
-    # How the substance dimension (slot 1) is filled when persisting this visual's facts:
-    #   None / "opioids" (const) / "from_key" (parsed from the series key) / "lookup" (from a map).
-    # Authored in the visual-definition manifests; read by gen-visuals' encode_series_key.
-    substance = db.Column(db.String(50), nullable = True)
 
     def __repr__(self):
         return f"<Visual {self.name}>"
 
 class GroupVisuals(db.Model):
     __tablename__ = "group_visuals"
+    __table_args__ = (db.UniqueConstraint("group_id", "visual_id", name = "uq_group_visual"),)
 
     id = db.Column(db.Integer, primary_key = True)
     group_id = db.Column(db.Integer, db.ForeignKey("groups.id"), nullable = False)

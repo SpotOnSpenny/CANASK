@@ -362,8 +362,11 @@ def set_group_visuals(group_id, visual_ids, scope_visual_ids, changed_by = None)
         return [v.menu_name or v.name for v in Visuals.query.filter(Visuals.id.in_(ids)).all()]
     changes = [f"+{n}" for n in _names(to_add)] + [f"-{n}" for n in _names(to_remove)]
 
-    if changes:
-        changer = User.query.get(changed_by) if changed_by else None
+    # Only log a UserActivity row when there's an actor to attribute it to. A request-driven change
+    # always passes changed_by; a seed/CLI call (changed_by=None) would otherwise write an activity
+    # row with a NULL user_id, leaving the audit trail with no actor.
+    if changes and changed_by is not None:
+        changer = User.query.get(changed_by)
         changer_name = changer.username if changer else f"user ID {changed_by}"
         db.session.add(UserActivity(
             user_id = changed_by,
@@ -462,6 +465,53 @@ def set_visual_visibility(visual_id, visibility, changed_by = None):
         ))
     db.session.commit()
     return visibility
+
+def set_province_default_visual(visual_id, changed_by = None):
+    """Set (or unset) the landing visual for a province page. The caller must already have verified
+    the user may manage the visual's data source (can_manage_source).
+
+    Only a root/level-1 visual may be the default -- the landing visual renders without drill-chain
+    context, so a drill child would have no access point above it (raises ValueError). The default is
+    a single per-province pointer: setting one clears is_default on every other visual in that
+    province (across all sources). Clicking the current default again unsets it, reverting the page to
+    the automatic level-1 fallback. Logs a UserActivity row and returns the new is_default state.
+
+    INTENTIONAL cross-source clear: a province's visuals can live in several data sources, but the
+    landing default is one-per-province by design (build_province_menu picks a single is_default
+    visual). So setting a default necessarily clears whatever default another source held for the same
+    province -- even one set by a different source's Data Owner. Scoping the clear to only the actor's
+    manageable sources would let two visuals in the same province both stay flagged, which
+    build_province_menu would then resolve nondeterministically (first by query order). The route
+    (set_default_visual) re-renders every owned source card so the moved star stays visually in sync.
+    The actor still needs can_manage_source on the visual they are *setting*; this shared-province
+    coupling is accepted."""
+    visual = Visuals.query.get(visual_id)
+    if not visual:
+        raise ValueError("Visual not found.")
+    if visual.level not in (None, "1"):
+        raise ValueError(f'"{_label(visual)}" is a drill-down and can\'t be the page default. '
+                         "Only top-level visuals can be the landing visual.")
+
+    new_state = not visual.is_default   # toggle
+    # The landing visual is one per province: clear every other flagged visual in this province.
+    for other in Visuals.query.filter(Visuals.province == visual.province,
+                                      Visuals.id != visual.id, Visuals.is_default.is_(True)).all():
+        other.is_default = False
+    visual.is_default = new_state
+
+    changer = User.query.get(changed_by) if changed_by else None
+    changer_name = changer.username if changer else f"user ID {changed_by}"
+    action = "set as" if new_state else "cleared as"
+    db.session.add(UserActivity(
+        user_id = changed_by,
+        activity_type = "visual_default_updated",
+        activity_target_type = "visual",
+        activity_target_id = visual.id,
+        details = (f"Visual {_label(visual)} {action} the default for "
+                   f"{visual.province} by {changer_name}.")
+    ))
+    db.session.commit()
+    return new_state
 
 def visibility_rows_for_source(source_id):
     """Flatten a source's drill-trees into ordered display rows for the Data Ownership visibility
@@ -563,8 +613,16 @@ def get_assignable_roles(user, group_id):
 def validate_password(password):
     if len(password) < 12:
         return False, "Password must be at least 12 characters long."
+    # bcrypt silently truncates at 72 bytes, so anything past that is ignored (and a user who typed a
+    # long passphrase would be authenticating on a silently shortened one). Reject it up front.
+    if len(password.encode("utf-8")) > 72:
+        return False, "Password must be at most 72 bytes long."
     if not any(char.isupper() for char in password):
         return False, "Password must contain at least one uppercase letter."
+    if not any(char.islower() for char in password):
+        return False, "Password must contain at least one lowercase letter."
+    if not any(char.isdigit() for char in password):
+        return False, "Password must contain at least one number."
     special_characters = re.findall(r'[^a-zA-Z0-9]', password)
     if not special_characters:
         return False, "Password must contain at least one special character."

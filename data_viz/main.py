@@ -9,21 +9,6 @@ import bleach
 import boto3
 from botocore.exceptions import ClientError
 
-# Internal Dependency Imports
-from .generate_visuals import pull_data, filter_data
-from data_viz.auth.auth import require_auth
-
-#######################################################################################
-#                                        Notes:                                       #
-# Currently, these routes are setup to pull the data that we want from the excel and  #
-# csv files that are generated from scraping, directly from the output directory.     #
-# When we deplot the application or even get serious about developing it beyond just  #
-# "let's see what is possible" this can, and should, be changed to pull data from a   #
-# database which can be created to store the data in a more structured and            #
-# standardized format. NOTE that this may also require additional scripts to clean or #
-# otherwise sort the data that we have scrapped into that more structured standard    #
-# format, but that is a problem for another day.                                      #
-#######################################################################################
 
 # Define the blueprint for the main application
 main_blueprint = Blueprint("main", __name__)
@@ -38,23 +23,6 @@ def index():
         return render_template("introduction.jinja")
     else:
         return render_template("base.jinja", include_partials="index")
-
-# Routes for National Trends
-@main_blueprint.route("/toxicity-deaths")
-@require_auth
-def toxicity_deaths():
-    if request.headers.get("HX-Request") == "true":
-        return render_template("v0/toxicity_deaths.jinja")
-    else:
-        return render_template("base.jinja", include_partials="index", dash_template="v0/toxicity_deaths.jinja")
-
-@main_blueprint.route("/province/ontario")
-@require_auth
-def ontario():
-    if request.headers.get("HX-Request") == "true":
-        return render_template("v0/provincial_on.jinja")
-    else:
-        return render_template("base.jinja", include_partials="index", dash_template="v0/provincial_on.jinja")
 
 # Routes for Error Pages
 @main_blueprint.route("/not-found")
@@ -117,22 +85,98 @@ def feedback():
 
 # Route for V1 data visuals
 # Could automate this "active provinces check" but honestly this is easier and works fine for now
-active_provinces = ["alberta", "british-columbia", "saskatchewan", "manitoba", "ontario", "new-brunswick", "nova-scotia"]
+active_provinces = ["alberta", "british-columbia", "saskatchewan", "manitoba", "ontario", "new-brunswick", "nova-scotia",
+                    "quebec", "prince-edward-island", "newfoundland-and-labrador", "yukon", "northwest-territories", "nunavut"]
+# National dashboards render with the per-province machinery but are NOT provinces -- they live under
+# their own "/v1/national/<dashboard>" URL (canada is a data scope, not a place). `scope` is the
+# province key the Visuals/DataPoints rows are stored under; `title` overrides the page heading.
+NATIONAL_DASHBOARDS = {
+    "drug-checking": {"scope": "canada", "title": "Drug Checking"},
+}
+# Province keys the data API will serve in addition to active_provinces (the national scopes above).
+national_scopes = {dash["scope"] for dash in NATIONAL_DASHBOARDS.values()}
 # Public-capable: anonymous visitors may load a province page; build_province_generic/menu filter the
 # content down to that viewer's accessible (e.g. public-only) visuals.
+def _render_province(province, **initial):
+    """Render the province page (HX partial vs full page), optionally booting straight into a deep-
+    linked visual + drill path via the initial_* kwargs the template's boot script reads."""
+    # The client builds/parses deep-link URLs off this base. It defaults to the province URL, but
+    # national dashboards serve the same page under /v1/national/<dashboard> -- pass url_base so the
+    # address bar matches the actual page and never points at the non-existent /v1/province/<scope>.
+    initial.setdefault("url_base", f"/v1/province/{province}")
+    if request.headers.get("HX-Request") == "true":
+        return render_template("v1/provincial_vis.jinja", province=province, **initial)
+    return render_template("base.jinja", include_partials="index",
+                           dash_template="v1/provincial_vis.jinja", province=province, **initial)
+
+
 @main_blueprint.route("/v1/province/<province>")
 def v1_province(province):
     if province not in active_provinces:
         return redirect(url_for("main.page_not_found"))
-    if request.headers.get("HX-Request") == "true":
-        return render_template("v1/provincial_vis.jinja", province=province)
-    else:
-        return render_template("base.jinja", include_partials="index", dash_template="v1/provincial_vis.jinja", province=province)
+    return _render_province(province)
 
-# JSON API the V1 frontend fetches its precomputed visual data from (DB-backed, was visual_data.json)
+
+# Deep link straight to a visual: <entrySlug>[/<location>[/<category>]] within a scope (a province or
+# a national dashboard's scope). The entry slug is resolved + permission-checked server-side here; the
+# drill segments are replayed client-side. A slug the viewer can't see (or that doesn't exist)
+# redirects home with a flash.
+def _render_scope_visual(scope, rest, **extra):
+    from flask_login import current_user
+    from .visual_query import displayable_visuals
+    segs = [s for s in rest.split("/") if s]
+    entry_slug = segs[0] if segs else None
+    # Only level-1 visuals are valid entry points; displayable_visuals already prunes by visibility +
+    # drill hierarchy + data presence, so membership here is the full check (permission AND has-data).
+    visual = next((v for v in displayable_visuals(current_user, scope)
+                   if v.slug == entry_slug and v.level == "1"), None)
+    if visual is None:
+        flash("That visual isn't available.", "danger")
+        if request.headers.get("HX-Request") == "true":
+            return ("", 204, {"HX-Redirect": url_for("main.index")})
+        return redirect(url_for("main.index"))
+    return _render_province(
+        scope,
+        initial_visual=visual.name,
+        initial_location_slug=segs[1] if len(segs) > 1 else None,
+        initial_category_slug=segs[2] if len(segs) > 2 else None,
+        initial_year=request.args.get("y"),
+        **extra,
+    )
+
+
+@main_blueprint.route("/v1/province/<province>/<path:rest>")
+def v1_province_visual(province, rest):
+    if province not in active_provinces:
+        return redirect(url_for("main.page_not_found"))
+    return _render_scope_visual(province, rest)
+
+
+# National dashboards: render like a province page but under their own URL space (canada is a data
+# scope, not a place). `page_title` overrides the breadcrumb/title so the page reads as the dashboard
+# rather than "Canada".
+@main_blueprint.route("/v1/national/<dashboard>")
+def v1_national(dashboard):
+    entry = NATIONAL_DASHBOARDS.get(dashboard)
+    if entry is None:
+        return redirect(url_for("main.page_not_found"))
+    return _render_province(entry["scope"], page_title=entry["title"], url_base=f"/v1/national/{dashboard}")
+
+
+@main_blueprint.route("/v1/national/<dashboard>/<path:rest>")
+def v1_national_visual(dashboard, rest):
+    entry = NATIONAL_DASHBOARDS.get(dashboard)
+    if entry is None:
+        return redirect(url_for("main.page_not_found"))
+    return _render_scope_visual(entry["scope"], rest,
+                                page_title=entry["title"], url_base=f"/v1/national/{dashboard}")
+
+# JSON API the V1 frontend fetches its visual data from (DB-backed normalized facts).
+# Serves both province scopes and national-dashboard scopes (e.g. "canada"); the user-facing national
+# page lives at /v1/national/<dashboard> -- this is the internal data endpoint it fetches.
 @main_blueprint.route("/api/v1/province/<province>/data")
 def v1_province_data(province):
-    if province not in active_provinces:
+    if province not in active_provinces and province not in national_scopes:
         return jsonify({"error": "unknown province"}), 404
     from flask_login import current_user
     from .visual_query import build_province_menu

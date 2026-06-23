@@ -11,7 +11,6 @@
       "metric": "deaths",
       "geo_type": "health_authority",
       "dimension2_type": null,
-      "substance": null,
       "key_kind": "constant",
       "chart_type": "heatmap",
       "data_types": ["counts"],
@@ -20,7 +19,12 @@
       "level": 1,
       "vis_parent": null,
       "next_vis": "deaths_by_sex_line",
-      "is_default": true
+      "is_default": true,
+      "visual_options": {
+        "heatmap-title": "Unregulated Drug Deaths in British Columbia by Health Authority",
+        "table-title": "Unregulated Drug Deaths in replace_with_health_authority Health Authority",
+        "table-row-title": "replace_location"
+      }
     },
     {
       "province": "british-columbia",
@@ -29,7 +33,6 @@
       "metric": "deaths",
       "geo_type": "health_authority",
       "dimension2_type": "sex",
-      "substance": null,
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": ["counts", "rates"],
@@ -38,7 +41,16 @@
       "level": 2,
       "vis_parent": "drug_death_heatmap",
       "next_vis": null,
-      "is_default": false
+      "is_default": false,
+      "visual_options": {
+        "rates-title": "Sex-Specific Unregulated Drug Deaths per 100,000 Population in the replace_with_health_authority Health Authority",
+        "counts-title": "Sex-Specific Unregulated Drug Deaths in the replace_with_health_authority Health Authority",
+        "table-title": "Sex-Specific Unregulated Drug Deaths in replace_with_health_authority Health Authority",
+        "rates-y-axis-title": "Unregulated Drug Deaths per 100,000 Population",
+        "counts-y-axis-title": "Unregulated Drug Deaths",
+        "table-rates-row": "replace_me deaths/100,000",
+        "table-counts-row": "replace_me deaths"
+      }
     },
     {
       "province": "british-columbia",
@@ -46,7 +58,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "drug_type",
-      "substance": null,
       "key_kind": "suffix_y",
       "chart_type": "bar",
       "data_types": ["counts", "rates", "percentages"],
@@ -55,7 +66,21 @@
       "level": 1,
       "vis_parent": null,
       "next_vis": null,
-      "is_default": false
+      "is_default": false,
+      "visual_options": {
+        "percentages-title": "Percent of Unregulated Drug Deaths in British Columbia Attributed to Drugs Relevant to Death by Year",
+        "rates-title": "Unregulated Drug Deaths per 100,000 Population in British Columbia by Year and Drugs Relevant to Death",
+        "counts-title": "Unregulated Drug Deaths in British Columbia by Year and Drugs Relevant to Death",
+        "table-title": "Unregulated Drug Deaths in British Columbia by Year and Drugs Relevant to Death",
+        "rates-y-axis-title": "Unregulated Drug Deaths Caused by Drug per 100,000 Population",
+        "counts-y-axis-title": "Unregulated Drug Deaths Caused by Drug",
+        "percentages-y-axis-title": "Percent of Unregulated Drug Deaths Caused by Drug",
+        "table-rates-row": "Unregulated Drug Deaths Caused by replace_me/100,000 Population",
+        "table-percentages-row": "Percent of Unregulated Drug Deaths Caused by replace_me",
+        "table-counts-row": "Unregulated Drug Deaths Caused by replace_me",
+        "hover-type": "x unified",
+        "hover-info": "default"
+      }
     },
     {
       "province": "british-columbia",
@@ -63,7 +88,6 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "age_group",
-      "substance": null,
       "key_kind": "suffix_y",
       "chart_type": "line",
       "data_types": ["counts", "rates"],
@@ -72,7 +96,16 @@
       "level": 1,
       "vis_parent": null,
       "next_vis": null,
-      "is_default": false
+      "is_default": false,
+      "visual_options": {
+        "rates-title": "Annual Unregulated Drug Deaths per 100,000 Population in British Columbia by Age Group",
+        "counts-title": "Annual Unregulated Drug Deaths in British Columbia by Age Group",
+        "table-title": "Annual Unregulated Drug Deaths in British Columbia by Age Group",
+        "rates-y-axis-title": "Unregulated Drug Deaths per 100,000 Population",
+        "counts-y-axis-title": "Unregulated Drug Deaths",
+        "table-rates-row": "Unregulated Drug Deaths for Those replace_me/100,000 Population",
+        "table-counts-row": "Unregulated Drug Deaths among for Those replace_me"
+      }
     }
   ]
 }

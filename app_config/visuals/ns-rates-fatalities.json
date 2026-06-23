@@ -1,0 +1,81 @@
+{
+  "data_source": {
+    "name": "Nova Scotia Numbers and Rates of Substance-Related Fatalities",
+    "link": "https://data.novascotia.ca/Health-and-Wellness/Numbers-and-rates-of-substance-related-fatalities-/iu6y-z4n3/about_data"
+  },
+  "visuals": [
+    {
+      "province": "nova-scotia",
+      "visual_id": "deaths_by_health_zone",
+      "shape": "geo_series",
+      "metric": "deaths",
+      "geo_type": "health_authority",
+      "dimension2_type": null,
+      "key_kind": "constant",
+      "chart_type": "heatmap",
+      "data_types": ["counts"],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Substance-Related Deaths by Health Zone",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false,
+      "visual_options": {
+        "heatmap-title": "Substance-Related Deaths in Nova Scotia by Health Zone",
+        "table-title": "Substance-Related Deaths in replace_with_health_authority Health Zone",
+        "table-geo-header": "Health Zone",
+        "table-row-title": "replace_location"
+      }
+    },
+    {
+      "province": "nova-scotia",
+      "visual_id": "deaths_by_substance",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "drug_type",
+      "key_kind": "plain",
+      "chart_type": "bar",
+      "data_types": ["counts", "rates"],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Substance-Related Deaths by Drug Type (All Substances)",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false,
+      "visual_options": {
+        "counts-title": "Substance-Related Deaths in Nova Scotia by Drug Type",
+        "rates-title": "Substance-Related Deaths per 100,000 Population in Nova Scotia by Drug Type",
+        "counts-y-axis-title": "Number of Substance-Related Deaths",
+        "rates-y-axis-title": "Substance-Related Deaths per 100,000 Population",
+        "table-title": "Substance-Related Deaths in Nova Scotia by Drug Type",
+        "table-counts-row": "Substance-Related Deaths Attributed to replace_me",
+        "table-rates-row": "Substance-Related Deaths Attributed to replace_me/100,000 Population"
+      }
+    },
+    {
+      "province": "nova-scotia",
+      "visual_id": "deaths_by_manner_all_substances",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "manner",
+      "key_kind": "plain",
+      "chart_type": "line",
+      "data_types": ["counts", "rates"],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Substance-Related Deaths by Manner of Death (All Substances)",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false,
+      "visual_options": {
+        "counts-title": "Substance-Related Deaths in Nova Scotia by Manner of Death",
+        "rates-title": "Substance-Related Deaths per 100,000 Population in Nova Scotia by Manner of Death",
+        "counts-y-axis-title": "Number of Substance-Related Deaths",
+        "rates-y-axis-title": "Substance-Related Deaths per 100,000 Population",
+        "table-title": "Substance-Related Deaths in Nova Scotia by Manner of Death",
+        "table-counts-row": "Substance-Related Deaths that were replace_me",
+        "table-rates-row": "Substance-Related Deaths/100,000 Population that were replace_me"
+      }
+    }
+  ]
+}

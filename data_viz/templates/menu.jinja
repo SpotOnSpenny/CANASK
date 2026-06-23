@@ -1,3 +1,18 @@
+{% set province_links = [
+    ('british-columbia', 'British Columbia'),
+    ('alberta', 'Alberta'),
+    ('saskatchewan', 'Saskatchewan'),
+    ('manitoba', 'Manitoba'),
+    ('ontario', 'Ontario'),
+    ('quebec', 'Quebec'),
+    ('new-brunswick', 'New Brunswick'),
+    ('nova-scotia', 'Nova Scotia'),
+    ('prince-edward-island', 'Prince Edward Island'),
+    ('newfoundland-and-labrador', 'Newfoundland and Labrador'),
+    ('yukon', 'Yukon'),
+    ('northwest-territories', 'Northwest Territories'),
+    ('nunavut', 'Nunavut'),
+] %}
 <div id="desktop-nav">
     <a class="rail-brand htmx-element" href="/" hx-get="/" hx-trigger="click" hx-target="#content-div"
         hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/">
@@ -30,10 +45,10 @@
             <div id="flush-collapseOne" class="accordion-collapse collapse" aria-labelledby="flush-headingOne"
                 data-bs-parent="#accordionFlushMenu">
                 <div class="accordion-body bg-transparent p-0">
-                    <a href="/toxicity-deaths" hx-get="/toxicity-deaths" hx-trigger="click" hx-target="#content-div"
-                        hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/toxicity-deaths"
-                        class="nav-link htmx-element accordion-innard">
-                        Total Toxicity Deaths
+                    <a href="/v1/national/drug-checking" hx-get="/v1/national/drug-checking" hx-trigger="click"
+                        hx-target="#content-div" hx-swap="innerHTML swap:1s settle:1s"
+                        hx-push-url="/v1/national/drug-checking" class="nav-link htmx-element accordion-innard">
+                        Drug Checking
                     </a>
                 </div>
             </div>
@@ -50,48 +65,15 @@
             <div id="flush-collapseProvinces" class="accordion-collapse collapse show"
                 aria-labelledby="flush-headingProvinces" data-bs-parent="#accordionFlushMenu">
                 <div class="accordion-body bg-transparent p-0">
-                    {% if 'british-columbia' in accessible_provinces %}
-                    <a href="/v1/province/british-columbia" hx-get="/v1/province/british-columbia" hx-trigger="click"
+                    {% for key, label in province_links %}
+                    {% if key in accessible_provinces %}
+                    <a href="/v1/province/{{ key }}" hx-get="/v1/province/{{ key }}" hx-trigger="click"
                         hx-target="#content-div" hx-swap="innerHTML swap:1s settle:1s"
-                        hx-push-url="/v1/province/british-columbia" class="nav-link htmx-element accordion-innard">
-                        British Columbia
+                        hx-push-url="/v1/province/{{ key }}" class="nav-link htmx-element accordion-innard">
+                        {{ label }}
                     </a>
                     {% endif %}
-                    {% if 'alberta' in accessible_provinces %}
-                    <a href="/v1/province/alberta" hx-get="/v1/province/alberta" hx-trigger="click"
-                        hx-target="#content-div" hx-swap="innerHTML swap:1s settle:1s"
-                        hx-push-url="/v1/province/alberta" class="nav-link htmx-element accordion-innard">
-                        Alberta
-                    </a>
-                    {% endif %}
-                    {% if 'saskatchewan' in accessible_provinces %}
-                    <a href="/v1/province/saskatchewan" hx-get="/v1/province/saskatchewan" hx-trigger="click"
-                        hx-target="#content-div" hx-swap="innerHTML swap:1s settle:1s"
-                        hx-push-url="/v1/province/saskatchewan" class="nav-link htmx-element accordion-innard">
-                        Saskatchewan
-                    </a>
-                    {% endif %}
-                    {% if 'manitoba' in accessible_provinces %}
-                    <a href="/v1/province/manitoba" hx-get="/v1/province/manitoba" hx-trigger="click"
-                        hx-target="#content-div" hx-swap="innerHTML swap:1s settle:1s"
-                        hx-push-url="/v1/province/manitoba" class="nav-link htmx-element accordion-innard">
-                        Manitoba
-                    </a>
-                    {% endif %}
-                    {% if current_user.is_authenticated %}
-                    <a href="/province/ontario" hx-get="/province/ontario" hx-trigger="click" hx-target="#content-div"
-                        hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/province/ontario"
-                        class="nav-link htmx-element accordion-innard">
-                        Ontario
-                    </a>
-                    {% endif %}
-                    {% if 'new-brunswick' in accessible_provinces %}
-                    <a href="/v1/province/new-brunswick" hx-get="/v1/province/new-brunswick" hx-trigger="click"
-                        hx-target="#content-div" hx-swap="innerHTML swap:1s settle:1s"
-                        hx-push-url="/v1/province/new-brunswick" class="nav-link htmx-element accordion-innard">
-                        New Brunswick
-                    </a>
-                    {% endif %}
+                    {% endfor %}
                 </div>
             </div>
         </div>
@@ -158,51 +140,22 @@
         {% else %}
         {% if current_user.is_authenticated %}
         <h2 class="nav-title">National Trends</h2>
-        <a href="/toxicity-deaths" hx-get="/toxicity-deaths" hx-trigger="click" hx-target="#content-div"
-            hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/toxicity-deaths" class="mobile-nav-link htmx-element">
-            Total Toxicity Deaths
+        <a href="/v1/national/drug-checking" hx-get="/v1/national/drug-checking" hx-trigger="click"
+            hx-target="#content-div" hx-swap="innerHTML swap:1s settle:1s"
+            hx-push-url="/v1/national/drug-checking" class="mobile-nav-link htmx-element">
+            Drug Checking
         </a>
         {% endif %}
         <h2 class="nav-title">Provincial Trends</h2>
-        {% if 'british-columbia' in accessible_provinces %}
-        <a href="/v1/province/british-columbia" hx-get="/v1/province/british-columbia" hx-trigger="click"
+        {% for key, label in province_links %}
+        {% if key in accessible_provinces %}
+        <a href="/v1/province/{{ key }}" hx-get="/v1/province/{{ key }}" hx-trigger="click"
             hx-target="#content-div" hx-swap="innerHTML swap:1s settle:1s"
-            hx-push-url="/v1/province/british-columbia" class="mobile-nav-link htmx-element">
-            British Columbia
+            hx-push-url="/v1/province/{{ key }}" class="mobile-nav-link htmx-element">
+            {{ label }}
         </a>
         {% endif %}
-        {% if 'alberta' in accessible_provinces %}
-        <a href="/v1/province/alberta" hx-get="/v1/province/alberta" hx-trigger="click" hx-target="#content-div"
-            hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/v1/province/alberta" class="mobile-nav-link htmx-element">
-            Alberta
-        </a>
-        {% endif %}
-        {% if 'saskatchewan' in accessible_provinces %}
-        <a href="/v1/province/saskatchewan" hx-get="/v1/province/saskatchewan" hx-trigger="click"
-            hx-target="#content-div" hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/v1/province/saskatchewan"
-            class="mobile-nav-link htmx-element">
-            Saskatchewan
-        </a>
-        {% endif %}
-        {% if 'manitoba' in accessible_provinces %}
-        <a href="/v1/province/manitoba" hx-get="/v1/province/manitoba" hx-trigger="click" hx-target="#content-div"
-            hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/v1/province/manitoba" class="mobile-nav-link htmx-element">
-            Manitoba
-        </a>
-        {% endif %}
-        {% if current_user.is_authenticated %}
-        <a href="/province/ontario" hx-get="/province/ontario" hx-trigger="click" hx-target="#content-div"
-            hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/province/ontario" class="mobile-nav-link htmx-element">
-            Ontario
-        </a>
-        {% endif %}
-        {% if 'new-brunswick' in accessible_provinces %}
-        <a href="/v1/province/new-brunswick" hx-get="/v1/province/new-brunswick" hx-trigger="click"
-            hx-target="#content-div" hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/v1/province/new-brunswick"
-            class="mobile-nav-link htmx-element">
-            New Brunswick
-        </a>
-        {% endif %}
+        {% endfor %}
         {% if nav_perms.manage_users %}
         <h2 class="nav-title">Account</h2>
         <a href="/v1/user-management" hx-get="/v1/user-management" hx-trigger="click" hx-target="#content-div"

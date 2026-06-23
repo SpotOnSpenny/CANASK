@@ -3,6 +3,10 @@ let currentData;
 let currentGeojson;
 let currentVisual;
 let province;
+// Public URL base for this page's deep links, set from the server (e.g. "/v1/province/alberta" or
+// "/v1/national/drug-checking"). Province pages and national dashboards share the same template but
+// live at different URLs, so the address bar is keyed off this rather than the internal scope key.
+let urlBase;
 let route = [];
 let lastLocation = null;
 // Menu/presentation config, populated per province from the DB response in fetchRegionData()
@@ -13,9 +17,65 @@ let visuals = {};
 // rather than hard-coded -- derived from the visuals' menu-parent values.
 let menuCategories = [];
 
+// ---- Deep-linkable URL state ----
+// The address bar is kept in sync with the current visual + drill path so visuals can be linked to
+// and Back/Forward navigates between them. `isReplaying` suppresses URL writes while we rebuild state
+// from a URL (deep link or popstate) so the replay's masterLoop calls don't push bogus history.
+// `suppressInitialPush` makes the very first render replaceState (canonicalize) instead of pushState.
+let isReplaying = false;
+let suppressInitialPush = true;
+// The treemap is self-contained (it doesn't drill through masterLoop), so its filter selection rides
+// the URL as query params instead of path segments. createVisualTreemap keeps this string current
+// ("t.g0=bc&t.f0=opioids&...") and buildVisualUrl appends it whenever the active visual is a treemap,
+// so the existing syncUrl push/replace + Back/Forward machinery deep-links the filters for free.
+let activeTreemapParams = "";
+
 // Slugify a display name into the DOM-id form used for menu dropdowns ("Drug Supply" -> "drug-supply").
+// Collapse every run of non-alphanumeric characters to a single hyphen so names with punctuation
+// (e.g. "Hospitalizations & Other Harms") yield a valid CSS id / URL segment, not "...-&-...".
 function slugify(str) {
-  return str.toLowerCase().replace(/ /g, "-");
+  return String(str).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+// URL-safe slug for a path segment: slugify, then percent-encode so values containing / # ? % (e.g. a
+// health-authority name with a slash) can't corrupt the path. Reverse-matching uses the same pair.
+function urlSegment(value) {
+  return encodeURIComponent(slugify(String(value)));
+}
+
+// Build the canonical URL for the current visual + drill context. The path always uses the LEVEL-1
+// root visual's slug (route[0] when drilled, else currentVisual); location/category extend it.
+// year, when present, rides as ?y= (kept out of the pretty path, mirroring the breadcrumb).
+function buildVisualUrl(location, year, category) {
+  let path = urlBase;
+  const cfgs = visuals[province] || {};
+  const rootVid = (route && route.length > 0) ? String(route[0]).split("/")[0] : currentVisual;
+  const rootCfg = cfgs[rootVid];
+  const rootSlug = rootCfg && rootCfg["slug"];
+  if (rootSlug) {
+    path += "/" + encodeURIComponent(rootSlug);
+    if (location != null) path += "/" + urlSegment(location);
+    if (category != null) path += "/" + urlSegment(category);
+  }
+  // year rides as ?y=; a treemap's filter state rides as its own t.* params (no location/category path).
+  const query = [];
+  if (year != null) query.push("y=" + encodeURIComponent(year));
+  if (rootCfg && rootCfg["type"] === "treemap" && activeTreemapParams) query.push(activeTreemapParams);
+  return path + (query.length ? "?" + query.join("&") : "");
+}
+
+// Keep the address bar in sync with the current render. No-op while replaying (popstate/deep link).
+function syncUrl(location, year, category) {
+  if (isReplaying) return;
+  const url = buildVisualUrl(location, year, category);
+  if (url === window.location.pathname + window.location.search) return;
+  if (suppressInitialPush) {
+    // First render: rewrite the current entry to the canonical URL without adding history.
+    suppressInitialPush = false;
+    history.replaceState({ v1deeplink: true }, "", url);
+    return;
+  }
+  history.pushState({ v1deeplink: true }, "", url);
 }
 
 // ---- Shared rendering helpers (used across the heatmap / line / bar / pie renderers) ----
@@ -136,6 +196,41 @@ function createMenu(province) {
 // the Plotly renderers consume. Verified data-identical to the former server-side reconstruction.
 const SUBSTANCE_DISPLAY = { opioids: "Opioid", stimulants: "Stimulant" };
 
+// A fact value can be a reported number (incl a genuine 0), this SUPPRESSED sentinel (the source
+// confirms data exists but hides the small count for privacy), or null (not reported / no data).
+// Renderers: reported -> a point; SUPPRESSED -> a dashed "bridge" between neighbours; null -> a gap.
+const SUPPRESSED = "Suppr.";
+// A series is worth drawing only if it has at least one reported, non-zero value (so all-zero,
+// all-suppressed, and all-missing series are hidden from both the chart and the table).
+function hasReportedNonZero(arr) {
+  return Array.isArray(arr) && arr.some(v => typeof v === "number" && v !== 0);
+}
+
+// A factsToSeries data-type object ({x, "<series>":[...], ...}) is worth showing if any of its
+// series has visible (reported, non-zero) data.
+function dataTypeHasData(seriesObj) {
+  return !!seriesObj && Object.keys(seriesObj).some(k => k !== "x" && hasReportedNonZero(seriesObj[k]));
+}
+
+// Render an empty-state message and clear the chart / table / data-type toggle / about-data. Used
+// when a visual has no reportable data for any data type -- e.g. a territory whose every series is
+// suppressed or not reported (the visual still exists in the menu, so this is reachable).
+function renderEmptyVisual(message) {
+  const visDiv = document.getElementById("vis-div");
+  const tableDiv = document.getElementById("data-table");
+  const toggle = document.getElementById("data-type-toggle");
+  const aboutDiv = document.getElementById("about-data");
+  const stratifiers = document.getElementById("vis-stratifiers");
+  // Reset the treemap's "treemap-layout" class so the empty state doesn't inherit its flex/100%-height
+  // sizing, and clear any leftover stratifier dropdowns -- both are reachable when the empty state
+  // follows a treemap (the class is set in createVisualTreemap and never otherwise cleared here).
+  if (visDiv) { Plotly.purge(visDiv); visDiv.className = ""; visDiv.innerHTML = `<p class="text-muted text-center py-5">${message}</p>`; }
+  if (tableDiv) tableDiv.innerHTML = "";
+  if (toggle) toggle.innerHTML = "";
+  if (aboutDiv) aboutDiv.innerHTML = "";
+  if (stratifiers) stratifiers.innerHTML = "";
+}
+
 // Series key/label composed straight from the dimension values (no legacy "_y" suffix). The
 // renderers use it as the legend/table label (title/sentence-cased there). "y" is the structural
 // value key the heatmap reads.
@@ -173,7 +268,10 @@ function factsToSeries(facts, kind, geo = null) {
     const data = {};
     for (const dt of Object.keys(tree)) {
         const o = { x: _sortYears(years[dt]) };
-        for (const key of Object.keys(tree[dt])) { const yv = tree[dt][key]; o[key] = _sortYears(Object.keys(yv)).map(y => yv[y]); }
+        // Align every series to the shared year axis: a year the series has no fact for becomes null
+        // (a "not reported" gap). Reported numbers (incl 0) and the "Suppr." sentinel ride through
+        // verbatim -- the renderers interpret them (0 = a real point, "Suppr." = a dashed bridge).
+        for (const key of Object.keys(tree[dt])) { const yv = tree[dt][key]; o[key] = o.x.map(y => (y in yv ? yv[y] : null)); }
         data[dt] = o;
     }
     return data;
@@ -349,15 +447,18 @@ function factsToTreemap(facts, cfg, sel) {
 async function fetchRegionData(province){
     console.log(`Fetched data for ${province}`);
     //fetch the data and unpack it (`signal:` is the correct option name; a 5s timeout aborts a hung request)
+    // The province data is REQUIRED; the geojson is OPTIONAL -- only the map/heatmap renderers use it,
+    // and provinces with just line/bar charts (e.g. the territories) ship no geojson file. A missing or
+    // failed geojson must NOT block the page, so it falls back to null (`.catch` covers a network/timeout
+    // rejection; the `.ok` check below covers a 404).
     const [data, geojson] = await Promise.all([
         fetch(`/api/v1/province/${province}/data`, {signal: AbortSignal.timeout(5000)}),
-        fetch(`/static/assets/geojsons/${province.toLowerCase()}.geojson`, {signal: AbortSignal.timeout(5000)}),
+        fetch(`/static/assets/geojsons/${province.toLowerCase()}.geojson`, {signal: AbortSignal.timeout(5000)})
+            .catch(() => null),
     ]);
     // Fail loudly on a non-2xx response instead of calling .json() on an error body and rendering garbage.
     if (!data.ok) throw new Error(`Province data request failed: ${data.status} ${data.statusText}`);
-    if (!geojson.ok) throw new Error(`Geojson request failed: ${geojson.status} ${geojson.statusText}`);
     const payload = await data.json();
-    const geojsonJson = await geojson.json();
     // payload = { data: {visual_id: {facts, key_kind, shape, ...}}, config: {visual_id: menuCfg}, default, categories }
     visuals = {
         [province]: payload.config || {},
@@ -365,7 +466,7 @@ async function fetchRegionData(province){
     };
     menuCategories = payload.categories || [];
     currentData = payload.data;   // generic blocks; renderers derive their data from .facts (above)
-    currentGeojson = geojsonJson;
+    currentGeojson = (geojson && geojson.ok) ? await geojson.json() : null;   // null = province has no map
 }
 
 //Master function to initialize all visuals given the province and what the visual is
@@ -400,6 +501,16 @@ function masterLoop(location = null, year = null, category = null) {
 
   const dataType = cfg["type"] !== "map" ? cfg["data-types"][0] : null;
 
+  // The map/heatmap renderers dereference geojson.features; if this province ships no geojson, show an
+  // empty state instead of crashing (shouldn't happen for a correctly-configured province, but keeps a
+  // geojson-less province's other visuals working even if a map visual is mistakenly configured).
+  if ((cfg["type"] === "heatmap" || cfg["type"] === "map") && !currentGeojson) {
+    const visDiv = document.getElementById("vis-div");
+    if (visDiv) visDiv.innerHTML = '<p class="text-muted text-center py-5">Map data is unavailable for this province.</p>';
+    syncUrl(location, year, category);
+    return;
+  }
+
   //run the creation function for the visual based on its type, deriving its data from facts
   switch (cfg["type"]) {
     case "heatmap":
@@ -429,7 +540,19 @@ function masterLoop(location = null, year = null, category = null) {
       // and block.visual_options, and re-renders itself in place (no masterLoop round-trip).
       createVisualTreemap(province, block, currentVisual, source);
       break;
+    case "grouped_bar":
+    case "stacked_bar":
+      // Self-contained like the treemap: a substance filter + year slider, re-rendering in place.
+      // chart_type picks the Plotly barmode -- grouped sub-bars side by side, or a stacked total
+      // split into its sex sub-bars (total height + breakdown in one bar).
+      createVisualStratifiedBar(province, block, currentVisual, source,
+                                cfg["type"] === "stacked_bar" ? "stack" : "group");
+      break;
   }
+
+  // Reflect the current visual + drill context in the address bar (single sync point for every
+  // navigation path: menu picks, drills, breadcrumb, back/reset all funnel through masterLoop).
+  syncUrl(location, year, category);
 }
 
 // Function to generate heatmaps
@@ -519,10 +642,7 @@ async function createVisualHeatMap(province, visualToGen, geojson, mapData, mapS
       window.innerWidth > 768
         ? $("#viz-card").height()
         : $("#viz-card").height(),
-    title:
-      window.innerWidth > 768
-        ? "Unregulated Drug Toxicity Deaths in British Columbia by Health Authority"
-        : "Confirmed and Probable Opioid<br>Toxicity Deaths in Ontario by<br>Public Health Unit",
+    title: mapOptions["heatmap-title"],
     margin: window.innerWidth > 768 ? { l: 0 } : { b: 20, r: 0, l: 20, autoexpand: true },
   };
 
@@ -559,7 +679,7 @@ async function createVisualHeatMap(province, visualToGen, geojson, mapData, mapS
     "class",
     "mb-0 table table-striped table-bordered table-hover"
   );
-  let cols = ["Health Authority"].concat(mapData[Object.keys(mapData)[0]].x);
+  let cols = [(mapOptions["table-geo-header"] || "Health Authority")].concat(mapData[Object.keys(mapData)[0]].x);
   let tr = table.insertRow(-1);
   cols.forEach((headerText) => {
     let th = document.createElement("th"); // Create a new header cell
@@ -568,7 +688,7 @@ async function createVisualHeatMap(province, visualToGen, geojson, mapData, mapS
   });
   tableDiv.innerHTML = "";
   tableDiv.appendChild(table);
-  tableTitle.innerText = "Unregulated Drug Toxicity Deaths in British Columbia by Health Authority";
+  tableTitle.innerText = mapOptions["heatmap-title"];
   for (const [key, value] of Object.entries(mapData)) {
     if (key != "data last updated") {
       let tr = table.insertRow(-1);
@@ -675,59 +795,93 @@ async function createVisualLine(province, lineData, currentVisual, dataType, lin
   // remove the active class from other visuals and add it to the current visual
   setActiveVisual(province, currentVisual);
 
-  // Check to see if we have count or rate data, default to count if not specified
-  // Check to see if we have count, percentage, or rate data, default to count if not specified
-  if (dataType !== null){
-    traceData = lineData[dataType];
-  } else if (lineData["counts"]) {
-    traceData = lineData["counts"];
-    dataType = "counts";
-  } else if (lineData["rates"]) {
-    traceData = lineData["rates"];
-    dataType = "rates";
-  } else if (lineData["percentages"]){
-    traceData = lineData["percentages"];
-    dataType = "percentages";
-  } else {
-    console.error("No counts, percentages, or rates data found in lineData");
+  // Restrict the data-type toggle to the types that actually carry visible data for this visual.
+  // A visual with no reportable data in ANY type (e.g. a territory whose every series is suppressed
+  // or not reported) is still in the menu, so render an empty state instead of dereferencing
+  // undefined data below.
+  if (dataTypes == null) {
+    dataTypes = visuals[province][currentVisual]["data-types"];
+  }
+  const available = (dataTypes || []).filter(dt => dataTypeHasData(lineData[dt]));
+  if (available.length === 0) {
+    renderEmptyVisual("No data is available for this visual.");
     return;
   }
-  
+  dataType = (dataType !== null && available.includes(dataType)) ? dataType : available[0];
+  traceData = lineData[dataType];
+
   // check to see if we have a total
   totalPresent = !!("total" in traceData);
 
   // Track series index so each line gets a distinct dash + marker shape, making
   // series distinguishable without relying on color alone (WCAG).
   let seriesIndex = 0;
+  const colorway = canaskColorway();
   for (const [key, value] of Object.entries(traceData)) {
-    // create a trace for each y value in the lineData object entry
-    if (key != "x"){
+    if (key === "x") continue;
+    // Hide a series with no reported non-zero value (all 0 / suppressed / missing).
+    if (!hasReportedNonZero(value)) continue;
 
-      let filteredData = filterLeadingZeros(traceData["x"], value);
+    const color = colorway[seriesIndex % colorway.length];
+    // Solid trace: reported points only. Suppressed ("Suppr.") and not-reported (null) become gaps
+    // (connectgaps:false), so a genuine 0 plots at zero but a hidden/absent value never draws a fake 0.
+    let trace = {
+      x: traceData["x"],
+      y: value.map(v => (typeof v === "number" ? v : null)),
+      name: key.toSentenceCase(),
+      type: "scatter",
+      mode: "lines+markers",
+      connectgaps: false,
+      stackgroup: totalPresent && key.toSentenceCase() != "Total" ? "one" : undefined, // fill if total is present and not the total line
+      line: {
+        width: 2,
+        smoothing: 1,
+        color: color,
+      },
+      // Solid lines, but a distinct marker shape per series gives a quiet
+      // non-color cue (no shimmering dash patterns).
+      marker: {
+        symbol: CANASK_MARKER_SYMBOLS[seriesIndex % CANASK_MARKER_SYMBOLS.length],
+        size: 6,
+        color: color,
+      },
+    };
+    traces.push(trace);
 
-      if (filteredData.x.length > 0) {
-        let trace = {
-          x: filteredData.x,
-          y: filteredData.y,
-          name: key.toSentenceCase(),
-          type: "scatter",
-          mode: "lines+markers",
-          stackgroup: totalPresent && key.toSentenceCase() != "Total" ? "one" : undefined, // fill if total is present and not the total line
-          line: {
-            width: 2,
-            smoothing: 1,
-          },
-          // Solid lines, but a distinct marker shape per series gives a quiet
-          // non-color cue (no shimmering dash patterns).
-          marker: {
-            symbol: CANASK_MARKER_SYMBOLS[seriesIndex % CANASK_MARKER_SYMBOLS.length],
-            size: 6,
-          },
-        };
-        traces.push(trace);
-        seriesIndex++;
+    // Dashed "bridge" across interior gaps that are ENTIRELY suppressed: connect the two surrounding
+    // reported points with a dashed segment to convey the trend through hidden small counts. A
+    // not-reported gap (null) or a leading/trailing gap is left as a real break (no bridge).
+    const reportedIdx = [];
+    value.forEach((v, i) => { if (typeof v === "number") reportedIdx.push(i); });
+    const bridgeX = [], bridgeY = [];
+    for (let k = 0; k + 1 < reportedIdx.length; k++) {
+      const a = reportedIdx[k], b = reportedIdx[k + 1];
+      if (b > a + 1 && value.slice(a + 1, b).every(v => v === SUPPRESSED)) {
+        bridgeX.push(traceData["x"][a], traceData["x"][b], null);
+        bridgeY.push(value[a], value[b], null);
       }
     }
+    if (bridgeX.length) {
+      traces.push({
+        x: bridgeX,
+        y: bridgeY,
+        type: "scatter",
+        mode: "lines",
+        connectgaps: false,
+        line: { width: 2, dash: "dash", color: color },
+        hoverinfo: "skip",
+        showlegend: false,
+      });
+    }
+    seriesIndex++;
+  }
+
+  // Every series was hidden (no reported data for this view) -> empty state instead of a broken plot.
+  if (traces.length === 0) {
+    visDiv.innerHTML = '<p class="text-muted text-center py-5">No data is available for this view.</p>';
+    if (tableDiv) tableDiv.innerHTML = "";
+    if (aboutDataDiv) aboutDataDiv.innerHTML = ""; // drop the about-data loading skeleton too
+    return;
   }
 
   visDiv.innerHTML = "";
@@ -791,14 +945,15 @@ async function createVisualLine(province, lineData, currentVisual, dataType, lin
   // percentages). The whole function re-runs when the toggle changes, so the
   // table stays in sync with the chart.
   for (const [subKey, subValue] of Object.entries(lineData[dataType])) {
-    if (subKey != "x") {
+    // Mirror the chart: skip "x" and any series hidden as all-zero/suppressed/missing.
+    if (subKey != "x" && hasReportedNonZero(subValue)) {
       let tr = table.insertRow(-1);
       tr.setAttribute("class", "align-middle");
       let tabCell = tr.insertCell(-1);
       tabCell.innerText = visualOptions[`table-${dataType}-row`].replace("replace_me", subKey.toTitleCase());
-      subValue.forEach((element, index) => {
+      subValue.forEach((element) => {
         let tabCell = tr.insertCell(-1);
-        tabCell.innerText = formatTableValue(element, index, subValue);
+        tabCell.innerText = formatTableValue(element);
       });
     }
   }
@@ -809,18 +964,15 @@ async function createVisualLine(province, lineData, currentVisual, dataType, lin
       tr.setAttribute("class", "align-middle");
       let tabCell = tr.insertCell(-1);
       tabCell.innerText = key;
-      value.forEach((element, index) => {
+      value.forEach((element) => {
         let tabCell = tr.insertCell(-1);
-        tabCell.innerText = formatTableValue(element, index, value);
+        tabCell.innerText = formatTableValue(element);
       });
     }
   }
 
-  // If there is more than one data type available, create a toggle to switch between each data type
-  if (dataTypes == null) {
-    dataTypes = visuals[province][currentVisual]["data-types"];
-  }
-  buildDataTypeToggles(dataTypeToggle, dataTypes, dataType, (type) =>
+  // Toggle only between the data types that actually have data (computed above).
+  buildDataTypeToggles(dataTypeToggle, available, dataType, (type) =>
     createVisualLine(province, lineData, currentVisual, type, lineSource, visualOptions, additionalRows, dataTypes));
 
   // Generate the About these Data section and insert the html
@@ -840,48 +992,59 @@ async function createVisualBar(province, barData, currentVisual, dataType, barSo
   // remove the active class from other visuals and add it to the current visual
   setActiveVisual(province, currentVisual);
 
-  // Check to see if we have count, percentage, or rate data, default to count if not specified
-  if (dataType !== null){
-    traceData = barData[dataType];
-  } else if (barData["counts"]) {
-    traceData = barData["counts"];
-    dataType = "counts";
-  } else if (barData["rates"]) {
-    traceData = barData["rates"];
-    dataType = "rates";
-  } else if (barData["percentages"]){
-    traceData = barData["percentages"];
-    dataType = "percentages";
-  } else {
-    console.error("No counts, percentages, or rates data found in barData");
+  // Restrict to the data types that actually carry visible data; render an empty state if a visual
+  // (still listed in the menu) has none -- avoids dereferencing undefined data below.
+  if (dataTypes == null) {
+    dataTypes = visuals[province][currentVisual]["data-types"];
+  }
+  const available = (dataTypes || []).filter(dt => dataTypeHasData(barData[dt]));
+  if (available.length === 0) {
+    renderEmptyVisual("No data is available for this visual.");
     return;
   }
+  dataType = (dataType !== null && available.includes(dataType)) ? dataType : available[0];
+  traceData = barData[dataType];
 
   // Create a trace for each y value in the barData object entry. Each series
   // gets a distinct pattern fill + subtle theme-aware outline so bars are
   // distinguishable without relying on color alone (WCAG).
   let seriesIndex = 0;
+  const colorway = canaskColorway();
   for (const [key, value] of Object.entries(traceData)) {
-    if (key != "x") {
-      let trace = {
-        x: traceData["x"],
-        y: value,
-        hoverinfo: visualOptions["hover-info"],
-        name: key.toSentenceCase(),
-        type: "bar",
-        // Clean solid bars with a subtle outline (no eye-straining hatch fill);
-        // the data table below the chart is the non-color alternative.
-        marker: {
-          line: {
-            width: 1,
-            color: canaskMarkerLineColor(),
-          },
+    if (key === "x") continue;
+    // Hide a series with no reported non-zero value (all 0 / suppressed / missing).
+    if (!hasReportedNonZero(value)) continue;
+
+    const color = colorway[seriesIndex % colorway.length];
+    let trace = {
+      x: traceData["x"],
+      // Suppressed ("Suppr.") and not-reported (null) draw no bar; a genuine 0 is a zero-height bar.
+      y: value.map(v => (typeof v === "number" ? v : null)),
+      hoverinfo: visualOptions["hover-info"],
+      name: key.toSentenceCase(),
+      type: "bar",
+      // Clean solid bars with a subtle outline (no eye-straining hatch fill);
+      // the data table below the chart is the non-color alternative.
+      marker: {
+        color: color,
+        line: {
+          width: 1,
+          color: canaskMarkerLineColor(),
         },
-      };
-      traces.push(trace);
-      seriesIndex++;
-    }
+      },
+    };
+    traces.push(trace);
+    seriesIndex++;
   }
+
+  // Every series was hidden (no reported data for this view) -> empty state instead of a broken plot.
+  if (traces.length === 0) {
+    visDiv.innerHTML = '<p class="text-muted text-center py-5">No data is available for this view.</p>';
+    if (tableDiv) tableDiv.innerHTML = "";
+    if (aboutDataDiv) aboutDataDiv.innerHTML = ""; // drop the about-data loading skeleton too
+    return;
+  }
+  visDiv.innerHTML = ""; // Clear the previous content (incl. the loading skeleton)
   Plotly.purge(visDiv);
   let vis = Plotly.react(
     visDiv,
@@ -939,23 +1102,21 @@ async function createVisualBar(province, barData, currentVisual, dataType, barSo
   // Only render the data type currently shown in the visual (counts / rates /
   // percentages); re-runs with the chart when the toggle changes.
   for (const [subKey, subValue] of Object.entries(barData[dataType])) {
-    if (subKey != "x") {
+    // Mirror the chart: skip "x" and any series hidden as all-zero/suppressed/missing.
+    if (subKey != "x" && hasReportedNonZero(subValue)) {
       let tr = table.insertRow(-1);
       tr.setAttribute("class", "align-middle");
       let tabCell = tr.insertCell(-1);
       tabCell.innerText = visualOptions[`table-${dataType}-row`].replace("replace_me", subKey.toTitleCase());
       subValue.forEach((element) => {
         let tabCell = tr.insertCell(-1);
-        tabCell.innerText = element;
+        tabCell.innerText = formatTableValue(element);
       });
     }
   }
 
-// If there is more than one data type available, create a toggle to switch between each data type
-  if (dataTypes == null) {
-    dataTypes = visuals[province][currentVisual]["data-types"];
-  }
-  buildDataTypeToggles(dataTypeToggle, dataTypes, dataType, (data) =>
+  // Toggle only between the data types that actually have data (computed above).
+  buildDataTypeToggles(dataTypeToggle, available, dataType, (data) =>
     createVisualBar(province, barData, currentVisual, data, barSource, visualOptions, dataTypes));
   // Generate the About these Data section and insert the html
   aboutDataDiv.innerHTML = buildAboutDataHTML(barSource);
@@ -1150,6 +1311,30 @@ async function createVisualTreemap(province, block, currentVisual, source) {
 
   setActiveVisual(province, currentVisual);
 
+  // Layout: title, then the chart, then a horizontal filter bar beneath it -- stacked vertically
+  // inside #vis-div (not the absolute overlay, so nothing covers the treemap). The chart draws into
+  // its own child so a filter change re-renders only the tiles, leaving the controls intact; and
+  // because the whole stack lives in #vis-div, any later visual that overwrites #vis-div tears it down
+  // with it (auto-cleanup).
+  visDiv.className = "treemap-layout";
+  visDiv.innerHTML = "";
+  const headerEl = document.createElement("div");
+  headerEl.className = "treemap-header";
+  const titleEl = document.createElement("div");
+  titleEl.className = "treemap-title";
+  titleEl.innerText = cfg.title || "";
+  headerEl.appendChild(titleEl);
+  const chartDiv = document.createElement("div");
+  chartDiv.className = "treemap-chart";
+  const footerEl = document.createElement("div");
+  footerEl.className = "treemap-footer";
+  const controlHost = document.createElement("div");
+  controlHost.className = "treemap-controls-row";
+  footerEl.appendChild(controlHost);
+  visDiv.appendChild(headerEl);
+  visDiv.appendChild(chartDiv);
+  visDiv.appendChild(footerEl);
+
   const geoLevels = cfg.geo_levels || [];
   const filters = cfg.filters || [];
   const hierarchy = (cfg.hierarchy && cfg.hierarchy.length) ? cfg.hierarchy
@@ -1158,6 +1343,10 @@ async function createVisualTreemap(province, block, currentVisual, source) {
   // Current selection (null = "All"); the slider drives unit/bucket.
   const sel = { geo: geoLevels.map(function () { return null; }), filters: {}, unit: "all", bucket: null };
   filters.forEach(function (flt) { sel.filters[flt.axis] = null; });
+
+  // Reset-filters button, kept at renderer scope so render() can refresh its enabled state on every
+  // filter change (filter onchange handlers call render() without rebuilding the controls).
+  let resetBtn = null;
 
   function distinct(valueFn, predicate) {
     const set = new Set();
@@ -1192,7 +1381,7 @@ async function createVisualTreemap(province, block, currentVisual, source) {
     const select = document.createElement("select");
     select.className = "form-select form-select-sm";
     wrap.appendChild(lab); wrap.appendChild(select);
-    controls.appendChild(wrap);
+    controlHost.appendChild(wrap);
     return select;
   }
 
@@ -1204,12 +1393,91 @@ async function createVisualTreemap(province, block, currentVisual, source) {
     });
   }
 
+  // ---- URL <-> selection (deep-linkable filters) ----
+  // Values travel as slugs (the same slugify used for the path), so the query string stays readable and
+  // round-trips through reverse-matching against the live facts. First slug-equal candidate wins.
+  function matchSlug(candidates, raw) {
+    for (const c of candidates) { if (slugify(c) === raw) return c; }
+    return null;
+  }
+
+  // Serialize the current selection into a query string: geo levels -> t.g<i>, filters -> t.f<i>
+  // (index into cfg.filters), time -> t.u (unit) + t.b (bucket). Defaults ("All"/all-time) are omitted
+  // so an unfiltered treemap keeps a clean URL.
+  function treemapSelToParams() {
+    const p = new URLSearchParams();
+    geoLevels.forEach(function (lvl, i) { if (sel.geo[i] != null) p.set("t.g" + i, slugify(sel.geo[i])); });
+    filters.forEach(function (flt, i) {
+      if (sel.filters[flt.axis] != null) p.set("t.f" + i, slugify(sel.filters[flt.axis]));
+    });
+    if (sel.unit !== "all") {
+      p.set("t.u", sel.unit);
+      if (sel.bucket != null) p.set("t.b", slugify(sel.bucket));
+    }
+    return p.toString();
+  }
+
+  // Seed `sel` from the current URL (deep link / Back-Forward). Geo levels are reverse-matched top-down
+  // so each level's cascade sees the parent already chosen; unknown/stale slugs are ignored (stay "All").
+  function seedSelFromUrl() {
+    const params = new URLSearchParams(window.location.search || "");
+    geoLevels.forEach(function (lvl, i) {
+      const raw = params.get("t.g" + i);
+      if (!raw) return;
+      const m = matchSlug(geoOptions(i), raw);
+      if (m != null) sel.geo[i] = m;
+    });
+    filters.forEach(function (flt, i) {
+      const raw = params.get("t.f" + i);
+      if (!raw) return;
+      const m = matchSlug(distinct(function (f) { return axisValue(f, flt.axis); }), raw);
+      if (m != null) sel.filters[flt.axis] = m;
+    });
+    const u = params.get("t.u");
+    if (u === "year" || u === "month" || u === "seasonal") {
+      sel.unit = u;
+      const b = params.get("t.b");
+      if (b) {
+        const found = treemapTimeBuckets(facts, u).find(function (bk) { return slugify(bk.value) === b; });
+        if (found) sel.bucket = found.value;
+      }
+    }
+  }
+
+  // Push the current selection onto the address bar through the shared syncUrl (which handles the
+  // first-render replaceState + isReplaying guard). buildVisualUrl reads activeTreemapParams.
+  function syncTreemapUrl() {
+    activeTreemapParams = treemapSelToParams();
+    syncUrl(null, null, null);
+  }
+
+  // Clear every geo/filter selection + time control back to its default ("All" / all-time), rebuild the
+  // controls so their displayed values match, and drop the filter params from the URL.
+  function resetFilters() {
+    sel.geo = geoLevels.map(function () { return null; });
+    filters.forEach(function (flt) { sel.filters[flt.axis] = null; });
+    sel.unit = "all";
+    sel.bucket = null;
+    buildControls();
+    render();
+    syncTreemapUrl();
+  }
+
+  // True when any geo/filter/time control is away from its default -- drives the reset button's
+  // enabled state so it reads as a no-op when there's nothing to clear.
+  function filtersActive() {
+    return sel.geo.some(function (g) { return g != null; })
+      || filters.some(function (flt) { return sel.filters[flt.axis] != null; })
+      || sel.unit !== "all";
+  }
+
   function buildControls() {
-    controls.innerHTML = "";
+    controlHost.innerHTML = "";
     const geoSelects = [];
     geoLevels.forEach(function (levelLabel, i) {
       const select = makeControl(levelLabel);
-      setSelectOptions(select, geoOptions(i), null);
+      // Reflect the live selection (seeded from the URL on a deep link), not always "All".
+      setSelectOptions(select, geoOptions(i), sel.geo[i]);
       select.onchange = function () {
         sel.geo[i] = select.value === "__all__" ? null : select.value;
         // Re-cascade: clear and repopulate every lower level for the new parent choice.
@@ -1218,16 +1486,18 @@ async function createVisualTreemap(province, block, currentVisual, source) {
           setSelectOptions(geoSelects[j], geoOptions(j), null);
         }
         render();
+        syncTreemapUrl();
       };
       geoSelects.push(select);
     });
 
     filters.forEach(function (flt) {
       const select = makeControl(flt.label || flt.axis);
-      setSelectOptions(select, distinct(function (f) { return axisValue(f, flt.axis); }), null);
+      setSelectOptions(select, distinct(function (f) { return axisValue(f, flt.axis); }), sel.filters[flt.axis]);
       select.onchange = function () {
         sel.filters[flt.axis] = select.value === "__all__" ? null : select.value;
         render();
+        syncTreemapUrl();
       };
     });
 
@@ -1244,6 +1514,7 @@ async function createVisualTreemap(province, block, currentVisual, source) {
         opt.value = u[0]; opt.innerText = u[1];
         unitSelect.appendChild(opt);
       });
+      unitSelect.value = sel.unit;   // reflect a URL-seeded unit, not always "All time"
       const sliderWrap = document.createElement("div");
       sliderWrap.className = "mt-1";
       const slider = document.createElement("input");
@@ -1266,16 +1537,38 @@ async function createVisualTreemap(province, block, currentVisual, source) {
         } else {
           sliderWrap.style.display = "";
           slider.max = buckets.length - 1;
-          slider.value = buckets.length - 1;   // default to the most recent bucket
+          // Honor a URL-seeded bucket if it still exists; otherwise default to the most recent.
+          let idx = buckets.length - 1;
+          if (sel.bucket != null) {
+            const found = buckets.findIndex(function (b) { return b.value === sel.bucket; });
+            if (found >= 0) idx = found;
+          }
+          slider.value = idx;
           applyBucket();
         }
       }
-      unitSelect.onchange = function () { sel.unit = unitSelect.value; rebuildBuckets(); render(); };
+      // Switching unit resets to the latest bucket (clear the seeded one first so rebuild picks default).
+      unitSelect.onchange = function () { sel.unit = unitSelect.value; sel.bucket = null; rebuildBuckets(); render(); syncTreemapUrl(); };
+      // Live-render while dragging, but only push history once on release (oninput would spam the stack).
       slider.oninput = function () { applyBucket(); render(); };
+      slider.onchange = function () { syncTreemapUrl(); };
       wrap.appendChild(lab); wrap.appendChild(unitSelect); wrap.appendChild(sliderWrap);
-      controls.appendChild(wrap);
+      controlHost.appendChild(wrap);
       rebuildBuckets();
     }
+
+    // Reset-filters control: sits at the end of the row, aligned to the bottom of the dropdowns, and
+    // clears every selection back to "All". Disabled when nothing is filtered so it can't read as live.
+    const resetWrap = document.createElement("div");
+    resetWrap.className = "treemap-control treemap-reset text-start d-flex align-items-end";
+    resetBtn = document.createElement("button");
+    resetBtn.type = "button";
+    resetBtn.className = "btn btn-outline-secondary btn-sm";
+    resetBtn.innerHTML = '<i class="bi bi-arrow-counterclockwise"></i> Reset filters';
+    resetBtn.disabled = !filtersActive();
+    resetBtn.onclick = resetFilters;
+    resetWrap.appendChild(resetBtn);
+    controlHost.appendChild(resetWrap);
   }
 
   function renderTable(data) {
@@ -1314,19 +1607,171 @@ async function createVisualTreemap(province, block, currentVisual, source) {
       hovertemplate: "<b>%{label}</b><br>%{value} samples<br>%{percentRoot} of shown<extra></extra>",
       pathbar: { visible: true },
     };
+    // Title (header) and filters (footer) are HTML stacked around the chart; size the treemap to the
+    // space left between them so the whole stack fits the card without the tiles overlapping either.
+    const cardW = $("#viz-card").width();
+    const cardH = $("#viz-card").height();
     const layout = {
-      title: cfg.title || "",
-      width: $("#viz-card").width(),
-      height: $("#viz-card").height(),
-      margin: { t: 40, l: 0, r: 0, b: 0 },
+      width: cardW,
+      height: Math.max(220, cardH - headerEl.offsetHeight - footerEl.offsetHeight - 6),
+      margin: { t: 6, l: 0, r: 0, b: 0 },
     };
-    visDiv.innerHTML = "";
-    Plotly.purge(visDiv);
-    Plotly.react(visDiv, [trace], themeChartLayout(layout), { displaylogo: false, responsive: false });
+    Plotly.purge(chartDiv);
+    Plotly.react(chartDiv, [trace], themeChartLayout(layout), { displaylogo: false, responsive: false });
     renderTable(data);
+    if (resetBtn) resetBtn.disabled = !filtersActive();   // keep reset button in sync with live filters
   }
 
+  // Seed the selection from the URL (deep link / Back-Forward) before building the controls, and prime
+  // activeTreemapParams so masterLoop's trailing syncUrl canonicalizes the address bar with these filters
+  // (replaceState on first load, otherwise a no-op since the URL already matches).
+  seedSelFromUrl();
+  activeTreemapParams = treemapSelToParams();
   buildControls();
+  render();
+}
+
+
+// ---- Stratified bar (cross_tab_bar): age on the x-axis, split by sex, with a substance filter + year ----
+// Facts: d = age band (x-axis), d2 = "<substance>|<sex>" composite, t = year, v = count (counts only,
+// real source numbers). Self-contained like the treemap: it builds its own substance dropdown + year slider
+// and re-renders in place (no masterLoop round-trip). Substance is a hard filter and the year slider picks
+// the snapshot, so the chart stays readable. `barmode` ("group" | "stack") comes from the chart_type:
+// grouped draws the sex sub-bars side by side; stacked draws one total bar per age band split into its
+// sex sub-bars (so the bar height reads as the total and the segments as the breakdown).
+const _ageBandRank = v => { const m = String(v).match(/^\d+/); return m ? parseInt(m[0], 10) : 1e9; };
+const _SEX_RANK = { Female: 0, Male: 1 };
+
+async function createVisualStratifiedBar(province, block, currentVisual, source, barmode = "group") {
+  const cfg = (block && block.visual_options) || {};
+  const facts = (block && block.facts) || [];
+  const visDiv = document.getElementById("vis-div");
+  const aboutDataDiv = document.getElementById("about-data");
+  const tableDiv = document.getElementById("data-table");
+  const tableTitle = document.getElementById("table-title");
+  const toggle = document.getElementById("data-type-toggle");
+
+  setActiveVisual(province, currentVisual);
+  if (toggle) toggle.innerHTML = "";   // single data type (counts) -> no data-type toggle
+
+  // Split the composite dimension2 once: each counts fact -> {age, substance, sex, year, v}.
+  const parsed = [];
+  for (const f of facts) {
+    if (f.dt !== "counts") continue;
+    const bits = String(f.d2 == null ? "" : f.d2).split("|");
+    if (bits.length !== 2) continue;
+    parsed.push({ age: f.d, substance: bits[0], sex: bits[1], year: String(f.t), v: f.v });
+  }
+  if (parsed.length === 0) { renderEmptyVisual("No data is available for this visual."); return; }
+
+  const substances = Array.from(new Set(parsed.map(p => p.substance))).sort();
+  const years = _sortYears(parsed.map(p => p.year));
+  const sel = { substance: substances[0], year: years[years.length - 1] };   // default: first substance, latest year
+  const substanceLabel = s => (SUBSTANCE_DISPLAY[s] || s.toSentenceCase());
+
+  // Layout: title (header), chart, controls row (footer) -- all inside #vis-div so the next visual's
+  // render tears the whole stack down with it (auto-cleanup), reusing the treemap's stacked layout CSS.
+  visDiv.className = "treemap-layout";
+  visDiv.innerHTML = "";
+  const headerEl = document.createElement("div"); headerEl.className = "treemap-header";
+  const titleEl = document.createElement("div"); titleEl.className = "treemap-title";
+  headerEl.appendChild(titleEl);
+  const chartDiv = document.createElement("div"); chartDiv.className = "treemap-chart";
+  const footerEl = document.createElement("div"); footerEl.className = "treemap-footer";
+  const controlHost = document.createElement("div"); controlHost.className = "treemap-controls-row";
+  controlHost.style.alignItems = "center";   // balance the dropdown against the taller slider+readout
+  footerEl.appendChild(controlHost);
+  visDiv.appendChild(headerEl); visDiv.appendChild(chartDiv); visDiv.appendChild(footerEl);
+
+  function makeSelect(labelText, options, current, onChange) {
+    const wrap = document.createElement("div"); wrap.className = "treemap-control";
+    wrap.style.textAlign = "center";
+    const lab = document.createElement("label"); lab.className = "form-label mb-0 small fw-semibold";
+    lab.innerText = labelText;
+    const select = document.createElement("select"); select.className = "form-select form-select-sm";
+    options.forEach(o => { const opt = document.createElement("option"); opt.value = o.value; opt.innerText = o.label; select.appendChild(opt); });
+    select.value = current;
+    select.onchange = () => { onChange(select.value); render(); };
+    wrap.appendChild(lab); wrap.appendChild(select); controlHost.appendChild(wrap);
+  }
+
+  // A range slider over ordered values (e.g. years): the thumb position picks one value, shown in a
+  // readout beneath it. Mirrors the treemap's time slider.
+  function makeSlider(labelText, values, currentIdx, onChange) {
+    const wrap = document.createElement("div"); wrap.className = "treemap-control";
+    wrap.style.textAlign = "center"; wrap.style.minWidth = "12rem";   // give the track room; match the dropdown's centring
+    const lab = document.createElement("label"); lab.className = "form-label mb-0 small fw-semibold";
+    lab.innerText = labelText;
+    const slider = document.createElement("input");
+    slider.type = "range"; slider.className = "form-range"; slider.min = 0; slider.step = 1;
+    slider.max = Math.max(0, values.length - 1); slider.value = currentIdx;
+    const readout = document.createElement("div"); readout.className = "small text-muted"; readout.innerText = values[currentIdx];
+    slider.oninput = () => { const i = parseInt(slider.value, 10) || 0; readout.innerText = values[i]; onChange(values[i]); render(); };
+    wrap.appendChild(lab); wrap.appendChild(slider); wrap.appendChild(readout); controlHost.appendChild(wrap);
+  }
+
+  function render() {
+    const fillTokens = s => String(s || "").replace("replace_substance", substanceLabel(sel.substance)).replace("replace_year", sel.year);
+    titleEl.innerText = fillTokens(cfg.title || "Hospitalizations by Age and Sex");
+
+    const ages = Array.from(new Set(parsed.map(p => p.age))).sort((a, b) => _ageBandRank(a) - _ageBandRank(b));
+    const sexes = Array.from(new Set(parsed.map(p => p.sex))).sort((a, b) => (_SEX_RANK[a] ?? 9) - (_SEX_RANK[b] ?? 9));
+    const lookup = {};   // sex -> {age -> value}
+    for (const p of parsed) {
+      if (p.substance !== sel.substance || p.year !== sel.year) continue;
+      (lookup[p.sex] = lookup[p.sex] || {})[p.age] = p.v;
+    }
+
+    const colorway = canaskColorway();
+    const traces = sexes.map((sex, i) => ({
+      x: ages,
+      y: ages.map(a => { const v = lookup[sex] && lookup[sex][a]; return (typeof v === "number") ? v : null; }),
+      name: sex,
+      type: "bar",
+      marker: { color: colorway[i % colorway.length], line: { width: 1, color: canaskMarkerLineColor() } },
+    }));
+
+    // Stacked mode: label each bar's total above it so the stack reads as "total split into sub-bars".
+    const totals = ages.map(a => sexes.reduce((sum, sex) => {
+      const v = lookup[sex] && lookup[sex][a]; return sum + (typeof v === "number" ? v : 0);
+    }, 0));
+    const totalAnnotations = barmode !== "stack" ? [] : ages.map((a, i) => ({
+      x: a, y: totals[i], text: `<b>${totals[i]}</b>`, showarrow: false, yshift: 10,
+      font: { size: 11 },
+    }));
+
+    const cardW = $("#viz-card").width(), cardH = $("#viz-card").height();
+    Plotly.purge(chartDiv);
+    Plotly.react(chartDiv, traces, themeChartLayout({
+      barmode: barmode,
+      width: cardW,
+      height: Math.max(220, cardH - headerEl.offsetHeight - footerEl.offsetHeight - 6),
+      xaxis: { title: { text: cfg.x_axis_title || "Age Group", standoff: 5 }, fixedrange: true },
+      yaxis: { title: { text: cfg.y_axis_title || "Number of Hospitalizations", standoff: 20 }, fixedrange: true },
+      hovermode: "x unified",
+      hoverlabel: { namelength: -1 },
+      annotations: totalAnnotations,
+      legend: responsiveLegend(),
+      margin: responsiveMargin(),
+    }), { displaylogo: false, responsive: false });
+
+    // Table: one row per sex, a column per age band (mirrors the chart's current substance+year view).
+    tableTitle.innerText = fillTokens(cfg.table_title || cfg.title || "Hospitalizations by Age and Sex");
+    const table = document.createElement("table");
+    table.setAttribute("class", "mb-0 table table-striped table-bordered table-hover");
+    const head = table.insertRow(-1);
+    [""].concat(ages).forEach(h => { const th = document.createElement("th"); th.innerText = h; head.appendChild(th); });
+    sexes.forEach(sex => {
+      const tr = table.insertRow(-1); tr.setAttribute("class", "align-middle");
+      tr.insertCell(-1).innerText = sex;
+      ages.forEach(a => { const v = lookup[sex] && lookup[sex][a]; tr.insertCell(-1).innerText = formatTableValue(typeof v === "number" ? v : null); });
+    });
+    tableDiv.innerHTML = ""; tableDiv.appendChild(table);
+    aboutDataDiv.innerHTML = buildAboutDataHTML(source);
+  }
+
+  makeSelect(cfg.filter_label || "Substance", substances.map(s => ({ value: s, label: substanceLabel(s) })), sel.substance, v => { sel.substance = v; });
+  makeSlider(cfg.time_label || "Year", years, years.length - 1, v => { sel.year = v; });
   render();
 }
 
@@ -1361,6 +1806,106 @@ function moveUpOneLevel(province, prevLocation = null) {
   currentVisual = visuals[province][currentVisual]["next-vis"];
 }
 
+// ---- Deep-link replay: rebuild drill state from a URL (initial load + Back/Forward) ----
+
+// Reverse a slugified location segment back to a real geo value by matching against a visual's facts.
+function reverseSlugGeo(facts, slug) {
+  for (const f of facts) {
+    if (f.geo != null && urlSegment(f.geo) === slug) return f.geo;
+  }
+  return null;
+}
+
+// Reverse a slugified category segment back to a real category, scoped to one location's count facts.
+function reverseSlugCategory(facts, location, slug) {
+  for (const f of facts) {
+    if (f.geo === location && f.dt === "counts" && f.d2 != null && urlSegment(f.d2) === slug) return f.d2;
+  }
+  return null;
+}
+
+// Pick the year for a level-3 pie drill: the explicit ?y= if it has data for (location, category),
+// else the latest year that does.
+function resolveYear(facts, location, category, yearParam) {
+  const years = [];
+  for (const f of facts) {
+    if (f.geo === location && f.dt === "counts" && f.d2 === category && f.t != null) {
+      if (yearParam != null && String(f.t) === String(yearParam)) return f.t;
+      years.push(f.t);
+    }
+  }
+  if (years.length === 0) return null;
+  return _sortYears(years).slice(-1)[0];
+}
+
+// Resolve a level-1 entry slug to its visual id (used on popstate, which has no server round-trip).
+function slugToVisualId(slug) {
+  const cfgs = visuals[province] || {};
+  for (const vid in cfgs) {
+    if (cfgs[vid]["level"] === 1 && cfgs[vid]["slug"] === slug) return vid;
+  }
+  return null;
+}
+
+// Split a deep-link path into its drill segments + ?y= year (null entrySlug => province root).
+function parseVisualPath(pathname, search) {
+  const prefix = urlBase + "/";
+  let rest = pathname.startsWith(prefix) ? pathname.slice(prefix.length) : "";
+  const segs = rest.split("/").filter(Boolean).map(decodeURIComponent);
+  return {
+    entrySlug: segs[0] || null,
+    locationSlug: segs[1] || null,
+    categorySlug: segs[2] || null,
+    year: new URLSearchParams(search || "").get("y"),
+  };
+}
+
+// Rebuild the drilled view from a parsed URL. Each drill is gated by canDrill + a successful reverse
+// slug match; any failure stops at the deepest valid level (the initial replaceState then rewrites the
+// URL to the resolved state). entryVid is a level-1 visual id (server-resolved, or slugToVisualId'd).
+function replayFromPath(entryVid, locationSlug, categorySlug, yearParam) {
+  if (!entryVid || !visuals[province] || !visuals[province][entryVid] || !currentData[entryVid]) {
+    currentVisual = visuals["default-visuals"][province];
+    masterLoop();
+    return;
+  }
+  currentVisual = entryVid;
+  route = [];
+  lastLocation = null;
+
+  if (!locationSlug) { masterLoop(); return; }                       // level 1
+  if (!canDrill(province, currentVisual)) { masterLoop(); return; }
+  // The location lives in the DRILL TARGET's facts, not the entry's: a level-1 map (map_none) has no
+  // facts of its own, and even for a heatmap the drilled child carries the same geo. Resolve the slug
+  // against next-vis's geo values so map and heatmap entries both drill correctly.
+  const nextVid = visuals[province][currentVisual]["next-vis"];
+  const location = reverseSlugGeo((currentData[nextVid] || {}).facts || [], locationSlug);
+  if (location == null) { masterLoop(); return; }                    // unknown region -> stay level 1
+  moveUpOneLevel(province);
+  if (!categorySlug) { masterLoop(location); return; }               // level 2
+  if (!canDrill(province, currentVisual)) { masterLoop(location); return; }
+  const pieFacts = currentData[currentVisual].facts || [];
+  const category = reverseSlugCategory(pieFacts, location, categorySlug);
+  if (category == null) { masterLoop(location); return; }            // unknown category -> stay level 2
+  const year = resolveYear(pieFacts, location, category, yearParam);
+  moveUpOneLevel(province);
+  masterLoop(location, year, category);                              // level 3
+}
+
+// Back/Forward: re-derive state from the URL without pushing history or reloading (data is already
+// client-side). isReplaying makes the replay's masterLoop->syncUrl a no-op, so no feedback loop.
+function onVisualPopState() {
+  isReplaying = true;
+  try {
+    const parsed = parseVisualPath(window.location.pathname, window.location.search);
+    const entryVid = parsed.entrySlug ? slugToVisualId(parsed.entrySlug)
+                                      : visuals["default-visuals"][province];
+    replayFromPath(entryVid, parsed.locationSlug, parsed.categorySlug, parsed.year);
+  } finally {
+    isReplaying = false;
+  }
+}
+
 // Helper function to reset the count/rates toggle
 function resetVisualControl() {
   let dataTypeToggle = document.getElementById("data-type-toggle");
@@ -1369,6 +1914,11 @@ function resetVisualControl() {
   // clear any treemap stratifier dropdowns so they don't linger on a non-treemap visual
   let stratifiers = document.getElementById("vis-stratifiers");
   if (stratifiers) stratifiers.innerHTML = "";
+  // Reset the treemap's "treemap-layout" class so a later non-treemap visual doesn't inherit its
+  // flex/100%-height sizing (the class is set in createVisualTreemap and the stratified-bar renderer,
+  // and is never otherwise cleared). resetVisualControl runs at level 1 before the next renderer draws.
+  let visDiv = document.getElementById("vis-div");
+  if (visDiv) visDiv.className = "";
   // remove the back button if it exists and toggle only is false
   if (route.length == 0){
     let backButton = document.getElementById("back-button");
@@ -1402,28 +1952,13 @@ function setupResetButton() {
   };
 }
 
-// Helper function to remove leading zeros and return filtered data
-function filterLeadingZeros(xArray, yArray) {
-  let firstNonZeroIndex = yArray.findIndex(value => value !== 0 && value !== "0");
-  if (firstNonZeroIndex === -1) {
-    // All values are zero, return empty arrays
-    return { x: [], y: [] };
-  }
-  return {
-    x: xArray.slice(firstNonZeroIndex),
-    y: yArray.slice(firstNonZeroIndex)
-  };
-}
-
-//Helper function to convert leading zeroes in table data to "No Data"
-function formatTableValue(value, index, array){
-  //first non-zero index finder
-  let firstNonZero = array.findIndex(val => val !== 0 && val !== "0");
-  if (index < firstNonZero){
-    return "No Data";
-  } else {
-    return value;
-  }
+// Render a single table cell, distinguishing the three data states (a genuine 0 is shown as "0",
+// never hidden): a reported number -> itself; the SUPPRESSED sentinel -> "Suppressed"; null /
+// undefined (not reported) -> "No data".
+function formatTableValue(value){
+  if (value === SUPPRESSED) return "Suppressed";
+  if (value === null || value === undefined || value === "") return "No data";
+  return value;
 }
 
 // Render the "you are here" breadcrumb for the current drill state. The trail

@@ -14,13 +14,19 @@
             {% for entry in ownership %}
                 {% set source = entry.source %}
                 <div class="card shadow-sm mb-4">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <h6 class="mb-0">{{ source.name }}</h6>
+                    <div class="card-header d-flex justify-content-between align-items-center"
+                         role="button" data-bs-toggle="collapse"
+                         data-bs-target="#source-body-{{ source.id }}"
+                         aria-expanded="true" aria-controls="source-body-{{ source.id }}"
+                         style="cursor: pointer;">
+                        <h6 class="mb-0">
+                            <i class="bi bi-chevron-down me-2 small" aria-hidden="true"></i>{{ source.name }}
+                        </h6>
                         <span class="badge bg-secondary">
                             {{ entry.visual_count }} visual{{ '' if entry.visual_count == 1 else 's' }}
                         </span>
                     </div>
-                    <div class="card-body p-0">
+                    <div id="source-body-{{ source.id }}" class="card-body p-0 collapse show">
                         <div class="px-3 pt-3">
                             <h6 class="mb-1">Visibility</h6>
                             <p class="text-muted small mb-2">
@@ -28,6 +34,8 @@
                                 <strong>Group</strong>: signed-in members of teams granted the visual below ·
                                 <strong>Public</strong>: anyone, no sign-in required.
                                 Drill-downs can't be made more visible than the access point they open from.
+                                Use the <i class="bi bi-star-fill" aria-hidden="true"></i> to choose which
+                                top-level visual loads first when someone opens the province page.
                             </p>
                         </div>
                         {% set source = entry.source %}

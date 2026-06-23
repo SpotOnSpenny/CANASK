@@ -40,6 +40,10 @@ assets.register(
 
 assets.register(
     "js_all",
+    # No JS minifier: `jsmin` (Crockford's algorithm) does not understand ES6 template literals and
+    # strips the spaces inside them (e.g. `${manner} ${substance} Deaths` -> `${manner}${substance}Deaths`,
+    # mangling chart series labels). The vendored libs here are already pre-minified, and our hand-written
+    # plotly-theme/main/visualGeneration are small, so concatenating them un-minified is correct + cheap.
     Bundle(
         "js/htmx.min.js",
         "js/plotly-2.32.0.min.js",
@@ -47,10 +51,18 @@ assets.register(
         "js/plotly-theme.js",
         "js/main.js",
         "js/visualGeneration.js",
-        filters="jsmin",
         output="assets/main.js"
     )
 )
+
+@app.template_filter("visual_label")
+def visual_label(visual):
+    """Human-readable label for a Visuals row: its authored menu_name, else the visual_id formatted
+    into sentence case (deaths_by_sex_line -> "Deaths by sex line") so drill-downs without a menu_name
+    don't surface raw underscore-cased ids in the UI."""
+    if getattr(visual, "menu_name", None):
+        return visual.menu_name
+    return (visual.name or "").replace("_", " ").capitalize()
 
 @app.after_request
 def add_cache_control_headers(response):

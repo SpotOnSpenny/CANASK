@@ -10,10 +10,12 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "age_group",
-      "substance": "opioids",
       "key_kind": "suffix_y",
       "chart_type": "line",
-      "data_types": ["counts", "percentages"],
+      "data_types": [
+        "counts",
+        "percentages"
+      ],
       "menu_parent": "Deaths and Demographics",
       "menu_name": "Opioid Deaths by Age Group",
       "level": 1,
@@ -27,10 +29,13 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "drug_type",
-      "substance": "lookup",
       "key_kind": "suffix_y",
       "chart_type": "bar",
-      "data_types": ["counts", "rates", "percentages"],
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
       "menu_parent": "Deaths and Demographics",
       "menu_name": "Opioid Deaths by Drug Type",
       "level": 1,
@@ -44,10 +49,13 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "sex",
-      "substance": "from_key",
       "key_kind": "sex_substance",
       "chart_type": "line",
-      "data_types": ["counts", "rates", "percentages"],
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
       "menu_parent": "Deaths and Demographics",
       "menu_name": "Opioid Deaths by Sex",
       "level": 1,
@@ -61,10 +69,13 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "manner",
-      "substance": "from_key",
       "key_kind": "manner_substance",
       "chart_type": "line",
-      "data_types": ["counts", "rates", "percentages"],
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
       "menu_parent": "Deaths and Demographics",
       "menu_name": "Unregulated Drug Toxicity Deaths by Manner of Death",
       "level": 1,
@@ -72,17 +83,18 @@
       "next_vis": null,
       "is_default": false
     },
-
     {
       "province": "manitoba",
-      "visual_id": "deaths_by_age",
+      "visual_id": "opioid_deaths_by_age",
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "age_group",
-      "substance": "opioids",
       "key_kind": "suffix_y",
       "chart_type": "line",
-      "data_types": ["counts", "percentages"],
+      "data_types": [
+        "counts",
+        "percentages"
+      ],
       "menu_parent": "Deaths and Demographics",
       "menu_name": "Opioid Deaths by Age Group",
       "level": 1,
@@ -96,10 +108,13 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "drug_type",
-      "substance": "lookup",
       "key_kind": "suffix_y",
       "chart_type": "bar",
-      "data_types": ["counts", "rates", "percentages"],
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
       "menu_parent": "Deaths and Demographics",
       "menu_name": "Opioid Deaths by Drug Type",
       "level": 1,
@@ -113,10 +128,13 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "sex",
-      "substance": "from_key",
       "key_kind": "sex_substance",
       "chart_type": "line",
-      "data_types": ["counts", "rates", "percentages"],
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
       "menu_parent": "Deaths and Demographics",
       "menu_name": "Opioid Deaths by Sex",
       "level": 1,
@@ -130,10 +148,13 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "manner",
-      "substance": "from_key",
       "key_kind": "manner_substance",
       "chart_type": "line",
-      "data_types": ["counts", "rates", "percentages"],
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
       "menu_parent": "Deaths and Demographics",
       "menu_name": "Unregulated Drug Toxicity Deaths by Manner of Death",
       "level": 1,
@@ -141,17 +162,18 @@
       "next_vis": null,
       "is_default": false
     },
-
     {
       "province": "new-brunswick",
       "visual_id": "opioid_deaths_by_age",
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "age_group",
-      "substance": "opioids",
       "key_kind": "suffix_y",
       "chart_type": "line",
-      "data_types": ["counts", "percentages"],
+      "data_types": [
+        "counts",
+        "percentages"
+      ],
       "menu_parent": "Deaths and Demographics",
       "menu_name": "Opioid Deaths by Age Group",
       "level": 1,
@@ -165,10 +187,13 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "drug_type",
-      "substance": "lookup",
       "key_kind": "suffix_y",
       "chart_type": "bar",
-      "data_types": ["counts", "rates", "percentages"],
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
       "menu_parent": "Deaths and Demographics",
       "menu_name": "Opioid Deaths by Drug Type",
       "level": 1,
@@ -182,10 +207,13 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "sex",
-      "substance": "from_key",
       "key_kind": "sex_substance",
       "chart_type": "line",
-      "data_types": ["counts", "rates", "percentages"],
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
       "menu_parent": "Deaths and Demographics",
       "menu_name": "Opioid Deaths by Sex",
       "level": 1,
@@ -199,10 +227,13 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "manner",
-      "substance": "from_key",
       "key_kind": "manner_substance",
       "chart_type": "line",
-      "data_types": ["counts", "rates", "percentages"],
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
       "menu_parent": "Deaths and Demographics",
       "menu_name": "Unregulated Drug Toxicity Deaths by Manner of Death",
       "level": 1,
@@ -210,17 +241,650 @@
       "next_vis": null,
       "is_default": false
     },
-
+    {
+      "province": "ontario",
+      "visual_id": "opioid_deaths_by_age",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "age_group",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Opioid Deaths by Age Group",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": true
+    },
+    {
+      "province": "ontario",
+      "visual_id": "deaths_by_drug_type",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "drug_type",
+      "key_kind": "suffix_y",
+      "chart_type": "bar",
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Opioid Deaths by Drug Type",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "ontario",
+      "visual_id": "deaths_by_sex",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "sex",
+      "key_kind": "sex_substance",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Opioid Deaths by Sex",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "ontario",
+      "visual_id": "deaths_by_manner",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "manner",
+      "key_kind": "manner_substance",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Unregulated Drug Toxicity Deaths by Manner of Death",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "quebec",
+      "visual_id": "opioid_deaths_by_age",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "age_group",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Opioid Deaths by Age Group",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": true
+    },
+    {
+      "province": "quebec",
+      "visual_id": "deaths_by_drug_type",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "drug_type",
+      "key_kind": "suffix_y",
+      "chart_type": "bar",
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Opioid Deaths by Drug Type",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "quebec",
+      "visual_id": "deaths_by_sex",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "sex",
+      "key_kind": "sex_substance",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Opioid Deaths by Sex",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "quebec",
+      "visual_id": "deaths_by_manner",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "manner",
+      "key_kind": "manner_substance",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Unregulated Drug Toxicity Deaths by Manner of Death",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "prince-edward-island",
+      "visual_id": "opioid_deaths_by_age",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "age_group",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Opioid Deaths by Age Group",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": true
+    },
+    {
+      "province": "prince-edward-island",
+      "visual_id": "deaths_by_drug_type",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "drug_type",
+      "key_kind": "suffix_y",
+      "chart_type": "bar",
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Opioid Deaths by Drug Type",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "prince-edward-island",
+      "visual_id": "deaths_by_sex",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "sex",
+      "key_kind": "sex_substance",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Opioid Deaths by Sex",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "prince-edward-island",
+      "visual_id": "deaths_by_manner",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "manner",
+      "key_kind": "manner_substance",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Unregulated Drug Toxicity Deaths by Manner of Death",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "newfoundland-and-labrador",
+      "visual_id": "opioid_deaths_by_age",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "age_group",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Opioid Deaths by Age Group",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": true
+    },
+    {
+      "province": "newfoundland-and-labrador",
+      "visual_id": "deaths_by_drug_type",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "drug_type",
+      "key_kind": "suffix_y",
+      "chart_type": "bar",
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Opioid Deaths by Drug Type",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "newfoundland-and-labrador",
+      "visual_id": "deaths_by_sex",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "sex",
+      "key_kind": "sex_substance",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Opioid Deaths by Sex",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "newfoundland-and-labrador",
+      "visual_id": "deaths_by_manner",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "manner",
+      "key_kind": "manner_substance",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Unregulated Drug Toxicity Deaths by Manner of Death",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "yukon",
+      "visual_id": "opioid_deaths_by_age",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "age_group",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Opioid Deaths by Age Group",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": true
+    },
+    {
+      "province": "yukon",
+      "visual_id": "deaths_by_drug_type",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "drug_type",
+      "key_kind": "suffix_y",
+      "chart_type": "bar",
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Opioid Deaths by Drug Type",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "yukon",
+      "visual_id": "deaths_by_sex",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "sex",
+      "key_kind": "sex_substance",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Opioid Deaths by Sex",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "yukon",
+      "visual_id": "deaths_by_manner",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "manner",
+      "key_kind": "manner_substance",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Unregulated Drug Toxicity Deaths by Manner of Death",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "northwest-territories",
+      "visual_id": "opioid_deaths_by_age",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "age_group",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Opioid Deaths by Age Group",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": true
+    },
+    {
+      "province": "northwest-territories",
+      "visual_id": "deaths_by_drug_type",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "drug_type",
+      "key_kind": "suffix_y",
+      "chart_type": "bar",
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Opioid Deaths by Drug Type",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "northwest-territories",
+      "visual_id": "deaths_by_sex",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "sex",
+      "key_kind": "sex_substance",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Opioid Deaths by Sex",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "northwest-territories",
+      "visual_id": "deaths_by_manner",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "manner",
+      "key_kind": "manner_substance",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Unregulated Drug Toxicity Deaths by Manner of Death",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "nunavut",
+      "visual_id": "opioid_deaths_by_age",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "age_group",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Opioid Deaths by Age Group",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": true
+    },
+    {
+      "province": "nunavut",
+      "visual_id": "deaths_by_drug_type",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "drug_type",
+      "key_kind": "suffix_y",
+      "chart_type": "bar",
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Opioid Deaths by Drug Type",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "nunavut",
+      "visual_id": "deaths_by_sex",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "sex",
+      "key_kind": "sex_substance",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Opioid Deaths by Sex",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "nunavut",
+      "visual_id": "deaths_by_manner",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "manner",
+      "key_kind": "manner_substance",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Unregulated Drug Toxicity Deaths by Manner of Death",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "nova-scotia",
+      "visual_id": "opioid_deaths_by_age",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "age_group",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Opioid Deaths by Age Group",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "nova-scotia",
+      "visual_id": "deaths_by_drug_type",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "drug_type",
+      "key_kind": "suffix_y",
+      "chart_type": "bar",
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Opioid Deaths by Drug Type",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "nova-scotia",
+      "visual_id": "deaths_by_sex",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "sex",
+      "key_kind": "sex_substance",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Opioid Deaths by Sex",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "nova-scotia",
+      "visual_id": "deaths_by_manner",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "manner",
+      "key_kind": "manner_substance",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Unregulated Drug Toxicity Deaths by Manner of Death",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
     {
       "province": "saskatchewan",
       "visual_id": "opioid_deaths_by_age",
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "age_group",
-      "substance": "opioids",
       "key_kind": "suffix_y",
       "chart_type": "line",
-      "data_types": ["counts", "percentages"],
+      "data_types": [
+        "counts",
+        "percentages"
+      ],
       "menu_parent": "Deaths and Demographics",
       "menu_name": "Opioid Deaths by Age Group",
       "level": 1,
@@ -234,10 +898,13 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "sex",
-      "substance": "from_key",
       "key_kind": "sex_substance",
       "chart_type": "line",
-      "data_types": ["counts", "rates", "percentages"],
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
       "menu_parent": "Deaths and Demographics",
       "menu_name": "Opioid Deaths by Sex",
       "level": 1,
@@ -251,12 +918,1090 @@
       "shape": "flat_series",
       "metric": "deaths",
       "dimension2_type": "manner",
-      "substance": "from_key",
       "key_kind": "manner_substance",
       "chart_type": "line",
-      "data_types": ["counts", "rates", "percentages"],
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
       "menu_parent": "Deaths and Demographics",
       "menu_name": "Unregulated Drug Toxicity Deaths by Manner of Death",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "alberta",
+      "visual_id": "opioid_deaths_by_origin",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "origin",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Opioid Deaths by Origin of Opioid",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "manitoba",
+      "visual_id": "opioid_deaths_by_origin",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "origin",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Opioid Deaths by Origin of Opioid",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "new-brunswick",
+      "visual_id": "opioid_deaths_by_origin",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "origin",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Opioid Deaths by Origin of Opioid",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "newfoundland-and-labrador",
+      "visual_id": "opioid_deaths_by_origin",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "origin",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Opioid Deaths by Origin of Opioid",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "northwest-territories",
+      "visual_id": "opioid_deaths_by_origin",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "origin",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Opioid Deaths by Origin of Opioid",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "nova-scotia",
+      "visual_id": "opioid_deaths_by_origin",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "origin",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Opioid Deaths by Origin of Opioid",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "ontario",
+      "visual_id": "opioid_deaths_by_origin",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "origin",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Opioid Deaths by Origin of Opioid",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "saskatchewan",
+      "visual_id": "opioid_deaths_by_origin",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "origin",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Opioid Deaths by Origin of Opioid",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "alberta",
+      "visual_id": "deaths_polysubstance",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "co_substance",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Polysubstance Involvement in Deaths",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "saskatchewan",
+      "visual_id": "deaths_polysubstance",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "co_substance",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Polysubstance Involvement in Deaths",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "manitoba",
+      "visual_id": "deaths_polysubstance",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "co_substance",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Polysubstance Involvement in Deaths",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "ontario",
+      "visual_id": "deaths_polysubstance",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "co_substance",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Polysubstance Involvement in Deaths",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "new-brunswick",
+      "visual_id": "deaths_polysubstance",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "co_substance",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Polysubstance Involvement in Deaths",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "nova-scotia",
+      "visual_id": "deaths_polysubstance",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "co_substance",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Polysubstance Involvement in Deaths",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "quebec",
+      "visual_id": "deaths_polysubstance",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "co_substance",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Polysubstance Involvement in Deaths",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "prince-edward-island",
+      "visual_id": "deaths_polysubstance",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "co_substance",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Polysubstance Involvement in Deaths",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "newfoundland-and-labrador",
+      "visual_id": "deaths_polysubstance",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "co_substance",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Polysubstance Involvement in Deaths",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "yukon",
+      "visual_id": "deaths_polysubstance",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "co_substance",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Polysubstance Involvement in Deaths",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "northwest-territories",
+      "visual_id": "deaths_polysubstance",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "co_substance",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Polysubstance Involvement in Deaths",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "nunavut",
+      "visual_id": "deaths_polysubstance",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "co_substance",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Polysubstance Involvement in Deaths",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "alberta",
+      "visual_id": "opioid_harms_by_type",
+      "shape": "flat_series",
+      "metric": "harms",
+      "dimension2_type": "harm_type",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts"
+      ],
+      "menu_parent": "Hospitalizations & Other Harms",
+      "menu_name": "Opioid-Related Harms by Type",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "alberta",
+      "visual_id": "stimulant_harms_by_type",
+      "shape": "flat_series",
+      "metric": "harms",
+      "dimension2_type": "harm_type",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts"
+      ],
+      "menu_parent": "Hospitalizations & Other Harms",
+      "menu_name": "Stimulant-Related Harms by Type",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "saskatchewan",
+      "visual_id": "opioid_harms_by_type",
+      "shape": "flat_series",
+      "metric": "harms",
+      "dimension2_type": "harm_type",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts"
+      ],
+      "menu_parent": "Hospitalizations & Other Harms",
+      "menu_name": "Opioid-Related Harms by Type",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "saskatchewan",
+      "visual_id": "stimulant_harms_by_type",
+      "shape": "flat_series",
+      "metric": "harms",
+      "dimension2_type": "harm_type",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts"
+      ],
+      "menu_parent": "Hospitalizations & Other Harms",
+      "menu_name": "Stimulant-Related Harms by Type",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "manitoba",
+      "visual_id": "opioid_harms_by_type",
+      "shape": "flat_series",
+      "metric": "harms",
+      "dimension2_type": "harm_type",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts"
+      ],
+      "menu_parent": "Hospitalizations & Other Harms",
+      "menu_name": "Opioid-Related Harms by Type",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "manitoba",
+      "visual_id": "stimulant_harms_by_type",
+      "shape": "flat_series",
+      "metric": "harms",
+      "dimension2_type": "harm_type",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts"
+      ],
+      "menu_parent": "Hospitalizations & Other Harms",
+      "menu_name": "Stimulant-Related Harms by Type",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "ontario",
+      "visual_id": "opioid_harms_by_type",
+      "shape": "flat_series",
+      "metric": "harms",
+      "dimension2_type": "harm_type",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts"
+      ],
+      "menu_parent": "Hospitalizations & Other Harms",
+      "menu_name": "Opioid-Related Harms by Type",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "ontario",
+      "visual_id": "stimulant_harms_by_type",
+      "shape": "flat_series",
+      "metric": "harms",
+      "dimension2_type": "harm_type",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts"
+      ],
+      "menu_parent": "Hospitalizations & Other Harms",
+      "menu_name": "Stimulant-Related Harms by Type",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "new-brunswick",
+      "visual_id": "opioid_harms_by_type",
+      "shape": "flat_series",
+      "metric": "harms",
+      "dimension2_type": "harm_type",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts"
+      ],
+      "menu_parent": "Hospitalizations & Other Harms",
+      "menu_name": "Opioid-Related Harms by Type",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "new-brunswick",
+      "visual_id": "stimulant_harms_by_type",
+      "shape": "flat_series",
+      "metric": "harms",
+      "dimension2_type": "harm_type",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts"
+      ],
+      "menu_parent": "Hospitalizations & Other Harms",
+      "menu_name": "Stimulant-Related Harms by Type",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "nova-scotia",
+      "visual_id": "opioid_harms_by_type",
+      "shape": "flat_series",
+      "metric": "harms",
+      "dimension2_type": "harm_type",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts"
+      ],
+      "menu_parent": "Hospitalizations & Other Harms",
+      "menu_name": "Opioid-Related Harms by Type",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "nova-scotia",
+      "visual_id": "stimulant_harms_by_type",
+      "shape": "flat_series",
+      "metric": "harms",
+      "dimension2_type": "harm_type",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts"
+      ],
+      "menu_parent": "Hospitalizations & Other Harms",
+      "menu_name": "Stimulant-Related Harms by Type",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "quebec",
+      "visual_id": "opioid_harms_by_type",
+      "shape": "flat_series",
+      "metric": "harms",
+      "dimension2_type": "harm_type",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts"
+      ],
+      "menu_parent": "Hospitalizations & Other Harms",
+      "menu_name": "Opioid-Related Harms by Type",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "quebec",
+      "visual_id": "stimulant_harms_by_type",
+      "shape": "flat_series",
+      "metric": "harms",
+      "dimension2_type": "harm_type",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts"
+      ],
+      "menu_parent": "Hospitalizations & Other Harms",
+      "menu_name": "Stimulant-Related Harms by Type",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "prince-edward-island",
+      "visual_id": "opioid_harms_by_type",
+      "shape": "flat_series",
+      "metric": "harms",
+      "dimension2_type": "harm_type",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts"
+      ],
+      "menu_parent": "Hospitalizations & Other Harms",
+      "menu_name": "Opioid-Related Harms by Type",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "prince-edward-island",
+      "visual_id": "stimulant_harms_by_type",
+      "shape": "flat_series",
+      "metric": "harms",
+      "dimension2_type": "harm_type",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts"
+      ],
+      "menu_parent": "Hospitalizations & Other Harms",
+      "menu_name": "Stimulant-Related Harms by Type",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "newfoundland-and-labrador",
+      "visual_id": "opioid_harms_by_type",
+      "shape": "flat_series",
+      "metric": "harms",
+      "dimension2_type": "harm_type",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts"
+      ],
+      "menu_parent": "Hospitalizations & Other Harms",
+      "menu_name": "Opioid-Related Harms by Type",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "newfoundland-and-labrador",
+      "visual_id": "stimulant_harms_by_type",
+      "shape": "flat_series",
+      "metric": "harms",
+      "dimension2_type": "harm_type",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts"
+      ],
+      "menu_parent": "Hospitalizations & Other Harms",
+      "menu_name": "Stimulant-Related Harms by Type",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "yukon",
+      "visual_id": "opioid_harms_by_type",
+      "shape": "flat_series",
+      "metric": "harms",
+      "dimension2_type": "harm_type",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts"
+      ],
+      "menu_parent": "Hospitalizations & Other Harms",
+      "menu_name": "Opioid-Related Harms by Type",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "yukon",
+      "visual_id": "stimulant_harms_by_type",
+      "shape": "flat_series",
+      "metric": "harms",
+      "dimension2_type": "harm_type",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts"
+      ],
+      "menu_parent": "Hospitalizations & Other Harms",
+      "menu_name": "Stimulant-Related Harms by Type",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "northwest-territories",
+      "visual_id": "opioid_harms_by_type",
+      "shape": "flat_series",
+      "metric": "harms",
+      "dimension2_type": "harm_type",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts"
+      ],
+      "menu_parent": "Hospitalizations & Other Harms",
+      "menu_name": "Opioid-Related Harms by Type",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "northwest-territories",
+      "visual_id": "stimulant_harms_by_type",
+      "shape": "flat_series",
+      "metric": "harms",
+      "dimension2_type": "harm_type",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts"
+      ],
+      "menu_parent": "Hospitalizations & Other Harms",
+      "menu_name": "Stimulant-Related Harms by Type",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "nunavut",
+      "visual_id": "opioid_harms_by_type",
+      "shape": "flat_series",
+      "metric": "harms",
+      "dimension2_type": "harm_type",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts"
+      ],
+      "menu_parent": "Hospitalizations & Other Harms",
+      "menu_name": "Opioid-Related Harms by Type",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "nunavut",
+      "visual_id": "stimulant_harms_by_type",
+      "shape": "flat_series",
+      "metric": "harms",
+      "dimension2_type": "harm_type",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts"
+      ],
+      "menu_parent": "Hospitalizations & Other Harms",
+      "menu_name": "Stimulant-Related Harms by Type",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "british-columbia",
+      "visual_id": "opioid_deaths_by_origin",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "origin",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "rates",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Opioid Deaths by Origin of Opioid",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "british-columbia",
+      "visual_id": "deaths_polysubstance",
+      "shape": "flat_series",
+      "metric": "deaths",
+      "dimension2_type": "co_substance",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts",
+        "percentages"
+      ],
+      "menu_parent": "Deaths and Demographics",
+      "menu_name": "Polysubstance Involvement in Deaths",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "british-columbia",
+      "visual_id": "opioid_harms_by_type",
+      "shape": "flat_series",
+      "metric": "harms",
+      "dimension2_type": "harm_type",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts"
+      ],
+      "menu_parent": "Hospitalizations & Other Harms",
+      "menu_name": "Opioid-Related Harms by Type",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "british-columbia",
+      "visual_id": "stimulant_harms_by_type",
+      "shape": "flat_series",
+      "metric": "harms",
+      "dimension2_type": "harm_type",
+      "key_kind": "suffix_y",
+      "chart_type": "line",
+      "data_types": [
+        "counts"
+      ],
+      "menu_parent": "Hospitalizations & Other Harms",
+      "menu_name": "Stimulant-Related Harms by Type",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "alberta",
+      "visual_id": "hospitalizations_by_age_sex",
+      "shape": "cross_tab_bar",
+      "metric": "hospitalizations",
+      "geo_type": "province",
+      "dimension_type": "age_group",
+      "dimension2_type": "sex_substance",
+      "key_kind": null,
+      "chart_type": "stacked_bar",
+      "data_types": [
+        "counts"
+      ],
+      "menu_parent": "Hospitalizations & Other Harms",
+      "menu_name": "Hospitalizations by Age and Sex",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "british-columbia",
+      "visual_id": "hospitalizations_by_age_sex",
+      "shape": "cross_tab_bar",
+      "metric": "hospitalizations",
+      "geo_type": "province",
+      "dimension_type": "age_group",
+      "dimension2_type": "sex_substance",
+      "key_kind": null,
+      "chart_type": "stacked_bar",
+      "data_types": [
+        "counts"
+      ],
+      "menu_parent": "Hospitalizations & Other Harms",
+      "menu_name": "Hospitalizations by Age and Sex",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "manitoba",
+      "visual_id": "hospitalizations_by_age_sex",
+      "shape": "cross_tab_bar",
+      "metric": "hospitalizations",
+      "geo_type": "province",
+      "dimension_type": "age_group",
+      "dimension2_type": "sex_substance",
+      "key_kind": null,
+      "chart_type": "stacked_bar",
+      "data_types": [
+        "counts"
+      ],
+      "menu_parent": "Hospitalizations & Other Harms",
+      "menu_name": "Hospitalizations by Age and Sex",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "new-brunswick",
+      "visual_id": "hospitalizations_by_age_sex",
+      "shape": "cross_tab_bar",
+      "metric": "hospitalizations",
+      "geo_type": "province",
+      "dimension_type": "age_group",
+      "dimension2_type": "sex_substance",
+      "key_kind": null,
+      "chart_type": "stacked_bar",
+      "data_types": [
+        "counts"
+      ],
+      "menu_parent": "Hospitalizations & Other Harms",
+      "menu_name": "Hospitalizations by Age and Sex",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "newfoundland-and-labrador",
+      "visual_id": "hospitalizations_by_age_sex",
+      "shape": "cross_tab_bar",
+      "metric": "hospitalizations",
+      "geo_type": "province",
+      "dimension_type": "age_group",
+      "dimension2_type": "sex_substance",
+      "key_kind": null,
+      "chart_type": "stacked_bar",
+      "data_types": [
+        "counts"
+      ],
+      "menu_parent": "Hospitalizations & Other Harms",
+      "menu_name": "Hospitalizations by Age and Sex",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "nova-scotia",
+      "visual_id": "hospitalizations_by_age_sex",
+      "shape": "cross_tab_bar",
+      "metric": "hospitalizations",
+      "geo_type": "province",
+      "dimension_type": "age_group",
+      "dimension2_type": "sex_substance",
+      "key_kind": null,
+      "chart_type": "stacked_bar",
+      "data_types": [
+        "counts"
+      ],
+      "menu_parent": "Hospitalizations & Other Harms",
+      "menu_name": "Hospitalizations by Age and Sex",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "ontario",
+      "visual_id": "hospitalizations_by_age_sex",
+      "shape": "cross_tab_bar",
+      "metric": "hospitalizations",
+      "geo_type": "province",
+      "dimension_type": "age_group",
+      "dimension2_type": "sex_substance",
+      "key_kind": null,
+      "chart_type": "stacked_bar",
+      "data_types": [
+        "counts"
+      ],
+      "menu_parent": "Hospitalizations & Other Harms",
+      "menu_name": "Hospitalizations by Age and Sex",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "prince-edward-island",
+      "visual_id": "hospitalizations_by_age_sex",
+      "shape": "cross_tab_bar",
+      "metric": "hospitalizations",
+      "geo_type": "province",
+      "dimension_type": "age_group",
+      "dimension2_type": "sex_substance",
+      "key_kind": null,
+      "chart_type": "stacked_bar",
+      "data_types": [
+        "counts"
+      ],
+      "menu_parent": "Hospitalizations & Other Harms",
+      "menu_name": "Hospitalizations by Age and Sex",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false
+    },
+    {
+      "province": "saskatchewan",
+      "visual_id": "hospitalizations_by_age_sex",
+      "shape": "cross_tab_bar",
+      "metric": "hospitalizations",
+      "geo_type": "province",
+      "dimension_type": "age_group",
+      "dimension2_type": "sex_substance",
+      "key_kind": null,
+      "chart_type": "stacked_bar",
+      "data_types": [
+        "counts"
+      ],
+      "menu_parent": "Hospitalizations & Other Harms",
+      "menu_name": "Hospitalizations by Age and Sex",
       "level": 1,
       "vis_parent": null,
       "next_vis": null,
