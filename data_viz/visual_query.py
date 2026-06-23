@@ -94,7 +94,10 @@ def allowed_visuals(user, province):
     """The Visuals in `province` a user may see, per each visual's visibility level (public / group /
     private). A drill-child is only reachable if its parent chain is also visible, so any visual whose
     in-province parent was filtered out is pruned (no orphaned children in the menu)."""
-    visuals = Visuals.query.filter_by(province=province).all()
+    # Order by id (insertion / "first appearance" order) so the menu config and its derived category
+    # dropdowns stay in a stable order -- without an explicit sort Postgres returns rows in an unstable
+    # physical order that drifts after UPDATEs (e.g. a visibility change), reordering the menu.
+    visuals = Visuals.query.filter_by(province=province).order_by(Visuals.id).all()
     return _filter_visible(visuals, _viewer_context(user))
 
 
@@ -211,8 +214,11 @@ def build_province_menu(province, user=None):
     # Landing visual: the flagged default if the user may see it, else the first allowed level-1 visual.
     default = next((v.name for v in allowed if v.is_default), None)
     if default is None:
-        default = next((v.name for v in allowed if v.level == "1"),
-                       allowed[0].name if allowed else None)
+        default = next((v.name for v in allowed if v.level == "1"), None)
+    if default is None and allowed:
+        # No level-1 visual at all (a degenerate menu): land on the shallowest available rather than an
+        # arbitrary row, so we never open straight into a deep drill child without its parent in view.
+        default = min(allowed, key=lambda v: _menu_level(v) or 99).name
     # Top-level menu dropdowns, derived from the level-1 visuals' menu_parent (ordered by first
     # appearance) -- the frontend builds its menu categories from this instead of a hard-coded list.
     categories = []

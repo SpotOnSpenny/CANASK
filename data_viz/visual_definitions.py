@@ -58,43 +58,49 @@ def sync_visual_definitions(manifest_dir=None, prune=True):
     created = updated = pruned = 0
     scopes = []   # (source_id, desired {(province, name)}) per file, for the prune pass
 
-    for path in files:
-        with open(path) as handle:
-            manifest = json.load(handle)
-        source_id = _upsert_source(manifest.get("data_source"))
-        desired = set()
-        for entry in manifest["visuals"]:
-            key = (entry["province"], entry["visual_id"])
-            desired.add(key)
-            visual = existing.get(key)
-            if visual is None:
-                visual = Visuals(name=entry["visual_id"], province=entry["province"],
-                                 vis_type=entry["shape"])
-                # New visual: sourceless scaffolding is public (no data to protect); data-bearing
-                # visuals default to private until an owner opts in. Existing rows keep their
-                # owner-set visibility (we never touch it on update).
-                visual.visibility = "public" if source_id is None else "private"
-                # is_default is owner-managed like visibility: seed the landing visual from the
-                # manifest on create, then leave it to the Data Ownership UI (never touched on update).
-                visual.is_default = bool(entry.get("is_default", False))
-                db.session.add(visual)
-                existing[key] = visual
-                created += 1
-            else:
-                updated += 1
-            _apply_definition(visual, entry, source_id)
+    try:
+        for path in files:
+            with open(path) as handle:
+                manifest = json.load(handle)
+            source_id = _upsert_source(manifest.get("data_source"))
+            desired = set()
+            for entry in manifest["visuals"]:
+                key = (entry["province"], entry["visual_id"])
+                desired.add(key)
+                visual = existing.get(key)
+                if visual is None:
+                    visual = Visuals(name=entry["visual_id"], province=entry["province"],
+                                     vis_type=entry["shape"])
+                    # New visual: sourceless scaffolding is public (no data to protect); data-bearing
+                    # visuals default to private until an owner opts in. Existing rows keep their
+                    # owner-set visibility (we never touch it on update).
+                    visual.visibility = "public" if source_id is None else "private"
+                    # is_default is owner-managed like visibility: seed the landing visual from the
+                    # manifest on create, then leave it to the Data Ownership UI (never touched on update).
+                    visual.is_default = bool(entry.get("is_default", False))
+                    db.session.add(visual)
+                    existing[key] = visual
+                    created += 1
+                else:
+                    updated += 1
+                _apply_definition(visual, entry, source_id)
+            db.session.flush()
+            scopes.append((source_id, desired))
+
+        # Drill-heading maps with no source of their own inherit it from their drill child, so the whole
+        # L1(map) -> L2 -> L3 chain is owned/restrictable as a unit (standalone maps stay ungated).
+        _inherit_map_sources()
         db.session.flush()
-        scopes.append((source_id, desired))
 
-    # Drill-heading maps with no source of their own inherit it from their drill child, so the whole
-    # L1(map) -> L2 -> L3 chain is owned/restrictable as a unit (standalone maps stay ungated).
-    _inherit_map_sources()
-    db.session.flush()
+        if prune:
+            pruned = _prune(scopes)
 
-    if prune:
-        pruned = _prune(scopes)
-
-    db.session.commit()
+        db.session.commit()
+    except Exception:
+        # A mid-loop manifest error leaves flushed-but-uncommitted rows in the session; roll back so a
+        # retry or the next session user doesn't inherit partial state, then re-raise to fail loudly.
+        db.session.rollback()
+        raise
     return {"created": created, "updated": updated, "pruned": pruned}
 
 

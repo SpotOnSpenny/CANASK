@@ -155,6 +155,7 @@ class Visuals(db.Model):
 
 class GroupVisuals(db.Model):
     __tablename__ = "group_visuals"
+    __table_args__ = (db.UniqueConstraint("group_id", "visual_id", name = "uq_group_visual"),)
 
     id = db.Column(db.Integer, primary_key = True)
     group_id = db.Column(db.Integer, db.ForeignKey("groups.id"), nullable = False)

@@ -362,8 +362,11 @@ def set_group_visuals(group_id, visual_ids, scope_visual_ids, changed_by = None)
         return [v.menu_name or v.name for v in Visuals.query.filter(Visuals.id.in_(ids)).all()]
     changes = [f"+{n}" for n in _names(to_add)] + [f"-{n}" for n in _names(to_remove)]
 
-    if changes:
-        changer = User.query.get(changed_by) if changed_by else None
+    # Only log a UserActivity row when there's an actor to attribute it to. A request-driven change
+    # always passes changed_by; a seed/CLI call (changed_by=None) would otherwise write an activity
+    # row with a NULL user_id, leaving the audit trail with no actor.
+    if changes and changed_by is not None:
+        changer = User.query.get(changed_by)
         changer_name = changer.username if changer else f"user ID {changed_by}"
         db.session.add(UserActivity(
             user_id = changed_by,
@@ -610,8 +613,16 @@ def get_assignable_roles(user, group_id):
 def validate_password(password):
     if len(password) < 12:
         return False, "Password must be at least 12 characters long."
+    # bcrypt silently truncates at 72 bytes, so anything past that is ignored (and a user who typed a
+    # long passphrase would be authenticating on a silently shortened one). Reject it up front.
+    if len(password.encode("utf-8")) > 72:
+        return False, "Password must be at most 72 bytes long."
     if not any(char.isupper() for char in password):
         return False, "Password must contain at least one uppercase letter."
+    if not any(char.islower() for char in password):
+        return False, "Password must contain at least one lowercase letter."
+    if not any(char.isdigit() for char in password):
+        return False, "Password must contain at least one number."
     special_characters = re.findall(r'[^a-zA-Z0-9]', password)
     if not special_characters:
         return False, "Password must contain at least one special character."

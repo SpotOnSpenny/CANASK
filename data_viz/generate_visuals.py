@@ -829,8 +829,10 @@ def v1_SK_export_clean(writer, province):
     for col in data.columns:
         if col != "Year":
             data[col] = pandas.to_numeric(data[col], errors="coerce").fillna(0).astype(int)
-    # sum each year column -> per-year total of confirmed deaths
-    total_list = data.sum(numeric_only=True).to_list()
+    # sum each year column -> per-year total of confirmed deaths, keyed by year. Sheet[0] lays years
+    # out as columns; sheet[1] (below) lays them out as rows, so key by the actual year rather than
+    # trusting the two sheets' year orders to line up positionally.
+    total_by_year = {int(year): total for year, total in data.sum(numeric_only=True).to_dict().items()}
 
     # ----- Deaths by Place of Death (drug_death_heatmap) -----
     place = writer.visual(province, "drug_death_heatmap")
@@ -897,19 +899,21 @@ def v1_SK_export_clean(writer, province):
         population_data = pull_data(["nationalPopulationData"])
         population_data = filter_data(population_data, ["nationalPopulationData"])[0]["dataframe"]
         population_data = population_data.loc[population_data["GEO"] == "Saskatchewan"].set_index("REF_DATE")["VALUE"].to_dict()
-        pop_years = list(population_data.keys())
-        rate_years = [year for year in pop_years if f"{year}" in years]
         for drug in drug_types:
             counts = data[drug].tolist()
-            # counts + percentages are aligned to `years`; rates to the (population-backed) rate_years
-            for index, (year, count) in enumerate(zip(years, counts)):
+            # counts is aligned to `years`; look the denominators (total deaths, population) up by the
+            # actual year so a year missing from either source can't shift counts onto the wrong year.
+            for year, count in zip(years, counts):
                 by_type.fact(PROVINCE_DISPLAY[province], year, count, dimension2=drug)
-                percentage = round((count / total_list[index]) * 100, 2) if total_list[index] != 0 else 0
+                total = total_by_year.get(int(year))
+                percentage = round((count / total) * 100, 2) if total else 0
                 by_type.fact(PROVINCE_DISPLAY[province], year, percentage,
                              data_type="percentages", dimension2=drug)
-            for year, count in zip(rate_years, counts):
-                rate = round((count / population_data[int(year)]) * 100000, 2) if population_data[int(year)] != 0 else 0
-                by_type.fact(PROVINCE_DISPLAY[province], year, rate, data_type="rates", dimension2=drug)
+                # Only emit a rate for years with a population figure (e.g. the latest year often lacks one).
+                population = population_data.get(int(year))
+                if population is not None:
+                    rate = round((count / population) * 100000, 2) if population != 0 else 0
+                    by_type.fact(PROVINCE_DISPLAY[province], year, rate, data_type="rates", dimension2=drug)
 
 
 
@@ -1046,16 +1050,22 @@ class FactWriter:
     def finish(self):
         """One transaction: drop only the reproduced (source, geo) territory + touched predicates,
         then insert the buffered rows. Other sources/provinces are left untouched."""
-        for source_id, geo in self._territory:
-            self.DataPoints.query.filter_by(data_source_id=source_id, geo=geo).delete()
-        for visual_id in self._visual_ids:
-            self.VisualQuery.query.filter_by(for_visual_id=visual_id).delete()
-        self.db.session.flush()
-        for point in self._points.values():
-            self.db.session.add(point)
-        for kwargs in self._preds.values():
-            self.db.session.add(self.VisualQuery(**kwargs))
-        self.db.session.commit()
+        try:
+            for source_id, geo in self._territory:
+                self.DataPoints.query.filter_by(data_source_id=source_id, geo=geo).delete()
+            for visual_id in self._visual_ids:
+                self.VisualQuery.query.filter_by(for_visual_id=visual_id).delete()
+            self.db.session.flush()
+            for point in self._points.values():
+                self.db.session.add(point)
+            for kwargs in self._preds.values():
+                self.db.session.add(self.VisualQuery(**kwargs))
+            self.db.session.commit()
+        except Exception:
+            # A failed delete/insert leaves the session with the dropped rows flushed but not committed;
+            # roll back so a retry/next caller doesn't inherit partial state, then re-raise to fail loudly.
+            self.db.session.rollback()
+            raise
 
 
 class VisualWriter:
