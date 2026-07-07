@@ -122,7 +122,9 @@
                 console.error("Failed to load province '" + province + "':", error);
                 const visDiv = document.getElementById("vis-div");
                 if (visDiv) {
-                    visDiv.innerHTML = '<p class="text-danger text-center py-5">Sorry, we couldn\'t load the data for this province. Please refresh to try again.</p>';
+                    visDiv.innerHTML = (error && error.rateLimited)
+                        ? '<p class="text-warning text-center py-5">You\'re loading data a little too quickly. Please wait a moment, then refresh to try again.</p>'
+                        : '<p class="text-danger text-center py-5">Sorry, we couldn\'t load the data for this province. Please refresh to try again.</p>';
                 }
             }
         }
@@ -136,6 +138,3 @@
     })();
     </script>
 </div>
-
-<!-- Update the browser title with an oob swap via HTMx -->
-<title hx-swap-oob="true">CANASK | {{ page_title or province.replace("-", " ").title() }}</title>

@@ -13,14 +13,6 @@
     {% include 'feedback.jinja' %}
 </div>
 
-<title hx-oob-swap="true">
-    {% if province %}
-    {{ "CANASK | " + province.replace("-", " ").title() }}
-    {% else %}
-    CANASK | Home
-    {% endif %}
-</title>
-
 <div id="template-scripts-signal">
     <!-- This div serves as a signal to run initialization scripts for specific pages from main.js -->
 </div>

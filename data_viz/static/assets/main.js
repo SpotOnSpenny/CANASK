@@ -892,6 +892,13 @@ async function fetchRegionData(province){
             .catch(() => null),
     ]);
     // Fail loudly on a non-2xx response instead of calling .json() on an error body and rendering garbage.
+    // A 429 (rate limited) is flagged so the caller can show a friendly "slow down" message rather than
+    // the generic error state.
+    if (data.status === 429) {
+        const rateErr = new Error("Province data request rate limited");
+        rateErr.rateLimited = true;
+        throw rateErr;
+    }
     if (!data.ok) throw new Error(`Province data request failed: ${data.status} ${data.statusText}`);
     const payload = await data.json();
     // payload = { data: {visual_id: {facts, key_kind, shape, ...}}, config: {visual_id: menuCfg}, default, categories }

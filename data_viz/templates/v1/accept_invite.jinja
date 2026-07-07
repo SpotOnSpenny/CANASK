@@ -24,6 +24,10 @@
                            name="username"
                            class="form-control"
                            placeholder="Choose a username"
+                           minlength="3"
+                           maxlength="30"
+                           pattern="[A-Za-z0-9._-]{3,30}"
+                           title="3-30 characters: letters, numbers, and . _ - only"
                            required>
                 </div>
 
@@ -34,6 +38,8 @@
                            name="password"
                            class="form-control"
                            placeholder="Choose a password"
+                           minlength="12"
+                           maxlength="72"
                            required>
                     <div class="form-text">Minimum 12 characters with at least 3 special characters.</div>
                 </div>
@@ -45,6 +51,8 @@
                            name="confirm_password"
                            class="form-control"
                            placeholder="Confirm your password"
+                           minlength="12"
+                           maxlength="72"
                            required>
                 </div>
 

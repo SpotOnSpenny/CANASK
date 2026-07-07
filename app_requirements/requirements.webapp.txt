@@ -12,6 +12,7 @@ dnspython
 email-validator
 Flask
 Flask-Assets
+Flask-Limiter[redis]
 Flask-Login
 Flask-Migrate
 Flask-SQLAlchemy

@@ -611,6 +611,8 @@ def get_assignable_roles(user, group_id):
         return []
 
 def validate_password(password):
+    if not password:
+        return False, "A password is required."
     if len(password) < 12:
         return False, "Password must be at least 12 characters long."
     # bcrypt silently truncates at 72 bytes, so anything past that is ignored (and a user who typed a

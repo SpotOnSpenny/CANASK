@@ -28,6 +28,24 @@ class Config():
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     WTF_CSRF_ENABLED = True
     INVITE_TOKEN_EXPIRY = timedelta(minutes=10)
+
+    # --- Rate limiting (Flask-Limiter) ---------------------------------------------------
+    # Redis-backed so limits stay correct across multiple gunicorn workers. Reuses the
+    # existing Redis on a dedicated DB index (/1) to stay isolated from Celery (/0).
+    RATELIMIT_STORAGE_URI = os.environ.get("RATELIMIT_STORAGE_URI", "redis://redis:6379/1")
+    RATELIMIT_ENABLED = os.environ.get("RATELIMIT_ENABLED", "true").lower() == "true"
+    RATELIMIT_HEADERS_ENABLED = True          # emit X-RateLimit-* and Retry-After
+    RATELIMIT_DEFAULT = os.environ.get("RATELIMIT_DEFAULT", "200 per minute")
+    # Client-IP resolution: behind Cloudflare, the real client IP is in CF-Connecting-IP.
+    RATELIMIT_CLIENT_IP_HEADER = os.environ.get("RATELIMIT_CLIENT_IP_HEADER", "CF-Connecting-IP")
+    # Number of trusted proxy hops for ProxyFix (Cloudflare + nginx = 2). Fixes remote_addr
+    # for audit logging; the limiter itself keys off CF-Connecting-IP above.
+    TRUSTED_PROXY_COUNT = int(os.environ.get("TRUSTED_PROXY_COUNT", "2"))
+    # Per-route limits (tunable without a code change).
+    RATELIMIT_FEEDBACK = os.environ.get("RATELIMIT_FEEDBACK", "5 per hour")            # per IP
+    RATELIMIT_FEEDBACK_GLOBAL = os.environ.get("RATELIMIT_FEEDBACK_GLOBAL", "100 per day")  # all IPs, SES cost cap
+    RATELIMIT_API = os.environ.get("RATELIMIT_API", "60 per minute")                   # per IP
+    RATELIMIT_LOGIN = os.environ.get("RATELIMIT_LOGIN", "10 per minute")               # per IP, POST only
     # Add more configuration settings here as the need arises
 
 def configure(app):

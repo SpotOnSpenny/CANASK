@@ -8,6 +8,7 @@ from bcrypt import checkpw, gensalt
 import jwt
 from flask_login import login_user, current_user, logout_user
 from celery.result import AsyncResult
+from sqlalchemy import or_, func
 
 
 # Internal imports
@@ -16,6 +17,8 @@ from data_viz.database import db
 from data_viz.database.models import User, Invites, Groups, UserGroups, UserActivity, InviteGroups, DataSources, GroupDataSources, Visuals, GroupVisuals
 from data_viz.auth.auth_helpers import get_user_groups, get_assignable_roles, validate_password, create_user, create_group, assign_group, assign_site_admin, get_manageable_users, get_user_memberships_in_groups, get_manageable_groups, set_group_data_sources, owned_data_sources, can_manage_source, teams_for_source, visuals_for_source, set_group_visuals, set_visual_visibility, set_province_default_visual, visibility_rows_for_source
 from data_viz.auth.role_hierarchy import ROLE_HIERARCHY
+from data_viz.extensions import limiter
+from data_viz.validation import validate_email, validate_username, validate_text, validate_role, MAX_GROUP_NAME, MAX_GROUP_DESC
 from celery_worker.tasks.invite_jwt_expiry import expire_invite
 
 # Define the auth blueprint for authentication related routes
@@ -105,21 +108,49 @@ def require_role(role, group_id_source, action = None):
             
 
 def parse_group_assignments(form_data):
-    """Parse the shared invite/add-user form. Returns (site_admin, {group_id: role})."""
+    """Parse the shared invite/add-user form. Returns (site_admin, {group_id: role}).
+
+    Each group_assignment value is expected to be exactly "<group name>__<role>". Values not matching
+    that shape (hostile/garbled form input) are skipped rather than raising, and only known roles are
+    accepted -- authorization (whether the caller may grant that role) is enforced separately by
+    validate_group_assignments."""
     site_admin = False
     group_assignments = {}
     for key, value in form_data.items():
         if "group_assignment" not in key:
             continue
-        if value.split("__")[1] == "Site Admin":
+        parts = (value or "").split("__")
+        if len(parts) != 2:
+            continue
+        group_name, role = parts
+        if role == "Site Admin":
             site_admin = True
             return site_admin, {}
-        group_name = value.split("__")[0]
-        role = value.split("__")[1]
+        role_ok, _ = validate_role(role)
+        if not role_ok:
+            continue
         group = Groups.query.filter_by(name = group_name).first()
         if group:
             group_assignments[group.id] = role
     return site_admin, group_assignments
+
+def validate_group_assignments(group_assignments, groups_with_required_role):
+    """Authorize a parsed {group_id: role} map against the caller's permissions.
+
+    Returns (ok, error_message). Site admins may assign anything. Otherwise the caller must manage
+    the group (it must appear in the decorator-injected groups_with_required_role) and the role must
+    be one they're allowed to grant there (get_assignable_roles enforces the no-outrank rule). The
+    invite/add-user handlers must call this before persisting assignments -- the role decorators only
+    prove the caller manages *some* group, not that the submitted group/role pairs are in scope."""
+    if current_user.site_admin:
+        return True, None
+    for group_id, role in group_assignments.items():
+        if group_id not in groups_with_required_role:
+            return False, "You can only assign roles in groups you manage."
+        if role not in get_assignable_roles(current_user, group_id):
+            group_name = Groups.query.get(group_id).name
+            return False, f"You cannot assign the role {role} in {group_name}."
+    return True, None
 
 def create_invite(email, group_assignments, site_admin_invite):
     """Create a brand-new pending invite (+ JWT, expiry task, activity log) and return it."""
@@ -159,13 +190,27 @@ def create_invite(email, group_assignments, site_admin_invite):
 
 ################################# ROUTES ###########################################
 @auth_blueprint.route("/v1/login", methods=["GET", "POST"])
+# Throttle only POST (credential attempts) to blunt brute-forcing; the GET login page is unlimited.
+@limiter.limit(lambda: current_app.config["RATELIMIT_LOGIN"], exempt_when=lambda: request.method == "GET")
 def login():
     if request.method == "POST":
         print(f"Session will expire in: {current_app.config['PERMANENT_SESSION_LIFETIME']}")
         form_data = request.form
-        username = form_data.get("username")
+        identifier = form_data.get("username")
         password = form_data.get("password")
-        user = User.query.filter_by(username=username).first()
+        # Guard missing fields up front: a None password would crash on .encode() below. Use the same
+        # generic message as a bad credential so this doesn't leak which field was missing.
+        if not identifier or not password:
+            flash("Invalid username or password", "danger")
+            if request.headers.get("HX-Request"):
+                return render_template("v1/login.jinja")
+            return render_template("base.jinja", include_partials="login")
+        user = User.query.filter(
+            or_(
+                User.username == identifier,
+                func.lower(User.email) == (identifier or "").lower(),
+            )
+        ).first()
         if user and checkpw(password.encode("utf-8"), user.password_hash.encode("utf-8")):
             login_user(user)
             new_login = UserActivity(
@@ -188,7 +233,7 @@ def login():
                 activity_type = "authentication attempt",
                 activity_target_type = "User",
                 activity_target_id = user.id if user else None,
-                details = f"Failed login attempt for {user.email if user else 'unknown user'}, using the email {form_data.get('email')}",
+                details = f"Failed login attempt for {user.email if user else 'unknown user'}, using identifier {identifier}",
                 ip_address = request.remote_addr
             )
             db.session.add(login_attempt)
@@ -252,10 +297,24 @@ def invite_user(groups_with_required_role = None):
     
 
     if request.method == "POST":
-        email = request.form.get("email")
+        email_ok, email = validate_email(request.form.get("email"), required=True)
+        if not email_ok:
+            flash(email, "danger")
+            return redirect(request.referrer or url_for("auth.invite_user"))
 
         # Parse form data first so we know what's being requested
         site_admin_invite, group_assignments = parse_group_assignments(request.form.to_dict())
+
+        # Authorize the request before acting on it: the role decorator only proves the caller is a
+        # Group Admin in *some* group, not that this site-admin flag / these group+role pairs are in
+        # their scope. Without this a Group Admin could mint a Site Admin or assign roles anywhere.
+        if site_admin_invite and not current_user.site_admin:
+            flash("Only site admins can grant site admin access.", "danger")
+            return redirect(request.referrer or url_for("auth.invite_user"))
+        ok, error = validate_group_assignments(group_assignments, groups_with_required_role)
+        if not ok:
+            flash(error, "danger")
+            return redirect(request.referrer or url_for("auth.invite_user"))
 
         # Check to ensure no user with that email already exists
         existing_user = User.query.filter_by(email=email).first()
@@ -495,8 +554,16 @@ def adjust_invite_permissions(invite_id, groups_with_required_role=None):
         form_data = request.form.to_dict()
         managed_group_ids = None if current_user.site_admin else list(groups_with_required_role.keys())
 
-        # Elevate existing invite to site admin
+        # Elevate existing invite to site admin (site admins only -- the "invite" role scope only
+        # proves the caller is a Group Admin sharing a group with this invite).
         if form_data.get("site_admin_invite") == "true":
+            if not current_user.site_admin:
+                flash("Only site admins can grant site admin access.", "danger")
+                return render_template("v1/partials/invite_row.jinja",
+                                    invite=invite,
+                                    managed_group_ids=managed_group_ids,
+                                    groups_with_required_role=groups_with_required_role,
+                                    role_hierarchy=ROLE_HIERARCHY)
             invite.site_admin_invite = True
             activity = UserActivity(
                 user_id=current_user.id,
@@ -526,15 +593,28 @@ def adjust_invite_permissions(invite_id, groups_with_required_role=None):
         # Add on the new/altered permisions
         for key, value in form_data.items():
             if key.startswith("role_"):
-                group_id = int(key.split("_")[1])
-                if managed_group_ids is None or group_id in managed_group_ids:
-                    new_ig = InviteGroups(
-                        invite_id=invite.id,
-                        group_id=group_id,
-                        role=value
-                    )
-                    new_igs.append(new_ig)
-                    db.session.add(new_ig)
+                suffix = key.split("_", 1)[1]
+                if not suffix.isdigit():   # malformed role_ key -> skip rather than crash on int()
+                    continue
+                group_id = int(suffix)
+                # The submitted role must be a real, group-assignable role -- validated even for site
+                # admins so an arbitrary string can never be written as a role.
+                if not validate_role(value)[0]:
+                    continue
+                # managed_group_ids is None only for site admins (who may assign any role).
+                if managed_group_ids is not None and group_id not in managed_group_ids:
+                    continue
+                # A non-site-admin may only assign roles below their own in that group; skip any the
+                # caller isn't allowed to grant rather than silently elevating.
+                if not current_user.site_admin and value not in get_assignable_roles(current_user, group_id):
+                    continue
+                new_ig = InviteGroups(
+                    invite_id=invite.id,
+                    group_id=group_id,
+                    role=value
+                )
+                new_igs.append(new_ig)
+                db.session.add(new_ig)
 
         db.session.flush()
 
@@ -608,7 +688,10 @@ def add_user(groups_with_required_role = None):
         return render_template("v1/add_user.jinja", invitable_roles = template_data)
 
     if request.method == "POST":
-        email = request.form.get("email")
+        email_ok, email = validate_email(request.form.get("email"), required=True)
+        if not email_ok:
+            flash(email, "danger")
+            return redirect(url_for("auth.user_management"))
         site_admin_assignment, group_assignments = parse_group_assignments(request.form.to_dict())
         existing_user = User.query.filter_by(email = email).first()
 
@@ -654,6 +737,14 @@ def add_user(groups_with_required_role = None):
         existing_invite = Invites.query.filter_by(email = email, status = "pending").first()
         if existing_invite:
             flash(f"A pending invite for {email} already exists. Use invite management to adjust it.", "warning")
+            return redirect(url_for("auth.user_management"))
+
+        # Validate the requested group/role pairs before inviting -- mirror the existing-user path
+        # above, which the invite fallback previously skipped (letting a Group Admin grant Data Owner
+        # in a group they don't manage).
+        ok, error = validate_group_assignments(group_assignments, groups_with_required_role)
+        if not ok:
+            flash(error, "danger")
             return redirect(url_for("auth.user_management"))
 
         invite = create_invite(email, group_assignments, site_admin_assignment and current_user.site_admin)
@@ -724,6 +815,10 @@ def adjust_user_permissions(user_id, groups_with_required_role = None):
             group_name = Groups.query.get(group_id).name
 
             if submitted_role:
+                # Must be a real, group-assignable role -- validated even for site admins so an
+                # arbitrary string can never be written as a role.
+                if not validate_role(submitted_role)[0]:
+                    continue
                 if not current_user.site_admin and submitted_role not in get_assignable_roles(current_user, group_id):
                     continue
                 if membership and membership.role == submitted_role:
@@ -780,12 +875,15 @@ def create_group_route(groups_with_required_role = None):
         # Always a modal partial — launched from the Group Management page
         return render_template("v1/create_group.jinja")
 
-    name = (request.form.get("name") or "").strip()
-    description = (request.form.get("description") or "").strip() or None
-
-    if not name:
-        flash("A group name is required.", "danger")
+    name_ok, name = validate_text(request.form.get("name"), "A group name", MAX_GROUP_NAME, required=True)
+    if not name_ok:
+        flash(name, "danger")
         return redirect(url_for("auth.group_management"))
+    desc_ok, description = validate_text(request.form.get("description"), "Description", MAX_GROUP_DESC, required=False, multiline=True)
+    if not desc_ok:
+        flash(description, "danger")
+        return redirect(url_for("auth.group_management"))
+
     if Groups.query.filter_by(name = name).first():
         flash(f"A group named \"{name}\" already exists.", "danger")
         return redirect(url_for("auth.group_management"))
@@ -819,15 +917,23 @@ def group_data_sources(group_id, groups_with_required_role = None):
                             group = group, source_rows = source_rows)
 
     if request.method == "POST":
-        valid_ids = {s.id for s in all_sources}
-        submitted = []
+        # A non-site-admin may only attach sources they already own; otherwise a Data Owner could
+        # create a group (auto-owning it), attach every source, and thereby self-grant management of
+        # all sources -- letting them flip any restricted visual to public. Sources already on the
+        # group that the caller can't manage are preserved so a reconcile doesn't detach them.
+        if current_user.site_admin:
+            attachable_ids = {s.id for s in all_sources}
+        else:
+            attachable_ids = {s.id for s in owned_data_sources(current_user)}
+        submitted = set(current_ids - attachable_ids)
         for raw in request.form.getlist("source_ids"):
             try:
                 sid = int(raw)
             except (TypeError, ValueError):
                 continue
-            if sid in valid_ids:
-                submitted.append(sid)
+            if sid in attachable_ids:
+                submitted.add(sid)
+        submitted = list(submitted)
 
         changes = set_group_data_sources(group_id, submitted, changed_by = current_user.id)
         if changes:
@@ -1019,11 +1125,14 @@ def accept_invite(token = None):
                             email=payload.get("email"))
     
     if request.method == "POST":
-        username = request.form.get("username")
         password = request.form.get("password")
         confirm_password = request.form.get("confirm_password")
 
-        # Serverside validations to ensure password is strong, and user doesn't exist
+        # Serverside validations: username format, password strength/match, and uniqueness.
+        username_ok, username = validate_username(request.form.get("username"))
+        if not username_ok:
+            flash(username, "danger")
+            return redirect(url_for("auth.accept_invite"))
         if password != confirm_password:
             flash("Passwords do not match.", "danger")
             return redirect(url_for("auth.accept_invite"))

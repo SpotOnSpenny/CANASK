@@ -9,6 +9,10 @@ import bleach
 import boto3
 from botocore.exceptions import ClientError
 
+# Internal Dependency Imports
+from data_viz.extensions import limiter
+from data_viz.validation import validate_email, validate_text, MAX_FEEDBACK_NAME, MAX_FEEDBACK_BODY
+
 
 # Define the blueprint for the main application
 main_blueprint = Blueprint("main", __name__)
@@ -34,54 +38,87 @@ def page_not_found():
 
 # Route for Feedback submission and recaptcha verification
 @main_blueprint.route("/feedback", methods=["POST"])
+# Per-IP cap counts every attempt (also protects the reCAPTCHA quota + compute). The global cap is a
+# hard ceiling on SES emails across ALL clients, but only deducts on a successful send (status 200)
+# so a flood of reCAPTCHA-failing requests can't exhaust the budget and lock out real feedback.
+@limiter.limit(lambda: current_app.config["RATELIMIT_FEEDBACK"])
+@limiter.limit(lambda: current_app.config["RATELIMIT_FEEDBACK_GLOBAL"],
+               key_func=lambda: "feedback-global",
+               deduct_when=lambda response: response.status_code == 200)
 def feedback():
-    # Get the form data
     feedback_data = request.form
-    # Create POST request to send to the recaptcha verification server
-    print("sending recaptcha request")
-    recaptcha_response = requests.post("https://www.google.com/recaptcha/api/siteverify", data={"secret": os.environ.get("RECAPTCHA_SECRET"), "response": feedback_data["g-recaptcha-response"]})
-    if recaptcha_response.status_code != 200:
-        return jsonify({"status": "error", "message": "Recaptcha verification failed"}), 500
-    elif recaptcha_response.json()["success"] == False:
-        return jsonify({"status": "error", "message": "Recaptcha verification failed"}), 403
-    else:
-        try:
-            ses_client = boto3.client(
-                "ses",
-                region_name=os.environ.get("AWS_REGION"),
-                aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID"),
-                aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY")
-            )
-            response = ses_client.send_email(
-                Source=os.environ.get("SES_SENDER_EMAIL"),
-                Destination = {
-                    "ToAddresses": ["spencer.fietz@gmail.com"]
-                },
-                Message = {
-                    "Subject": {
-                        "Data": "CANASK Feedback Received"
-                    },
-                    "Body": {
-                        "Html": {
-                            "Data": f"""
-                            <h2>Name:</h2>{bleach.clean(feedback_data['name']) if feedback_data['name'] else "Anonymous"} </br>
-                            <h2>Feedback:</h2>{bleach.clean(feedback_data['feedback'])} </br>
-                            <h2>Reach them at:</h2>{bleach.clean(feedback_data['email'])}
-                            """
-                        }
-                    }
 
+    # Validate + normalize submitted fields before any external work. The message is required; name
+    # and email are optional but still length/format-checked when present. Length caps keep the SES
+    # email bounded and stop over-length values from ever reaching a String(255)-backed sink.
+    ok, feedback_body = validate_text(feedback_data.get("feedback"), "Feedback", MAX_FEEDBACK_BODY, required=True, multiline=True)
+    if not ok:
+        return jsonify({"status": "error", "message": feedback_body}), 400
+    ok, name = validate_text(feedback_data.get("name"), "Name", MAX_FEEDBACK_NAME, required=False)
+    if not ok:
+        return jsonify({"status": "error", "message": name}), 400
+    ok, email = validate_email(feedback_data.get("email"), required=False)
+    if not ok:
+        return jsonify({"status": "error", "message": email}), 400
+
+    # reCAPTCHA is required; a missing token is a bad request, not a server error.
+    recaptcha_token = feedback_data.get("g-recaptcha-response")
+    if not recaptcha_token:
+        return jsonify({"status": "error", "message": "Please complete the reCAPTCHA challenge."}), 400
+
+    # Verify with Google. Any transport failure or unexpected response shape MUST be treated as a
+    # verification failure -- never fall through to sending an email. `.get("success")` being missing
+    # or None is falsy, so `not success` correctly rejects a malformed response.
+    print("sending recaptcha request")
+    try:
+        recaptcha_response = requests.post(
+            "https://www.google.com/recaptcha/api/siteverify",
+            data={"secret": os.environ.get("RECAPTCHA_SECRET"), "response": recaptcha_token},
+            timeout=5,
+        )
+        recaptcha_result = recaptcha_response.json()
+    except (requests.RequestException, ValueError):
+        return jsonify({"status": "error", "message": "Recaptcha verification failed"}), 502
+    if recaptcha_response.status_code != 200 or not recaptcha_result.get("success"):
+        return jsonify({"status": "error", "message": "Recaptcha verification failed"}), 403
+
+    # Send the feedback email. Values are length-capped above and bleach-cleaned here before being
+    # embedded in the HTML body.
+    try:
+        ses_client = boto3.client(
+            "ses",
+            region_name=os.environ.get("AWS_REGION"),
+            aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID"),
+            aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY")
+        )
+        response = ses_client.send_email(
+            Source=os.environ.get("SES_SENDER_EMAIL"),
+            Destination = {
+                "ToAddresses": ["spencer.fietz@gmail.com"]
+            },
+            Message = {
+                "Subject": {
+                    "Data": "CANASK Feedback Received"
+                },
+                "Body": {
+                    "Html": {
+                        "Data": f"""
+                        <h2>Name:</h2>{bleach.clean(name) if name else "Anonymous"} </br>
+                        <h2>Feedback:</h2>{bleach.clean(feedback_body)} </br>
+                        <h2>Reach them at:</h2>{bleach.clean(email) if email else "Not provided"}
+                        """
+                    }
                 }
-            )
-        except ClientError as e:
-            print(e.response['Error']['Message'])
-            return jsonify({"status": "error", "message": "Failed to send feedback email"})
-        except Exception as e:
-            print(e)
-            return jsonify({"status": "error", "message": "Failed to send feedback email"}), 500
-        # Return an OK response
-        print(response)
-        return jsonify({"status": "success"}), 200;
+            }
+        )
+    except ClientError as e:
+        print(e.response['Error']['Message'])
+        return jsonify({"status": "error", "message": "Failed to send feedback email"}), 500
+    except Exception as e:
+        print(e)
+        return jsonify({"status": "error", "message": "Failed to send feedback email"}), 500
+    print(response)
+    return jsonify({"status": "success"}), 200
 
 # Route for V1 data visuals
 # Could automate this "active provinces check" but honestly this is easier and works fine for now
@@ -95,6 +132,33 @@ NATIONAL_DASHBOARDS = {
 }
 # Province keys the data API will serve in addition to active_provinces (the national scopes above).
 national_scopes = {dash["scope"] for dash in NATIONAL_DASHBOARDS.values()}
+
+# Endpoints that represent a navigable "page" -> human title. Endpoints absent from here (modals,
+# row re-renders, JSON APIs) intentionally resolve to None so their HTMX responses don't disturb the
+# current page title. Read by the title OOB swap + context processor in data_viz/__init__.py.
+STATIC_PAGE_TITLES = {
+    "main.index": "Home",
+    "main.page_not_found": "Page Not Found",
+    "auth.login": "Login",
+    "auth.invite_user": "Invite User",
+    "auth.invite_management": "Invite Management",
+    "auth.user_management": "User Management",
+    "auth.group_management": "Group Management",
+    "auth.data_ownership": "Data Ownership",
+    "auth.accept_invite": "Accept Invite",
+}
+
+def resolve_page_title():
+    """Bare page title (no 'CANASK | ' prefix) for the current request's endpoint, or None for
+    non-page responses (modals/rows/APIs) that must not touch the title."""
+    ep = request.endpoint
+    args = request.view_args or {}
+    if ep in ("main.v1_province", "main.v1_province_visual"):
+        return args["province"].replace("-", " ").title()
+    if ep in ("main.v1_national", "main.v1_national_visual"):
+        entry = NATIONAL_DASHBOARDS.get(args.get("dashboard"))
+        return entry["title"] if entry else None
+    return STATIC_PAGE_TITLES.get(ep)
 # Public-capable: anonymous visitors may load a province page; build_province_generic/menu filter the
 # content down to that viewer's accessible (e.g. public-only) visuals.
 def _render_province(province, **initial):
@@ -175,6 +239,7 @@ def v1_national_visual(dashboard, rest):
 # Serves both province scopes and national-dashboard scopes (e.g. "canada"); the user-facing national
 # page lives at /v1/national/<dashboard> -- this is the internal data endpoint it fetches.
 @main_blueprint.route("/api/v1/province/<province>/data")
+@limiter.limit(lambda: current_app.config["RATELIMIT_API"])
 def v1_province_data(province):
     if province not in active_provinces and province not in national_scopes:
         return jsonify({"error": "unknown province"}), 404
