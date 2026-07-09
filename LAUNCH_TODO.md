@@ -81,7 +81,8 @@ blast radius:
       `make prod-db-up` → `make prod-restore DUMP=<dump.sql>` → `make prod-up`. Fresh launch: `make prod-up`
       alone bootstraps schema + admin + visual definitions (charts stay blank until a restore). Capture a
       dump from the populated source DB with `make prod-backup > canask-YYYY-MM-DD.sql`.
-- [ ] **Schedule regular backups**: host cron running `make prod-backup` to off-box storage.
+- [ ] **Schedule regular backups**: host cron running `deploy/backup.sh` (gzip + S3 upload + local
+      pruning — see `DEPLOY_LIGHTSAIL.md §9` for the cron line).
 - [ ] Note: after `flask drop-db` you must `flask db stamp base` before `db upgrade` (Alembic stays
       stamped at head otherwise and rebuilds nothing).
 

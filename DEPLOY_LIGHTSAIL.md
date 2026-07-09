@@ -16,8 +16,10 @@ Topology: **client → Cloudflare (HTTPS) → nginx container (TLS, mTLS) → gu
 ## Before you start
 
 - A Cloudflare zone for your domain.
-- The current populated database as a dump (`make prod-backup > canask.sql` from wherever the data
-  lives — prod does not run scrapers).
+- The current populated database as a dump from wherever the data lives (prod does not run scrapers).
+  `make prod-backup > canask.sql` works on a machine that has `app_config/.env.prod`; on the dev box,
+  dump directly instead:
+  `docker compose --env-file app_config/.env.dev exec -T db sh -c 'pg_dump -U $POSTGRES_USER $POSTGRES_DB' > canask.sql`
 - Values for every key in `app_config/.env.example` (rotated secrets — see `LAUNCH_TODO.md §0`).
 
 ---

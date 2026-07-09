@@ -30,12 +30,16 @@ prod-db-up:
 	$(PROD) up -d db
 
 # Load a Postgres dump captured with `make prod-backup` (or pg_dump elsewhere). Usage: make prod-restore DUMP=backup.sql
+# ON_ERROR_STOP + --single-transaction: psql's default is to keep going past failed statements and
+# exit 0, which would report a silently partial restore as success.
 prod-restore:
-	$(PROD) exec -T db sh -c 'psql -U $$POSTGRES_USER $$POSTGRES_DB' < "$(DUMP)"
+	$(PROD) exec -T db sh -c 'psql -v ON_ERROR_STOP=1 --single-transaction -U $$POSTGRES_USER $$POSTGRES_DB' < "$(DUMP)"
 
 # Dump the running database to stdout -> a file. Usage: make prod-backup > canask-$(date +%F).sql
+# The @ is load-bearing: without it make echoes the recipe to stdout, which lands as the first line
+# of the redirected dump and corrupts every backup (deploy/backup.sh pipes this into gzip).
 prod-backup:
-	$(PROD) exec -T db sh -c 'pg_dump -U $$POSTGRES_USER $$POSTGRES_DB'
+	@$(PROD) exec -T db sh -c 'pg_dump -U $$POSTGRES_USER $$POSTGRES_DB'
 
 # Manual maintenance against prod (the init service already runs these on prod-up).
 prod-migrate:

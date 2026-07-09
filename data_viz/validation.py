@@ -27,23 +27,16 @@ MAX_FEEDBACK_BODY = 5000
 
 _USERNAME_RE = re.compile(r"\A" + USERNAME_PATTERN + r"\Z")
 
-# Invisible / bidirectional-control characters. These survive HTML autoescaping and enable
-# display/homoglyph/bidi spoofing (e.g. a group name that visually reads differently than it stores),
-# so free-text fields reject them outright.
-_INVISIBLE_CHARS = {
-    "​", "‌", "‍", "⁠", "﻿",           # zero-width space/joiners/BOM
-    "‎", "‏",                                          # LTR/RTL marks
-    "‪", "‫", "‬", "‭", "‮",           # bidi embeddings/overrides
-    "⁦", "⁧", "⁨", "⁩",                     # bidi isolates
-}
-
-
 def _has_disallowed_chars(value, allow_newlines=False):
-    """True if value contains a C0/C1 control character or an invisible/bidi-control character.
-    When allow_newlines is set, tab/newline/carriage-return are permitted (multi-line fields)."""
+    """True if value contains a C0/C1 control character or an invisible/format character.
+    Unicode category Cf (format) covers the full invisible/bidi-spoofing family -- zero-width
+    space/joiners, BOM, LTR/RTL marks, bidi embeddings/overrides/isolates, soft hyphen, tag
+    characters -- which survive HTML autoescaping and enable display/homoglyph/bidi spoofing
+    (e.g. a group name that visually reads differently than it stores). When allow_newlines is
+    set, tab/newline/carriage-return are permitted (multi-line fields)."""
     allowed = {"\t", "\n", "\r"} if allow_newlines else set()
     for ch in value:
-        if ch in _INVISIBLE_CHARS:
+        if unicodedata.category(ch) == "Cf":
             return True
         cp = ord(ch)
         if (cp < 0x20 or 0x7f <= cp <= 0x9f) and ch not in allowed:  # C0 controls, DEL, C1 controls
@@ -51,9 +44,18 @@ def _has_disallowed_chars(value, allow_newlines=False):
     return False
 
 
+def _not_a_string(value):
+    """Guard the trust boundary against non-string payloads (e.g. a JSON body submitting a number or
+    list where form data would be a str): validators must answer with a 400-shaped rejection, not
+    crash into a 500. None is fine -- every validator treats it as blank."""
+    return value is not None and not isinstance(value, str)
+
+
 def validate_email(value, required=True):
     """Validate email syntax (no DNS/deliverability lookup) and normalize it. Returns
     (True, normalized) or (False, message). When not required, a blank value passes as (True, None)."""
+    if _not_a_string(value):
+        return False, "Please enter a valid email address."
     value = (value or "").strip()
     if not value:
         return (True, None) if not required else (False, "An email address is required.")
@@ -70,6 +72,8 @@ def validate_email(value, required=True):
 def validate_username(value):
     """Strict username policy: 3-30 chars of letters, digits, and . _ - only.
     Returns (True, value) or (False, message)."""
+    if _not_a_string(value):
+        return False, "A username is required."
     value = (value or "").strip()
     if not value:
         return False, "A username is required."
@@ -86,22 +90,27 @@ def validate_text(value, label, max_len, required=True, multiline=False):
     optional value passes as (True, None). Values containing control, zero-width, or bidirectional
     characters are rejected (these survive HTML escaping and enable spoofing). multiline=True permits
     tab/newline/carriage-return (for genuinely multi-line fields)."""
+    if _not_a_string(value):
+        return False, f"{label} is invalid."
     value = unicodedata.normalize("NFC", value or "").strip()
     if not value:
         return (True, None) if not required else (False, f"{label} is required.")
-    if _has_disallowed_chars(value, allow_newlines=multiline):
-        return False, f"{label} contains invalid or hidden characters. Please remove them."
+    # Cheap length check before the per-character scan, so an over-length value is rejected without
+    # doing the most expensive work first.
     if len(value) > max_len:
         return False, f"{label} must be at most {max_len} characters."
+    if _has_disallowed_chars(value, allow_newlines=multiline):
+        return False, f"{label} contains invalid or hidden characters. Please remove them."
     return True, value
 
 
-def validate_role(role, allow_site_admin=False):
-    """The submitted role string must be a known role. By default the group-scoped roles are allowed
-    but "Site Admin" is not (site-admin is granted via the dedicated site_admin flag, not a group
-    role). Returns (True, role) or (False, message)."""
+def validate_role(role):
+    """The submitted role string must be a known, group-assignable role. "Site Admin" is never a
+    group role (site-admin is granted via the dedicated site_admin flag), so it is rejected here;
+    the invite/add-user form's site-admin path special-cases the string before role validation.
+    Returns (True, role) or (False, message)."""
     if role not in ROLE_HIERARCHY:
         return False, "Unknown role."
-    if role == "Site Admin" and not allow_site_admin:
+    if role == "Site Admin":
         return False, "Invalid role for a group assignment."
     return True, role

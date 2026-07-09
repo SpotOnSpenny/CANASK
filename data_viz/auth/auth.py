@@ -30,16 +30,40 @@ auth_blueprint = Blueprint("auth", __name__)
 _DUMMY_PASSWORD_HASH = hashpw(b"password-does-not-matter", gensalt())
 
 
-def recent_login_failures(user_id):
-    """Count this account's failed login attempts inside the lockout window (see LOGIN_LOCKOUT_*).
-    Used to lock a single account under distributed brute-forcing that rotates source IPs."""
+def recent_login_failures(user_id, ip_address=None):
+    """Count this account's failed login attempts inside the lockout window (see LOGIN_LOCKOUT_*),
+    optionally restricted to one source IP. Failures before the account's most recent successful
+    login don't count -- a legitimate user who mistyped near the threshold must not be locked out
+    right after authenticating."""
     cutoff = datetime.now(timezone.utc) - current_app.config["LOGIN_LOCKOUT_WINDOW"]
-    return UserActivity.query.filter(
+    query = UserActivity.query.filter(
         UserActivity.user_id == user_id,
         UserActivity.activity_type == "authentication attempt",
         UserActivity.details.like("Failed login%"),
         UserActivity.timestamp >= cutoff,
-    ).count()
+    )
+    last_success = (UserActivity.query.filter(
+        UserActivity.user_id == user_id,
+        UserActivity.activity_type == "authentication attempt",
+        UserActivity.details == "Successful login",
+        UserActivity.timestamp >= cutoff,
+    ).order_by(UserActivity.timestamp.desc()).first())
+    if last_success:
+        query = query.filter(UserActivity.timestamp > last_success.timestamp)
+    if ip_address:
+        query = query.filter(UserActivity.ip_address == ip_address)
+    return query.count()
+
+
+def login_locked_out(user):
+    """Two-dimension lockout so it can't be weaponized against a known account:
+    - per (account, source IP): trips at LOGIN_LOCKOUT_THRESHOLD -- an attacker hammering from
+      their own IP(s) locks only those IPs out of the account, not the legitimate user.
+    - account-wide: a higher ceiling (LOGIN_LOCKOUT_ACCOUNT_THRESHOLD) that still bounds a
+      distributed, IP-rotating brute force."""
+    if recent_login_failures(user.id, request.remote_addr) >= current_app.config["LOGIN_LOCKOUT_THRESHOLD"]:
+        return True
+    return recent_login_failures(user.id) >= current_app.config["LOGIN_LOCKOUT_ACCOUNT_THRESHOLD"]
 
 
 def _log_auth_attempt(user, identifier, details):
@@ -84,7 +108,9 @@ def send_invite_email(invite):
 def require_auth(view):
     @wraps(view)
     def wrapped_view(**kwargs):
-        if not current_user.is_authenticated:
+        # The explicit is_active check is belt-and-braces with load_user below: deactivation must be
+        # an immediate kill-switch, not depend on the UserMixin.is_authenticated -> is_active subtlety.
+        if not current_user.is_authenticated or not current_user.is_active:
             flash("You need to be logged in to access this page.", "warning")
             return redirect(url_for("auth.login"))
         return view(**kwargs)
@@ -92,7 +118,12 @@ def require_auth(view):
 
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    user = User.query.get(int(user_id))
+    # A deactivated account's existing session dies here: returning None makes Flask-Login treat the
+    # request as anonymous on its very next request, regardless of the session cookie's lifetime.
+    if user and not user.is_active:
+        return None
+    return user
 
 # Decorator to check if user has required role for specified group
 def require_role(role, group_id_source, action = None):
@@ -164,31 +195,45 @@ def require_role(role, group_id_source, action = None):
             
 
 def parse_group_assignments(form_data):
-    """Parse the shared invite/add-user form. Returns (site_admin, {group_id: role}).
+    """Parse the shared invite/add-user form. Returns (site_admin, {group_id: role}, skipped).
 
     Each group_assignment value is expected to be exactly "<group name>__<role>". Values not matching
-    that shape (hostile/garbled form input) are skipped rather than raising, and only known roles are
-    accepted -- authorization (whether the caller may grant that role) is enforced separately by
-    validate_group_assignments."""
+    that shape (hostile/garbled form input), unknown roles, and group names that no longer resolve
+    (e.g. a group renamed between page render and submit) are skipped rather than raising -- but they
+    are returned in `skipped` so callers can tell the admin what was dropped instead of silently
+    creating a lesser invite. Authorization (whether the caller may grant that role) is enforced
+    separately by validate_group_assignments."""
     site_admin = False
     group_assignments = {}
+    skipped = []
     for key, value in form_data.items():
         if "group_assignment" not in key:
             continue
         parts = (value or "").split("__")
         if len(parts) != 2:
+            skipped.append(value or "(empty)")
             continue
         group_name, role = parts
         if role == "Site Admin":
             site_admin = True
-            return site_admin, {}
+            return site_admin, {}, []
         role_ok, _ = validate_role(role)
         if not role_ok:
+            skipped.append(f"{group_name} ({role})")
             continue
         group = Groups.query.filter_by(name = group_name).first()
         if group:
             group_assignments[group.id] = role
-    return site_admin, group_assignments
+        else:
+            skipped.append(f"{group_name} ({role})")
+    return site_admin, group_assignments, skipped
+
+
+def flash_skipped_assignments(skipped):
+    """Surface any assignments parse_group_assignments dropped, so a partially-applied form never
+    renders a success-looking response without explanation."""
+    if skipped:
+        flash(f"These assignments were not applied (unknown group or role): {', '.join(skipped)}", "warning")
 
 def validate_group_assignments(group_assignments, groups_with_required_role):
     """Authorize a parsed {group_id: role} map against the caller's permissions.
@@ -266,8 +311,9 @@ def login():
         ).first()
 
         # Per-account lockout: refuse before verifying the password once this account has too many recent
-        # failures, so a distributed (IP-rotating) attack against one account is bounded, not just per-IP.
-        if user and recent_login_failures(user.id) >= current_app.config["LOGIN_LOCKOUT_THRESHOLD"]:
+        # failures (per-IP first, account-wide ceiling second -- see login_locked_out), so a distributed
+        # (IP-rotating) attack against one account is bounded, not just per-IP.
+        if user and login_locked_out(user):
             _log_auth_attempt(user, identifier, "Login blocked: too many recent failed attempts")
             flash("Too many failed login attempts. Please wait a few minutes and try again.", "danger")
             return _render_login()
@@ -355,7 +401,13 @@ def invite_user(groups_with_required_role = None):
             return redirect(url_for("auth.invite_user"))
 
         # Parse form data first so we know what's being requested
-        site_admin_invite, group_assignments = parse_group_assignments(request.form.to_dict())
+        site_admin_invite, group_assignments, skipped = parse_group_assignments(request.form.to_dict())
+        flash_skipped_assignments(skipped)
+        # Refuse a permissionless invite: if every assignment was dropped (or none was submitted),
+        # sending it anyway would invite someone into nothing while telling the admin it succeeded.
+        if not site_admin_invite and not group_assignments:
+            flash("No valid group assignments were submitted, so no invite was created.", "danger")
+            return redirect(url_for("auth.invite_user"))
 
         # Authorize the request before acting on it: the role decorator only proves the caller is a
         # Group Admin in *some* group, not that this site-admin flag / these group+role pairs are in
@@ -660,6 +712,7 @@ def adjust_invite_permissions(invite_id, groups_with_required_role=None):
                 db.session.delete(ig)
         db.session.flush()
         new_igs = []
+        rejected = []
         # Add on the new/altered permisions
         for key, value in form_data.items():
             if key.startswith("role_"):
@@ -667,16 +720,21 @@ def adjust_invite_permissions(invite_id, groups_with_required_role=None):
                 if not suffix.isdigit():   # malformed role_ key -> skip rather than crash on int()
                     continue
                 group_id = int(suffix)
+                group = Groups.query.get(group_id)
+                group_label = group.name if group else f"group {group_id}"
                 # The submitted role must be a real, group-assignable role -- validated even for site
                 # admins so an arbitrary string can never be written as a role.
                 if not validate_role(value)[0]:
+                    rejected.append(group_label)
                     continue
                 # managed_group_ids is None only for site admins (who may assign any role).
                 if managed_group_ids is not None and group_id not in managed_group_ids:
+                    rejected.append(group_label)
                     continue
                 # A non-site-admin may only assign roles below their own in that group; skip any the
                 # caller isn't allowed to grant rather than silently elevating.
                 if not current_user.site_admin and value not in get_assignable_roles(current_user, group_id):
+                    rejected.append(f"{group_label} ({value})")
                     continue
                 new_ig = InviteGroups(
                     invite_id=invite.id,
@@ -685,6 +743,10 @@ def adjust_invite_permissions(invite_id, groups_with_required_role=None):
                 )
                 new_igs.append(new_ig)
                 db.session.add(new_ig)
+        # Rejecting an out-of-scope role is the correct RBAC outcome, but doing it silently is not --
+        # tell the caller which requested changes were dropped instead of rendering pure success.
+        if rejected:
+            flash(f"Some changes were not applied (invalid role or outside your scope): {', '.join(rejected)}", "warning")
 
         db.session.flush()
 
@@ -762,7 +824,11 @@ def add_user(groups_with_required_role = None):
         if not email_ok:
             flash(email, "danger")
             return redirect(url_for("auth.user_management"))
-        site_admin_assignment, group_assignments = parse_group_assignments(request.form.to_dict())
+        site_admin_assignment, group_assignments, skipped = parse_group_assignments(request.form.to_dict())
+        flash_skipped_assignments(skipped)
+        if not site_admin_assignment and not group_assignments:
+            flash("No valid group assignments were submitted.", "danger")
+            return redirect(url_for("auth.user_management"))
         existing_user = User.query.filter_by(email = email).first()
 
         # Existing account → assign directly (no invite needed)
@@ -882,6 +948,7 @@ def adjust_user_permissions(user_id, groups_with_required_role = None):
             ]
 
         changed = []
+        rejected = []
         for group_id in scope_group_ids:
             submitted_role = form_data.get(f"role_{group_id}")
             membership = UserGroups.query.filter_by(user_id = user_id, group_id = group_id).first()
@@ -891,8 +958,10 @@ def adjust_user_permissions(user_id, groups_with_required_role = None):
                 # Must be a real, group-assignable role -- validated even for site admins so an
                 # arbitrary string can never be written as a role.
                 if not validate_role(submitted_role)[0]:
+                    rejected.append(group_name)
                     continue
                 if not current_user.site_admin and submitted_role not in get_assignable_roles(current_user, group_id):
+                    rejected.append(f"{group_name} ({submitted_role})")
                     continue
                 if membership and membership.role == submitted_role:
                     continue
@@ -905,6 +974,9 @@ def adjust_user_permissions(user_id, groups_with_required_role = None):
 
         if changed:
             flash(f"Updated access for {target.username}: {', '.join(changed)}.", "success")
+        # Dropped requests must be visible, not folded into a success-looking row render.
+        if rejected:
+            flash(f"Some changes were not applied (invalid role or outside your scope): {', '.join(rejected)}", "warning")
 
         memberships = get_user_memberships_in_groups(user_id, managed_group_ids)
         return render_template("v1/partials/user_row.jinja",

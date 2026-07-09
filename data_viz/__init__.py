@@ -33,8 +33,11 @@ try:
     # XSS). No template uses |safe/Markup, so escaping everything is safe and matches intended usage.
     app.jinja_env.autoescape = True
 except Exception as e:
+    # Re-raise: swallowing this leaves `app` undefined, so the module would die a few lines later
+    # with an unrelated NameError that buries this root cause. The app cannot run half-initialized.
     print(f"An error occured while initializing the Flask app:")
     print(e)
+    raise
 
 # Register and bundle the static CSS and JS assets
 assets = Environment(app)
@@ -195,7 +198,11 @@ def ratelimit_handler(e):
             jsonify({"status": "error", "error": "rate_limited",
                      "message": "Too many requests. Please slow down and try again shortly."}),
             429)
-    return make_response(render_template("429.jinja"), 429)
+    # Match the app-wide HTMX convention: bare partial for HTMX swaps, base.jinja wrapper for full
+    # page loads (the bare partial has no CSS and its hx-get button needs htmx loaded).
+    if request.headers.get("HX-Request"):
+        return make_response(render_template("429.jinja"), 429)
+    return make_response(render_template("base.jinja", include_partials="429"), 429)
 
 # Test code below
 if __name__ == '__main__':

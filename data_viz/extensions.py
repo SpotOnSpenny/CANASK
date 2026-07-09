@@ -24,10 +24,14 @@ def client_ip():
     """
     header = (current_app.config.get("RATELIMIT_CLIENT_IP_HEADER") or "").strip()
     if header:
-        forwarded = request.headers.get(header)
-        if forwarded:
-            # A forwarding header may carry a comma-separated list; the client is the first entry.
-            return forwarded.split(",")[0].strip()
+        forwarded = (request.headers.get(header) or "").strip()
+        # Only single-valued, edge-set headers are supported (CF-Connecting-IP, True-Client-IP --
+        # Cloudflare always sets exactly one IP). A comma-separated value means this is NOT that
+        # header (e.g. someone pointed the config at X-Forwarded-For, whose leftmost entry is
+        # client-controlled) or a spoof attempt -- reject it and key on the ProxyFix-corrected
+        # remote_addr instead of trusting any entry.
+        if forwarded and "," not in forwarded:
+            return forwarded
     return get_remote_address()
 
 

@@ -5,15 +5,18 @@
 import os
 
 import boto3
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 from flask import current_app
 
 
 def send_ses_email(to_addresses, subject, html_body):
     """Send an HTML email via SES to one or more recipients.
 
-    Returns True on success, False on failure (failures are logged, never raised) so callers can degrade
-    gracefully -- e.g. still create an invite even if the notification email couldn't be sent.
+    Returns True on success, False on SES/AWS failure (logged, not raised) so callers can degrade
+    gracefully -- e.g. still create an invite even if the notification email couldn't be sent. Only
+    AWS-side failures (ClientError, BotoCoreError -- bad credentials, unreachable endpoint, rejected
+    send) are converted to False; anything else is a programming bug and propagates, so it can't
+    masquerade as an email-config problem.
     """
     sender = os.environ.get("SES_SENDER_EMAIL")
     if not sender:
@@ -36,8 +39,14 @@ def send_ses_email(to_addresses, subject, html_body):
         )
         return True
     except ClientError as e:
-        current_app.logger.error("SES send_email failed: %s", e.response["Error"]["Message"])
+        # The response dict's shape isn't guaranteed -- .get() so the handler itself can't KeyError.
+        error = e.response.get("Error", {})
+        current_app.logger.error(
+            "SES send_email to %s (subject %r) failed: %s %s",
+            to_addresses, subject, error.get("Code", "unknown"), error.get("Message", str(e)))
         return False
-    except Exception as e:
-        current_app.logger.exception("Unexpected error sending email: %s", e)
+    except BotoCoreError as e:
+        # Covers NoCredentialsError, EndpointConnectionError, etc. -- config/connectivity problems.
+        current_app.logger.error(
+            "SES send_email to %s (subject %r) failed: %s", to_addresses, subject, e)
         return False

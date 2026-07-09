@@ -14,8 +14,7 @@ Also gained: proper **security groups** (real source-IP filtering) and **encrypt
 > cloning the repo, TLS certs, Cloudflare settings, first launch, verification, updates, rollback — follow
 > **[DEPLOY_LIGHTSAIL.md](DEPLOY_LIGHTSAIL.md)**; they're identical once the box and secrets exist.
 
-The security posture is also tracked in `LAUNCH_TODO.md §0` (the Lightsail note there points here for the
-IAM-role upgrade).
+The security posture is also tracked in `LAUNCH_TODO.md §0`.
 
 ---
 
@@ -62,8 +61,11 @@ app needs — SES send, reading its own secret, and writing backups:
 With this role attached, `boto3` and the `aws` CLI pick up credentials automatically from instance
 metadata. **No code change is needed** — `data_viz/email.py` already passes
 `aws_access_key_id=os.environ.get(...)`, and when those env vars are simply **unset**, boto3 falls
-through to the instance-role credential chain. So in `.env.prod` you just leave `AWS_ACCESS_KEY_ID` and
-`AWS_SECRET_ACCESS_KEY` **blank** and keep `AWS_REGION` set. Same for `deploy/backup.sh` — drop the
+through to the instance-role credential chain. So in `.env.prod`, **remove (or comment out) the
+`AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` lines entirely** and keep `AWS_REGION` set. Do NOT
+leave them blank: a `AWS_ACCESS_KEY_ID=` line in a compose `env_file` sets the variable to the empty
+string, which botocore treats as explicit (broken) static credentials instead of falling through to
+the role — SES calls then fail with an auth error. Same for `deploy/backup.sh` — drop the
 `aws configure` step from the Lightsail runbook; the role covers the S3 upload.
 
 > If you encrypt the secret/params with a **customer-managed KMS key**, add `kms:Decrypt` on that key to
@@ -117,8 +119,8 @@ chmod 600 "$OUT"
 echo "wrote $OUT"
 ```
 
-Deploy becomes: `./deploy/fetch-secrets.sh && make prod-up`. (I can materialize this script into the repo
-if you commit to EC2 — say the word.)
+Deploy becomes: `./deploy/fetch-secrets.sh && make prod-up`. (The script above is a template — commit it
+as `deploy/fetch-secrets.sh` if/when migrating to EC2.)
 
 > **Even further — ECS/Fargate**: if you'd rather have *no* secret file on the host at all, run the same
 > images on ECS/Fargate and use the task definition's native `secrets:` block to inject Secrets Manager /

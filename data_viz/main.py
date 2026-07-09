@@ -75,16 +75,29 @@ def feedback():
     # Verify with Google. Any transport failure or unexpected response shape MUST be treated as a
     # verification failure -- never fall through to sending an email. `.get("success")` being missing
     # or None is falsy, so `not success` correctly rejects a malformed response.
+    recaptcha_secret = os.environ.get("RECAPTCHA_SECRET")
+    if not recaptcha_secret:
+        # A missing secret would make Google reject every user with invalid-input-secret; that's a
+        # server misconfiguration, not the user's mistake.
+        current_app.logger.error("RECAPTCHA_SECRET is not set; rejecting feedback submission")
+        return jsonify({"status": "error", "message": "Recaptcha verification failed"}), 502
     try:
         recaptcha_response = requests.post(
             "https://www.google.com/recaptcha/api/siteverify",
-            data={"secret": os.environ.get("RECAPTCHA_SECRET"), "response": recaptcha_token},
+            data={"secret": recaptcha_secret, "response": recaptcha_token},
             timeout=5,
         )
         recaptcha_result = recaptcha_response.json()
     except (requests.RequestException, ValueError):
+        # Fail closed, but never silently: a Google outage/DNS break otherwise looks identical to bot
+        # traffic and a sustained feedback-form outage would be invisible to ops.
+        current_app.logger.exception("reCAPTCHA verification request to Google failed")
         return jsonify({"status": "error", "message": "Recaptcha verification failed"}), 502
     if recaptcha_response.status_code != 200 or not recaptcha_result.get("success"):
+        # error-codes distinguishes misconfiguration (invalid-input-secret) from bot traffic.
+        current_app.logger.warning(
+            "reCAPTCHA rejected submission: HTTP %s, error-codes=%s",
+            recaptcha_response.status_code, recaptcha_result.get("error-codes"))
         return jsonify({"status": "error", "message": "Recaptcha verification failed"}), 403
 
     # Send the feedback email. Values are length-capped above and bleach-cleaned here before being
