@@ -14,17 +14,18 @@
                 novalidate
             >
                 <div class="mb-3">
-                <label for="username" class="form-label">Username</label>
+                <label for="username" class="form-label">Username or Email</label>
                 <input
                     type="text"
                     name="username"
                     id="username"
                     class="form-control"
+                    maxlength="254"
                     required
                     autofocus
                 >
                 <div class="invalid-feedback">
-                    Please enter your username.
+                    Please enter your username or email.
                 </div>
                 </div>
 
@@ -35,6 +36,7 @@
                     name="password"
                     id="password"
                     class="form-control"
+                    maxlength="128"
                     required
                 >
                 <div class="invalid-feedback">
@@ -51,6 +53,3 @@
         </div>
     </div>
 </div>
-
-<!-- Also swap the title -->
-<title hx-swap-oob="true">CANASK | Login</title>

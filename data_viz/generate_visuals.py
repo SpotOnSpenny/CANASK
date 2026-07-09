@@ -1103,6 +1103,11 @@ class VisualWriter:
                           time_frame_type=(time_frame_type or TIME_FRAME_TYPE))
         if v.geo_type == "province":
             self.writer.predicate(v.id, "geo", geo)   # province-shared facts scoped to this geo
+        if dimension is not None:
+            # Sibling visuals can share (source, metric, geo_type, dimension2_type, geo) and differ only
+            # by this dimension value -- e.g. opioid vs stimulant harms-by-type. Record the values this
+            # visual actually emits so the read path scopes to its own slice instead of pulling both.
+            self.writer.predicate(v.id, "dimension", dimension)
 
     def additional(self, geo, time_frame, label, value, *, time_frame_type=None):
         """A table-only total row: one additional_rows fact + its additional_metric predicate."""

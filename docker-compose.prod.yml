@@ -1,0 +1,83 @@
+# Production override: layer on top of the base compose (see Makefile `prod-up`, which exports
+# APP_ENV_FILE=app_config/.env.prod so the app services load prod config, not .env.dev).
+#
+# The base file already runs `web` under gunicorn with no source bind-mount, so this file adds the
+# production-only concerns: an nginx TLS front, a one-shot DB bootstrap, Redis authentication, and
+# restart policies. Only nginx publishes host ports (80/443); web/db/redis stay internal to the compose
+# network.
+#
+# .env.prod MUST set: DEBUG=false, a strong REDIS_PASSWORD, and Redis URLs that carry that password, e.g.
+#   CELERY_BROKER_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+#   CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD}@redis:6379/0
+#   RATELIMIT_STORAGE_URI=redis://:${REDIS_PASSWORD}@redis:6379/1
+services:
+  redis:
+    # Require a password. `redis-cli ping` (unauthenticated) returns NOAUTH, so the healthcheck
+    # authenticates; --no-auth-warning keeps the password off stderr.
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD must be set for prod}"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set for prod}
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  db:
+    restart: unless-stopped
+
+  # One-shot bootstrap: bring the schema to head, ensure the admin exists, and sync visual definitions.
+  # All three steps are idempotent, so this is safe on a fresh DB and on one already restored from a
+  # dump (db upgrade no-ops at head). web/worker/beat wait for it to complete before starting.
+  init:
+    build:
+      context: .
+      args:
+        REQUIREMENTS_FILE: app_requirements/requirements.webapp.txt
+    command: sh -c "flask db upgrade && flask init-db && flask define-visuals"
+    env_file:
+      - ${APP_ENV_FILE:-app_config/.env.dev}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  web:
+    # No host port in prod -- nginx (below) is the only ingress and reaches this over the compose network.
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  worker:
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  beat:
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # TLS-terminating reverse proxy (Cloudflare -> nginx -> web). Config + certs mounted read-only; see
+  # deploy/nginx/canask.conf and deploy/nginx/tls/README.md.
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx/canask.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/nginx/tls:/etc/nginx/tls:ro
+    depends_on:
+      web:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped

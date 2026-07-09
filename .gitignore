@@ -28,3 +28,10 @@ CLAUDE.md
 *_seed.json
 PRODUCT.md
 docs/
+# nginx origin TLS material (Cloudflare origin cert/key + origin-pull CA) -- operator-provided secrets
+deploy/nginx/tls/*
+!deploy/nginx/tls/README.md
+# Local database dumps written by deploy/backup.sh
+backups/
+*.sql
+*.sql.gz

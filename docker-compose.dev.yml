@@ -1,8 +1,21 @@
+# Dev override: layer on top of the base compose (see Makefile `dev-up`).
+# Adds the live-reload source bind-mount, the Werkzeug dev server for `web`, and host port exposure.
+# The base file is env-neutral and defaults APP_ENV_FILE to .env.dev, so nothing here re-points env files.
 services:
   web:
     command: flask run --debug --host=0.0.0.0
+    volumes:
+      - .:/canask_webapp
     ports:
       - "5001:5000"
+
+  worker:
+    volumes:
+      - .:/canask_webapp
+
+  beat:
+    volumes:
+      - .:/canask_webapp
 
   db:
     ports:

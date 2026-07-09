@@ -17,11 +17,20 @@ def create_admin_user():
     admin_email = os.environ.get("BOOTSTRAP_ADMIN_EMAIL")
     admin_username = os.environ.get("BOOTSTRAP_ADMIN_USERNAME")
     admin_password = os.environ.get("BOOTSTRAP_ADMIN_PASSWORD")
-    admin_password = hashpw(admin_password.encode("utf-8"), gensalt()).decode("utf-8")
 
+    # Guard BEFORE hashing -- a missing password would otherwise crash on .encode() with AttributeError.
+    # In prod this runs in the one-shot `init` service that web/worker/beat gate on, so a fresh stack
+    # with unset bootstrap creds must fail visibly (exit non-zero), not boot "successfully" with no
+    # admin. But once a site admin exists the creds are allowed to be blank -- LAUNCH_TODO.md tells the
+    # operator to blank BOOTSTRAP_ADMIN_PASSWORD after first launch, and init-db reruns on every prod-up.
     if not admin_email or not admin_username or not admin_password:
+        if User.query.filter_by(site_admin=True).first():
+            print("Bootstrap admin credentials are unset, but a site admin already exists; nothing to do.")
+            return
         print("Admin user credentials are not fully set in the environment variables.")
-        return
+        raise SystemExit(1)
+
+    admin_password = hashpw(admin_password.encode("utf-8"), gensalt()).decode("utf-8")
 
     existing_admin = User.query.filter_by(email=admin_email).first()
     if existing_admin:
@@ -32,7 +41,7 @@ def create_admin_user():
         email = admin_email,
         username = admin_username,
         site_admin = True,
-        status = "active",
+        status = User.STATUS_ACTIVE,
         password_hash = admin_password
     )
     db.session.add(new_admin)
@@ -121,7 +130,7 @@ def create_from_seed(admin_username = None):
                     password = user["password"],
                     invited_by = admin_user.id,
                     site_admin = user.get("site_admin", False),
-                    status = "active"
+                    status = User.STATUS_ACTIVE
                 )
                 print(f"Successfully created user {user['username']} from seed data.")
                 if "groups" in user.keys():

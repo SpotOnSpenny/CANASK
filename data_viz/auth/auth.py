@@ -4,10 +4,11 @@ from datetime import datetime, timezone
 
 # External imports
 from flask import Blueprint, request, render_template, flash, current_app, redirect, url_for, session, make_response
-from bcrypt import checkpw, gensalt
+from bcrypt import checkpw, gensalt, hashpw
 import jwt
 from flask_login import login_user, current_user, logout_user
 from celery.result import AsyncResult
+from sqlalchemy import or_, func
 
 
 # Internal imports
@@ -16,16 +17,100 @@ from data_viz.database import db
 from data_viz.database.models import User, Invites, Groups, UserGroups, UserActivity, InviteGroups, DataSources, GroupDataSources, Visuals, GroupVisuals
 from data_viz.auth.auth_helpers import get_user_groups, get_assignable_roles, validate_password, create_user, create_group, assign_group, assign_site_admin, get_manageable_users, get_user_memberships_in_groups, get_manageable_groups, set_group_data_sources, owned_data_sources, can_manage_source, teams_for_source, visuals_for_source, set_group_visuals, set_visual_visibility, set_province_default_visual, visibility_rows_for_source
 from data_viz.auth.role_hierarchy import ROLE_HIERARCHY
+from data_viz.extensions import limiter
+from data_viz.email import send_ses_email
+from data_viz.validation import validate_email, validate_username, validate_text, validate_role, MAX_GROUP_NAME, MAX_GROUP_DESC
 from celery_worker.tasks.invite_jwt_expiry import expire_invite
 
 # Define the auth blueprint for authentication related routes
 auth_blueprint = Blueprint("auth", __name__)
 
+# A fixed bcrypt hash compared against when no user matches, so a missing identifier costs the same
+# ~bcrypt time as a wrong password -- closes the login timing side-channel that leaks valid usernames.
+_DUMMY_PASSWORD_HASH = hashpw(b"password-does-not-matter", gensalt())
+
+
+def recent_login_failures(user_id, ip_address=None):
+    """Count this account's failed login attempts inside the lockout window (see LOGIN_LOCKOUT_*),
+    optionally restricted to one source IP. Failures before the account's most recent successful
+    login don't count -- a legitimate user who mistyped near the threshold must not be locked out
+    right after authenticating."""
+    cutoff = datetime.now(timezone.utc) - current_app.config["LOGIN_LOCKOUT_WINDOW"]
+    query = UserActivity.query.filter(
+        UserActivity.user_id == user_id,
+        UserActivity.activity_type == "authentication attempt",
+        UserActivity.details.like("Failed login%"),
+        UserActivity.timestamp >= cutoff,
+    )
+    last_success = (UserActivity.query.filter(
+        UserActivity.user_id == user_id,
+        UserActivity.activity_type == "authentication attempt",
+        UserActivity.details == "Successful login",
+        UserActivity.timestamp >= cutoff,
+    ).order_by(UserActivity.timestamp.desc()).first())
+    if last_success:
+        query = query.filter(UserActivity.timestamp > last_success.timestamp)
+    if ip_address:
+        query = query.filter(UserActivity.ip_address == ip_address)
+    return query.count()
+
+
+def login_locked_out(user):
+    """Two-dimension lockout so it can't be weaponized against a known account:
+    - per (account, source IP): trips at LOGIN_LOCKOUT_THRESHOLD -- an attacker hammering from
+      their own IP(s) locks only those IPs out of the account, not the legitimate user.
+    - account-wide: a higher ceiling (LOGIN_LOCKOUT_ACCOUNT_THRESHOLD) that still bounds a
+      distributed, IP-rotating brute force."""
+    if recent_login_failures(user.id, request.remote_addr) >= current_app.config["LOGIN_LOCKOUT_THRESHOLD"]:
+        return True
+    return recent_login_failures(user.id) >= current_app.config["LOGIN_LOCKOUT_ACCOUNT_THRESHOLD"]
+
+
+def _log_auth_attempt(user, identifier, details):
+    """Append a UserActivity row for a login attempt (success/failure/blocked)."""
+    db.session.add(UserActivity(
+        user_id=user.id if user else None,
+        activity_type="authentication attempt",
+        activity_target_type="User",
+        activity_target_id=user.id if user else None,
+        details=details,
+        ip_address=request.remote_addr,
+    ))
+    db.session.commit()
+
+
+def _render_login():
+    """Render the login page as a bare partial for HTMX or the full base page otherwise."""
+    if request.headers.get("HX-Request"):
+        return render_template("v1/login.jinja")
+    return render_template("base.jinja", include_partials="login")
+
+
+def send_invite_email(invite):
+    """Email the invitee their accept link. The token is a bearer credential, so it is ONLY ever sent
+    over this email channel -- never flashed or logged. Returns True on success, False on failure
+    (callers keep the invite regardless and surface a soft warning)."""
+    base = current_app.config.get("PUBLIC_BASE_URL")
+    if not base:
+        current_app.logger.error("PUBLIC_BASE_URL is not set; cannot build invite link for %s", invite.email)
+        return False
+    accept_url = f"{base}/v1/accept-invite/{invite.token}"
+    subject = "You've been invited to CANASK"
+    html_body = f"""
+        <p>You've been invited to create an account on CANASK.</p>
+        <p><a href="{accept_url}">Accept your invite</a> to set up your account.</p>
+        <p>Or paste this link into your browser:<br>{accept_url}</p>
+        <p>This link expires shortly for security. If it has expired, ask your administrator to resend the invite.</p>
+        """
+    return send_ses_email([invite.email], subject, html_body)
+
 # Decorator to check if user is authenticated or not
 def require_auth(view):
     @wraps(view)
     def wrapped_view(**kwargs):
-        if not current_user.is_authenticated:
+        # The explicit is_active check is belt-and-braces with load_user below: deactivation must be
+        # an immediate kill-switch, not depend on the UserMixin.is_authenticated -> is_active subtlety.
+        if not current_user.is_authenticated or not current_user.is_active:
             flash("You need to be logged in to access this page.", "warning")
             return redirect(url_for("auth.login"))
         return view(**kwargs)
@@ -33,7 +118,12 @@ def require_auth(view):
 
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    user = User.query.get(int(user_id))
+    # A deactivated account's existing session dies here: returning None makes Flask-Login treat the
+    # request as anonymous on its very next request, regardless of the session cookie's lifetime.
+    if user and not user.is_active:
+        return None
+    return user
 
 # Decorator to check if user has required role for specified group
 def require_role(role, group_id_source, action = None):
@@ -105,21 +195,63 @@ def require_role(role, group_id_source, action = None):
             
 
 def parse_group_assignments(form_data):
-    """Parse the shared invite/add-user form. Returns (site_admin, {group_id: role})."""
+    """Parse the shared invite/add-user form. Returns (site_admin, {group_id: role}, skipped).
+
+    Each group_assignment value is expected to be exactly "<group name>__<role>". Values not matching
+    that shape (hostile/garbled form input), unknown roles, and group names that no longer resolve
+    (e.g. a group renamed between page render and submit) are skipped rather than raising -- but they
+    are returned in `skipped` so callers can tell the admin what was dropped instead of silently
+    creating a lesser invite. Authorization (whether the caller may grant that role) is enforced
+    separately by validate_group_assignments."""
     site_admin = False
     group_assignments = {}
+    skipped = []
     for key, value in form_data.items():
         if "group_assignment" not in key:
             continue
-        if value.split("__")[1] == "Site Admin":
+        parts = (value or "").split("__")
+        if len(parts) != 2:
+            skipped.append(value or "(empty)")
+            continue
+        group_name, role = parts
+        if role == "Site Admin":
             site_admin = True
-            return site_admin, {}
-        group_name = value.split("__")[0]
-        role = value.split("__")[1]
+            return site_admin, {}, []
+        role_ok, _ = validate_role(role)
+        if not role_ok:
+            skipped.append(f"{group_name} ({role})")
+            continue
         group = Groups.query.filter_by(name = group_name).first()
         if group:
             group_assignments[group.id] = role
-    return site_admin, group_assignments
+        else:
+            skipped.append(f"{group_name} ({role})")
+    return site_admin, group_assignments, skipped
+
+
+def flash_skipped_assignments(skipped):
+    """Surface any assignments parse_group_assignments dropped, so a partially-applied form never
+    renders a success-looking response without explanation."""
+    if skipped:
+        flash(f"These assignments were not applied (unknown group or role): {', '.join(skipped)}", "warning")
+
+def validate_group_assignments(group_assignments, groups_with_required_role):
+    """Authorize a parsed {group_id: role} map against the caller's permissions.
+
+    Returns (ok, error_message). Site admins may assign anything. Otherwise the caller must manage
+    the group (it must appear in the decorator-injected groups_with_required_role) and the role must
+    be one they're allowed to grant there (get_assignable_roles enforces the no-outrank rule). The
+    invite/add-user handlers must call this before persisting assignments -- the role decorators only
+    prove the caller manages *some* group, not that the submitted group/role pairs are in scope."""
+    if current_user.site_admin:
+        return True, None
+    for group_id, role in group_assignments.items():
+        if group_id not in groups_with_required_role:
+            return False, "You can only assign roles in groups you manage."
+        if role not in get_assignable_roles(current_user, group_id):
+            group_name = Groups.query.get(group_id).name
+            return False, f"You cannot assign the role {role} in {group_name}."
+    return True, None
 
 def create_invite(email, group_assignments, site_admin_invite):
     """Create a brand-new pending invite (+ JWT, expiry task, activity log) and return it."""
@@ -151,7 +283,7 @@ def create_invite(email, group_assignments, site_admin_invite):
         ip_address = request.remote_addr
     ))
 
-    invite.token = invite.generate_jwt(current_app.config["SECRET_KEY"])
+    invite.token = invite.generate_jwt(current_app.config["INVITE_JWT_SECRET"])
     task = expire_invite.apply_async(args = [invite.id], eta = token_expiry)
     invite.expiry_task_id = task.id
     db.session.commit()
@@ -159,50 +291,61 @@ def create_invite(email, group_assignments, site_admin_invite):
 
 ################################# ROUTES ###########################################
 @auth_blueprint.route("/v1/login", methods=["GET", "POST"])
+# Throttle only POST (credential attempts) to blunt brute-forcing; the GET login page is unlimited.
+@limiter.limit(lambda: current_app.config["RATELIMIT_LOGIN"], exempt_when=lambda: request.method == "GET")
 def login():
     if request.method == "POST":
-        print(f"Session will expire in: {current_app.config['PERMANENT_SESSION_LIFETIME']}")
         form_data = request.form
-        username = form_data.get("username")
+        identifier = form_data.get("username")
         password = form_data.get("password")
-        user = User.query.filter_by(username=username).first()
-        if user and checkpw(password.encode("utf-8"), user.password_hash.encode("utf-8")):
-            login_user(user)
-            new_login = UserActivity(
-                user_id = user.id,
-                activity_type = "authentication attempt",
-                activity_target_type = "User",
-                activity_target_id = user.id,
-                details = "Successful login",
-                ip_address = request.remote_addr
+        # Guard missing fields up front: a None password would crash on .encode() below. Use the same
+        # generic message as a bad credential so this doesn't leak which field was missing.
+        if not identifier or not password:
+            flash("Invalid username or password", "danger")
+            return _render_login()
+        user = User.query.filter(
+            or_(
+                User.username == identifier,
+                func.lower(User.email) == (identifier or "").lower(),
             )
-            db.session.add(new_login)
-            db.session.commit()
+        ).first()
+
+        # Per-account lockout: refuse before verifying the password once this account has too many recent
+        # failures (per-IP first, account-wide ceiling second -- see login_locked_out), so a distributed
+        # (IP-rotating) attack against one account is bounded, not just per-IP.
+        if user and login_locked_out(user):
+            _log_auth_attempt(user, identifier, "Login blocked: too many recent failed attempts")
+            flash("Too many failed login attempts. Please wait a few minutes and try again.", "danger")
+            return _render_login()
+
+        if user and checkpw(password.encode("utf-8"), user.password_hash.encode("utf-8")):
+            # Correct password, but a deactivated account must not get a session. The password was already
+            # verified, so this message reveals nothing an attacker couldn't already confirm.
+            if not user.is_active:
+                _log_auth_attempt(user, identifier, "Login refused: account not active")
+                flash("This account is not active. Please contact an administrator.", "danger")
+                return _render_login()
+            # Session fixation defense: drop any pre-auth session so a fixed pre-login session id can't be
+            # reused to ride the authenticated session.
+            session.clear()
+            login_user(user)
+            _log_auth_attempt(user, identifier, "Successful login")
             response = make_response(render_template("index.jinja"))
             response.headers["HX-Push-Url"] = "/"
             return response
 
         else:
-            login_attempt = UserActivity(
-                user_id = user.id if user else None,
-                activity_type = "authentication attempt",
-                activity_target_type = "User",
-                activity_target_id = user.id if user else None,
-                details = f"Failed login attempt for {user.email if user else 'unknown user'}, using the email {form_data.get('email')}",
-                ip_address = request.remote_addr
-            )
-            db.session.add(login_attempt)
-            db.session.commit()
+            # Equalize response time for a non-existent identifier (no password check ran above) so login
+            # timing can't be used to enumerate valid usernames/emails.
+            if not user:
+                checkpw(password.encode("utf-8"), _DUMMY_PASSWORD_HASH)
+            _log_auth_attempt(
+                user, identifier,
+                f"Failed login attempt for {user.email if user else 'unknown user'}, using identifier {identifier}")
             flash("Invalid username or password", "danger")
-            if request.headers.get("HX-Request"):
-                return render_template("v1/login.jinja")
-            else:
-                return render_template("base.jinja", include_partials="login")
+            return _render_login()
     else:
-        if request.headers.get("HX-Request"):
-            return render_template("v1/login.jinja")
-        else:
-            return render_template("base.jinja", include_partials="login")
+        return _render_login()
 
 @auth_blueprint.route("/v1/logout", methods=["POST"])
 @require_auth
@@ -252,16 +395,36 @@ def invite_user(groups_with_required_role = None):
     
 
     if request.method == "POST":
-        email = request.form.get("email")
+        email_ok, email = validate_email(request.form.get("email"), required=True)
+        if not email_ok:
+            flash(email, "danger")
+            return redirect(url_for("auth.invite_user"))
 
         # Parse form data first so we know what's being requested
-        site_admin_invite, group_assignments = parse_group_assignments(request.form.to_dict())
+        site_admin_invite, group_assignments, skipped = parse_group_assignments(request.form.to_dict())
+        flash_skipped_assignments(skipped)
+        # Refuse a permissionless invite: if every assignment was dropped (or none was submitted),
+        # sending it anyway would invite someone into nothing while telling the admin it succeeded.
+        if not site_admin_invite and not group_assignments:
+            flash("No valid group assignments were submitted, so no invite was created.", "danger")
+            return redirect(url_for("auth.invite_user"))
+
+        # Authorize the request before acting on it: the role decorator only proves the caller is a
+        # Group Admin in *some* group, not that this site-admin flag / these group+role pairs are in
+        # their scope. Without this a Group Admin could mint a Site Admin or assign roles anywhere.
+        if site_admin_invite and not current_user.site_admin:
+            flash("Only site admins can grant site admin access.", "danger")
+            return redirect(url_for("auth.invite_user"))
+        ok, error = validate_group_assignments(group_assignments, groups_with_required_role)
+        if not ok:
+            flash(error, "danger")
+            return redirect(url_for("auth.invite_user"))
 
         # Check to ensure no user with that email already exists
         existing_user = User.query.filter_by(email=email).first()
         if existing_user:
             flash(f"A user with the email {email} already exists. Assign a new role/group to the existing user instead.", "danger")
-            return redirect(request.referrer or url_for("auth.invite_user"))
+            return redirect(url_for("auth.invite_user"))
 
         # Check if a pending invite already exists for this email
         existing_invite = Invites.query.filter_by(email=email, status="pending").first()
@@ -270,7 +433,7 @@ def invite_user(groups_with_required_role = None):
             # Case 1: existing invite is site admin — block everything
             if existing_invite.site_admin_invite:
                 flash(f"A pending invite for {email} already exists with elevated site admin permissions.", "warning")
-                return redirect(request.referrer or url_for("auth.invite_user"))
+                return redirect(url_for("auth.invite_user"))
 
             # Case 2: new invite is site admin — upgrade existing invite
             if site_admin_invite:
@@ -295,7 +458,7 @@ def invite_user(groups_with_required_role = None):
             if duplicate_groups:
                 duplicate_names = ", ".join([Groups.query.get(gid).name for gid in duplicate_groups])
                 flash(f"A pending invite for {email} to {duplicate_names} already exists.", "warning")
-                return redirect(request.referrer or url_for("auth.invite_user"))
+                return redirect(url_for("auth.invite_user"))
 
             # Case 4: add new groups to existing invite
             for group_id, role in group_assignments.items():
@@ -323,9 +486,11 @@ def invite_user(groups_with_required_role = None):
         # Create the invite and invite groups in the database tables
         invite = create_invite(email, group_assignments, site_admin_invite)
 
-        # Send the email to the user with the token and instructions to accept the invite
-        # Send email here
-        flash(f"Invite sent to {invite.email}. JWT = {invite.token}", "success")
+        if send_invite_email(invite):
+            flash(f"Invite sent to {invite.email}.", "success")
+        else:
+            flash(f"Invite created for {invite.email}, but the email could not be sent. "
+                  f"Check email configuration or resend the invite.", "warning")
         return redirect(url_for("main.index"))
 
 @auth_blueprint.route("/v1/invite-management", methods=["GET", "POST"])
@@ -420,6 +585,20 @@ def resend_invite(invite_id, groups_with_required_role=None):
 def renew_invite(invite_id, groups_with_required_role=None):
     invite = Invites.query.get(invite_id)
     managed_group_ids = None if current_user.site_admin else list(groups_with_required_role.keys())
+
+    # Only a still-outstanding invite may be renewed. Refuse revoked/accepted ones so a renewal can't
+    # resurrect a deliberately-cancelled invite or re-open one whose account already exists (previously
+    # any status was flipped back to "pending").
+    if invite is None or invite.status not in ("pending", "expired"):
+        flash("This invite can no longer be renewed.", "warning")
+        if invite is None:
+            return ("", 204)
+        return render_template("v1/partials/invite_row.jinja",
+                            invite=invite,
+                            managed_group_ids=managed_group_ids,
+                            groups_with_required_role=groups_with_required_role,
+                            role_hierarchy=ROLE_HIERARCHY)
+
     if invite.expiry_task_id:
         AsyncResult(invite.expiry_task_id).revoke()
 
@@ -427,16 +606,18 @@ def renew_invite(invite_id, groups_with_required_role=None):
     new_expiry = datetime.now(timezone.utc) + current_app.config["INVITE_TOKEN_EXPIRY"]
     invite.expires_at = new_expiry
     invite.status = "pending"
-    invite.token = invite.generate_jwt(current_app.config["SECRET_KEY"])
-
-    # send email here
-    print(f"Invite for {invite.email} renewed. New JWT = {invite.token}")
+    invite.token = invite.generate_jwt(current_app.config["INVITE_JWT_SECRET"])
 
     # Create new task for celery to handle expiry
     task = expire_invite.apply_async(args=[invite.id], eta=new_expiry)
     invite.expiry_task_id = task.id
 
     db.session.commit()
+
+    if send_invite_email(invite):
+        flash(f"Invite for {invite.email} renewed and re-sent.", "success")
+    else:
+        flash(f"Invite for {invite.email} renewed, but the email could not be sent.", "warning")
 
     return render_template("v1/partials/invite_row.jinja",
                         invite=invite,
@@ -495,8 +676,16 @@ def adjust_invite_permissions(invite_id, groups_with_required_role=None):
         form_data = request.form.to_dict()
         managed_group_ids = None if current_user.site_admin else list(groups_with_required_role.keys())
 
-        # Elevate existing invite to site admin
+        # Elevate existing invite to site admin (site admins only -- the "invite" role scope only
+        # proves the caller is a Group Admin sharing a group with this invite).
         if form_data.get("site_admin_invite") == "true":
+            if not current_user.site_admin:
+                flash("Only site admins can grant site admin access.", "danger")
+                return render_template("v1/partials/invite_row.jinja",
+                                    invite=invite,
+                                    managed_group_ids=managed_group_ids,
+                                    groups_with_required_role=groups_with_required_role,
+                                    role_hierarchy=ROLE_HIERARCHY)
             invite.site_admin_invite = True
             activity = UserActivity(
                 user_id=current_user.id,
@@ -523,18 +712,41 @@ def adjust_invite_permissions(invite_id, groups_with_required_role=None):
                 db.session.delete(ig)
         db.session.flush()
         new_igs = []
+        rejected = []
         # Add on the new/altered permisions
         for key, value in form_data.items():
             if key.startswith("role_"):
-                group_id = int(key.split("_")[1])
-                if managed_group_ids is None or group_id in managed_group_ids:
-                    new_ig = InviteGroups(
-                        invite_id=invite.id,
-                        group_id=group_id,
-                        role=value
-                    )
-                    new_igs.append(new_ig)
-                    db.session.add(new_ig)
+                suffix = key.split("_", 1)[1]
+                if not suffix.isdigit():   # malformed role_ key -> skip rather than crash on int()
+                    continue
+                group_id = int(suffix)
+                group = Groups.query.get(group_id)
+                group_label = group.name if group else f"group {group_id}"
+                # The submitted role must be a real, group-assignable role -- validated even for site
+                # admins so an arbitrary string can never be written as a role.
+                if not validate_role(value)[0]:
+                    rejected.append(group_label)
+                    continue
+                # managed_group_ids is None only for site admins (who may assign any role).
+                if managed_group_ids is not None and group_id not in managed_group_ids:
+                    rejected.append(group_label)
+                    continue
+                # A non-site-admin may only assign roles below their own in that group; skip any the
+                # caller isn't allowed to grant rather than silently elevating.
+                if not current_user.site_admin and value not in get_assignable_roles(current_user, group_id):
+                    rejected.append(f"{group_label} ({value})")
+                    continue
+                new_ig = InviteGroups(
+                    invite_id=invite.id,
+                    group_id=group_id,
+                    role=value
+                )
+                new_igs.append(new_ig)
+                db.session.add(new_ig)
+        # Rejecting an out-of-scope role is the correct RBAC outcome, but doing it silently is not --
+        # tell the caller which requested changes were dropped instead of rendering pure success.
+        if rejected:
+            flash(f"Some changes were not applied (invalid role or outside your scope): {', '.join(rejected)}", "warning")
 
         db.session.flush()
 
@@ -608,8 +820,15 @@ def add_user(groups_with_required_role = None):
         return render_template("v1/add_user.jinja", invitable_roles = template_data)
 
     if request.method == "POST":
-        email = request.form.get("email")
-        site_admin_assignment, group_assignments = parse_group_assignments(request.form.to_dict())
+        email_ok, email = validate_email(request.form.get("email"), required=True)
+        if not email_ok:
+            flash(email, "danger")
+            return redirect(url_for("auth.user_management"))
+        site_admin_assignment, group_assignments, skipped = parse_group_assignments(request.form.to_dict())
+        flash_skipped_assignments(skipped)
+        if not site_admin_assignment and not group_assignments:
+            flash("No valid group assignments were submitted.", "danger")
+            return redirect(url_for("auth.user_management"))
         existing_user = User.query.filter_by(email = email).first()
 
         # Existing account → assign directly (no invite needed)
@@ -656,8 +875,19 @@ def add_user(groups_with_required_role = None):
             flash(f"A pending invite for {email} already exists. Use invite management to adjust it.", "warning")
             return redirect(url_for("auth.user_management"))
 
+        # Validate the requested group/role pairs before inviting -- mirror the existing-user path
+        # above, which the invite fallback previously skipped (letting a Group Admin grant Data Owner
+        # in a group they don't manage).
+        ok, error = validate_group_assignments(group_assignments, groups_with_required_role)
+        if not ok:
+            flash(error, "danger")
+            return redirect(url_for("auth.user_management"))
+
         invite = create_invite(email, group_assignments, site_admin_assignment and current_user.site_admin)
-        flash(f"No account exists for {email}, so an invite was sent. JWT = {invite.token}", "success")
+        if send_invite_email(invite):
+            flash(f"No account exists for {email}, so an invite was sent.", "success")
+        else:
+            flash(f"No account exists for {email}; an invite was created but the email could not be sent.", "warning")
         return redirect(url_for("auth.user_management"))
 
 
@@ -718,13 +948,20 @@ def adjust_user_permissions(user_id, groups_with_required_role = None):
             ]
 
         changed = []
+        rejected = []
         for group_id in scope_group_ids:
             submitted_role = form_data.get(f"role_{group_id}")
             membership = UserGroups.query.filter_by(user_id = user_id, group_id = group_id).first()
             group_name = Groups.query.get(group_id).name
 
             if submitted_role:
+                # Must be a real, group-assignable role -- validated even for site admins so an
+                # arbitrary string can never be written as a role.
+                if not validate_role(submitted_role)[0]:
+                    rejected.append(group_name)
+                    continue
                 if not current_user.site_admin and submitted_role not in get_assignable_roles(current_user, group_id):
+                    rejected.append(f"{group_name} ({submitted_role})")
                     continue
                 if membership and membership.role == submitted_role:
                     continue
@@ -737,6 +974,9 @@ def adjust_user_permissions(user_id, groups_with_required_role = None):
 
         if changed:
             flash(f"Updated access for {target.username}: {', '.join(changed)}.", "success")
+        # Dropped requests must be visible, not folded into a success-looking row render.
+        if rejected:
+            flash(f"Some changes were not applied (invalid role or outside your scope): {', '.join(rejected)}", "warning")
 
         memberships = get_user_memberships_in_groups(user_id, managed_group_ids)
         return render_template("v1/partials/user_row.jinja",
@@ -780,12 +1020,15 @@ def create_group_route(groups_with_required_role = None):
         # Always a modal partial — launched from the Group Management page
         return render_template("v1/create_group.jinja")
 
-    name = (request.form.get("name") or "").strip()
-    description = (request.form.get("description") or "").strip() or None
-
-    if not name:
-        flash("A group name is required.", "danger")
+    name_ok, name = validate_text(request.form.get("name"), "A group name", MAX_GROUP_NAME, required=True)
+    if not name_ok:
+        flash(name, "danger")
         return redirect(url_for("auth.group_management"))
+    desc_ok, description = validate_text(request.form.get("description"), "Description", MAX_GROUP_DESC, required=False, multiline=True)
+    if not desc_ok:
+        flash(description, "danger")
+        return redirect(url_for("auth.group_management"))
+
     if Groups.query.filter_by(name = name).first():
         flash(f"A group named \"{name}\" already exists.", "danger")
         return redirect(url_for("auth.group_management"))
@@ -819,15 +1062,23 @@ def group_data_sources(group_id, groups_with_required_role = None):
                             group = group, source_rows = source_rows)
 
     if request.method == "POST":
-        valid_ids = {s.id for s in all_sources}
-        submitted = []
+        # A non-site-admin may only attach sources they already own; otherwise a Data Owner could
+        # create a group (auto-owning it), attach every source, and thereby self-grant management of
+        # all sources -- letting them flip any restricted visual to public. Sources already on the
+        # group that the caller can't manage are preserved so a reconcile doesn't detach them.
+        if current_user.site_admin:
+            attachable_ids = {s.id for s in all_sources}
+        else:
+            attachable_ids = {s.id for s in owned_data_sources(current_user)}
+        submitted = set(current_ids - attachable_ids)
         for raw in request.form.getlist("source_ids"):
             try:
                 sid = int(raw)
             except (TypeError, ValueError):
                 continue
-            if sid in valid_ids:
-                submitted.append(sid)
+            if sid in attachable_ids:
+                submitted.add(sid)
+        submitted = list(submitted)
 
         changes = set_group_data_sources(group_id, submitted, changed_by = current_user.id)
         if changes:
@@ -979,7 +1230,7 @@ def accept_invite(token = None):
     # Handle token from URL
     if token:
         try:
-            jwt.decode(token, current_app.config["SECRET_KEY"], algorithms=["HS256"])
+            jwt.decode(token, current_app.config["INVITE_JWT_SECRET"], algorithms=["HS256"])
         except jwt.ExpiredSignatureError:
             flash("This invite link has expired.", "danger")
             return redirect(url_for("auth.login"))
@@ -996,7 +1247,7 @@ def accept_invite(token = None):
         return redirect(url_for("auth.login"))
 
     try:
-        payload = jwt.decode(token, current_app.config["SECRET_KEY"], algorithms=["HS256"])
+        payload = jwt.decode(token, current_app.config["INVITE_JWT_SECRET"], algorithms=["HS256"])
     except jwt.ExpiredSignatureError:
         session.pop("invite_token", None)
         flash("This invite link has expired.", "danger")
@@ -1011,7 +1262,22 @@ def accept_invite(token = None):
         session.pop("invite_token", None)
         flash("This invite is no longer valid.", "danger")
         return redirect(url_for("auth.login"))
-    
+
+    # Bind the presented token to the invite's current token. Renewing an invite mints a fresh token, so
+    # a previously-issued (not-yet-expired) token must not remain usable while status is still "pending".
+    if token != invite.token:
+        session.pop("invite_token", None)
+        flash("This invite link has been superseded. Please use the most recent invite email.", "danger")
+        return redirect(url_for("auth.login"))
+
+    # An account for this email may have been created since the invite was issued (e.g. a duplicate
+    # invite accepted first). Refuse cleanly rather than 500-ing on the unique-email constraint at
+    # create time.
+    if User.query.filter(func.lower(User.email) == (payload.get("email") or "").lower()).first():
+        session.pop("invite_token", None)
+        flash("An account already exists for this email. Please log in instead.", "danger")
+        return redirect(url_for("auth.login"))
+
     if request.method == "GET":
         return render_template("base.jinja", 
                             include_partials="accept invite",
@@ -1019,11 +1285,14 @@ def accept_invite(token = None):
                             email=payload.get("email"))
     
     if request.method == "POST":
-        username = request.form.get("username")
         password = request.form.get("password")
         confirm_password = request.form.get("confirm_password")
 
-        # Serverside validations to ensure password is strong, and user doesn't exist
+        # Serverside validations: username format, password strength/match, and uniqueness.
+        username_ok, username = validate_username(request.form.get("username"))
+        if not username_ok:
+            flash(username, "danger")
+            return redirect(url_for("auth.accept_invite"))
         if password != confirm_password:
             flash("Passwords do not match.", "danger")
             return redirect(url_for("auth.accept_invite"))

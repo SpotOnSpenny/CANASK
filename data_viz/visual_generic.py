@@ -56,6 +56,13 @@ def _visual_facts(visual):
         main = main.filter(DataPoints.dimension2_type == visual.dimension2_type)
     else:
         main = main.filter(DataPoints.dimension2_type.is_(None))
+    # When the write path recorded the dimension values this visual owns (a "dimension" predicate per
+    # emitted fact), scope to them so two visuals sharing every other selector but differing by dimension
+    # value -- e.g. opioid vs stimulant harms-by-type -- don't return each other's facts. NULL-dimension
+    # rows belong to no specific slice, so they're always kept.
+    dims = preds.get("dimension")
+    if dims:
+        main = main.filter(DataPoints.dimension_value.in_(dims) | DataPoints.dimension_value.is_(None))
     if visual.geo_type == PROVINCE_GEO_TYPE:
         main = main.filter(DataPoints.geo == preds["geo"][0])
     facts.extend(_as_fact(p) for p in main.all())

@@ -11,13 +11,31 @@ VISUAL_VISIBILITY = ("private", "group", "public")
 class User(UserMixin, db.Model):
     __tablename__ = "users"
 
+    # Account lifecycle values for `status`. Use these constants, not string literals -- nothing
+    # constrains the column to this set, so a typo ("Active") would silently make an account
+    # locked-out or never-lockable.
+    STATUS_INVITED = "invited"
+    STATUS_ACTIVE = "active"
+    STATUS_DEACTIVATED = "deactivated"
+
     id = db.Column(db.Integer, primary_key = True)
     email = db.Column(db.String(255), unique = True, nullable = False)
     username = db.Column(db.String(255), unique = True, nullable = False)
     password_hash = db.Column(db.String(255), nullable = False)
-    status = db.Column(db.String(50), default = "invited")
+    status = db.Column(db.String(50), default = STATUS_INVITED)
     site_admin = db.Column(db.Boolean, default = False)
     invited_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable = True)
+
+    @property
+    def is_active(self):
+        # Flask-Login authentication gate. UserMixin.is_active is always True; override it so only
+        # active accounts may log in AND keep an existing session. The kill-switch for existing
+        # sessions is explicit: load_user returns None for inactive users and require_auth re-checks
+        # is_active (Flask-Login 0.6's UserMixin.is_authenticated also returns is_active, but the
+        # guarantee shouldn't hinge on that mixin subtlety). create_user and the bootstrap/seed paths
+        # all set STATUS_ACTIVE, so this does not affect normal accounts.
+        return self.status == self.STATUS_ACTIVE
+
     def __repr__(self):
         return f"<User {self.username}>"
     
