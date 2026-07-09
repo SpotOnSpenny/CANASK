@@ -340,9 +340,16 @@ def login():
             session.clear()
             login_user(user)
             _log_auth_attempt(user, identifier, "Successful login")
-            response = make_response(render_template("index.jinja"))
-            response.headers["HX-Push-Url"] = "/"
-            return response
+            # Force a full page load instead of an HTMX swap: session.clear() above also dropped the
+            # session's CSRF token, and only a full base.jinja render re-seeds both the session token
+            # and the <meta name="csrf-token"> that the HTMX layer sends on every POST. A partial swap
+            # leaves the stale pre-login token in the DOM and every later POST 400s ("CSRF session
+            # token is missing"). Full reload also rotates the CSRF token at privilege change.
+            if request.headers.get("HX-Request"):
+                response = make_response("", 200)
+                response.headers["HX-Redirect"] = "/"
+                return response
+            return redirect("/")
 
         else:
             # Equalize response time for a non-existent identifier (no password check ran above) so login
