@@ -49,6 +49,9 @@ prod-build-visuals:
 	$(PROD) exec web flask define-visuals
 	$(PROD) exec web flask gen-visuals
 
+prod-clear-invites:
+	$(PROD) exec web flask clear-invites $(if $(email),--email "$(email)")
+
 clear-cache:
 	docker compose --env-file app_config/.env.dev exec web rm -rf data_viz/static/.webassets-cache
 	docker compose --env-file app_config/.env.dev exec web rm -f data_viz/static/assets/main.css
@@ -79,3 +82,9 @@ init-db:
 
 drop-db:
 	docker compose --env-file app_config/.env.dev exec web flask drop-db
+
+# Purge revoked invites (they're hidden from the UI but linger in the DB).
+# Usage: make clear-invites            -> delete all revoked invites
+#        make clear-invites email=x@y  -> delete ALL invites for that email, any status
+clear-invites:
+	docker compose --env-file app_config/.env.dev exec web flask clear-invites $(if $(email),--email "$(email)")

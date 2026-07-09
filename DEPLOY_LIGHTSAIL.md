@@ -19,7 +19,9 @@ Topology: **client → Cloudflare (HTTPS) → nginx container (TLS, mTLS) → gu
 - The current populated database as a dump from wherever the data lives (prod does not run scrapers).
   `make prod-backup > canask.sql` works on a machine that has `app_config/.env.prod`; on the dev box,
   dump directly instead:
-  `docker compose --env-file app_config/.env.dev exec -T db sh -c 'pg_dump -U $POSTGRES_USER $POSTGRES_DB' > canask.sql`
+  `docker compose --env-file app_config/.env.dev exec -T db sh -c 'pg_dump --no-owner --no-privileges -U $POSTGRES_USER $POSTGRES_DB' > canask.sql`
+  (`--no-owner --no-privileges` matters when the dev and prod `DB_USER` differ — without it the
+  restore's `ON_ERROR_STOP=1` aborts on the first `ALTER ... OWNER TO <dev-role>`.)
 - Values for every key in `app_config/.env.example` (rotated secrets — see `LAUNCH_TODO.md §0`).
 
 ---
@@ -129,8 +131,8 @@ Then log in as the bootstrap admin and confirm a `UserActivity` login row shows 
 `deploy/backup.sh` dumps the DB, gzips it, uploads off-box to S3, and prunes old local copies. It runs
 independently of the app containers (DR-safe) — see the script header for config.
 
-1. **IAM for backups** — a dedicated user (separate from the SES sender key) scoped to writing the
-   backup bucket only:
+1. **IAM for backups** — a dedicated IAM **user** (not a role — Lightsail instances can't assume IAM
+   roles; separate from the SES sender key) scoped to writing the backup bucket only:
    ```json
    {
      "Version": "2012-10-17",
@@ -141,13 +143,16 @@ independently of the app containers (DR-safe) — see the script header for conf
      }]
    }
    ```
-   Configure it for the cron user: `aws configure` (or an env file). Add an S3 **lifecycle rule** on the
-   bucket to expire old backups (e.g. 90 days).
+   Create an **access key** for it and configure it for the cron user: `aws configure` (or an env
+   file). Add an S3 **lifecycle rule** on the bucket to expire old backups (e.g. 90 days).
 2. **Schedule it** with cron (`crontab -e`):
    ```
+   PATH=/usr/local/bin:/usr/bin:/bin
    BACKUP_S3_URI=s3://your-backup-bucket/canask
    0 3 * * * cd /home/ubuntu/CANASK && ./deploy/backup.sh >> /home/ubuntu/canask-backup.log 2>&1
    ```
+   The `PATH` line is required: the official AWS CLI installer puts `aws` in `/usr/local/bin`, which is
+   not on cron's default PATH (`/usr/bin:/bin`), so without it every nightly upload fails.
    Test it once by hand first: `BACKUP_S3_URI=s3://your-backup-bucket/canask ./deploy/backup.sh`.
 
 ## 10. Update / redeploy

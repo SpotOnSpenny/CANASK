@@ -23,9 +23,14 @@ auth). These remaining items can only be done outside the code:
       distinct `INVITE_JWT_SECRET`, `PUBLIC_BASE_URL` (the real https origin, for invite-email links), a
       strong `REDIS_PASSWORD`, and Redis URLs that carry that password (`redis://:PASSWORD@redis:6379/0`
       for Celery, `/1` for the limiter). `make prod-up` runs the full stack with this file.
-- [ ] **Verify the prod container runs non-root and not the dev server:** `make prod-up` then
+- [x] **Verify the prod container runs non-root and not the dev server:** `make prod-up` then
       `docker compose ... exec web whoami` → `appuser`, and the web process is `gunicorn`, not `flask run`.
-- [ ] Ensure seed/bootstrap accounts with default passwords from `*_seed.json` are never created in prod.
+      *(Verified 2026-07-09 via an isolated prod-compose smoke test: `whoami` → `appuser`, PID 1 is
+      gunicorn ×3 workers, `/healthz` → 200. Re-run the exec one-liner on the box after first real `prod-up`.)*
+- [x] Ensure seed/bootstrap accounts with default passwords from `*_seed.json` are never created in prod.
+      *(Verified 2026-07-09: `seed-db` is a dev-only Makefile target; the prod init service runs only
+      `db upgrade` + `init-db` + `define-visuals`, and a fresh prod boot creates exactly one user — the
+      bootstrap admin. `account_seed.json` stays on the dev disk only.)*
 
 ### Secrets storage hardening
 A plaintext `app_config/.env.prod` on the server is an accepted baseline for an app this size **only if
@@ -74,13 +79,18 @@ blast radius:
 - [ ] **Retire the host nginx** — the containerized `nginx` service now binds host ports 80/443. Stop/
       disable any host nginx so they don't conflict.
 - [ ] **Refresh the Cloudflare IP list** in `deploy/nginx/canask.conf` (`set_real_ip_from …`) if
-      Cloudflare changes ranges (https://www.cloudflare.com/ips/).
+      Cloudflare changes ranges (https://www.cloudflare.com/ips/). *(Diffed against the published
+      v4+v6 lists 2026-07-09: identical. Ongoing item — recheck occasionally.)*
 
 ### Data & bootstrap
 - [ ] **Load chart data via a Postgres dump** (chosen strategy — prod does not run scrapers). Data launch:
       `make prod-db-up` → `make prod-restore DUMP=<dump.sql>` → `make prod-up`. Fresh launch: `make prod-up`
       alone bootstraps schema + admin + visual definitions (charts stay blank until a restore). Capture a
       dump from the populated source DB with `make prod-backup > canask-YYYY-MM-DD.sql`.
+      *(Dump captured 2026-07-09 from the dev DB → `canask-2026-07-09.sql` in the repo root (gitignored):
+      119 visuals, 12,299 data points, 7 sources, users table empty. Dumped with `--no-owner
+      --no-privileges` so it restores cleanly even if prod's `DB_USER` differs from dev's. Remaining:
+      scp it to the box and run the restore sequence.)*
 - [ ] **Schedule regular backups**: host cron running `deploy/backup.sh` (gzip + S3 upload + local
       pruning — see `DEPLOY_LIGHTSAIL.md §9` for the cron line).
 - [ ] Note: after `flask drop-db` you must `flask db stamp base` before `db upgrade` (Alembic stays
@@ -109,11 +119,16 @@ through Cloudflare.
 real client, not nginx/Cloudflare. The app already trusts `TRUSTED_PROXY_COUNT` hops (default **2**
 = Cloudflare + nginx).
 
-- [ ] Configure nginx `ngx_http_realip_module`: `set_real_ip_from <cloudflare ranges>;` and
+- [x] Configure nginx `ngx_http_realip_module`: `set_real_ip_from <cloudflare ranges>;` and
       `real_ip_header CF-Connecting-IP;` so nginx-level logs/vars use the true client IP.
-- [ ] Confirm nginx forwards `CF-Connecting-IP` (and `X-Forwarded-For`) unaltered to Flask.
+      *(In `deploy/nginx/canask.conf` — CF ranges at lines 24–45, `real_ip_header` at line 46.)*
+- [x] Confirm nginx forwards `CF-Connecting-IP` (and `X-Forwarded-For`) unaltered to Flask.
+      *(Confirmed: `proxy_set_header CF-Connecting-IP $http_cf_connecting_ip` passes it through, and
+      `$proxy_add_x_forwarded_for` appends rather than overwrites.)*
 - [ ] Confirm `TRUSTED_PROXY_COUNT` matches the actual `X-Forwarded-For` chain nginx produces
       (2 for CF+nginx; adjust if nginx overwrites vs appends XFF). Override via env if needed.
+      *(On paper 2 is right: CF appends the client IP, nginx appends its realip-rewritten `$remote_addr`.
+      Keep unticked until the deploy-time UserActivity check below confirms it live.)*
 - [ ] Verify after deploy: a `UserActivity` login row shows the real client IP, not a proxy IP.
 
 ## 3. AWS Budget alarm  — hard cost backstop

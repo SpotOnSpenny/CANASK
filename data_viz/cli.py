@@ -4,11 +4,12 @@ import json
 
 # External Imports
 from bcrypt import hashpw, gensalt
+from celery.result import AsyncResult
 import click
 
 # Internal Iimports
 from data_viz.database import db
-from data_viz.database.models import User, Groups, UserGroups, DataSources, GroupDataSources
+from data_viz.database.models import User, Groups, UserGroups, DataSources, GroupDataSources, Invites, InviteGroups
 from data_viz.auth.auth_helpers import create_user, create_group, assign_group
 
 # Function to create the default admin user
@@ -206,6 +207,28 @@ def register_cli(app):
         if merges:
             print("Reconciled duplicate data sources:", ", ".join(merges))
         print("Visual data generation complete.")
+
+    @app.cli.command("clear-invites", short_help="Delete revoked invites (and their group rows) from the database, or every invite for a given email.")
+    @click.option("--email", default=None, help="Delete ALL invites for this email regardless of status (default: all revoked invites).")
+    def clear_invites(email):
+        # Default mode deletes only revoked invites: they're already hidden from the UI and their
+        # Celery expiry tasks were revoked when they were marked revoked, so a hard delete is safe.
+        # With --email, every invite for that address goes regardless of status, so any still-scheduled
+        # expiry task must be revoked first or it fires later against a missing row. InviteGroups rows
+        # go first either way (plain FK, no cascade).
+        if email:
+            invites = Invites.query.filter_by(email=email).all()
+            for invite in invites:
+                if invite.expiry_task_id:
+                    AsyncResult(invite.expiry_task_id).revoke()
+        else:
+            invites = Invites.query.filter_by(status="revoked").all()
+        ids = [i.id for i in invites]
+        if ids:
+            InviteGroups.query.filter(InviteGroups.invite_id.in_(ids)).delete(synchronize_session=False)
+            Invites.query.filter(Invites.id.in_(ids)).delete(synchronize_session=False)
+            db.session.commit()
+        print(f"Cleared {len(ids)} {f'invite(s) for {email}' if email else 'revoked invite(s)'}.")
 
     @app.cli.command("reconcile-sources", short_help="Merge legacy/seed-named data sources into their pipeline equivalents.")
     def reconcile_sources():

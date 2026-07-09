@@ -1,22 +1,5 @@
 {
-  "_comment": "Sourceless scaffolding visuals (placeholder maps for provinces with no data pipeline yet). data_source is null; prune scope is the set of sourceless visuals.",
+  "_comment": "Sourceless scaffolding visuals (placeholder maps for provinces with no data pipeline yet). data_source is null; prune scope is the set of sourceless visuals. Keep this file even when empty -- without it define-visuals has no sourceless scope and can never prune a removed scaffolding visual. (The NS drug-supply map placeholder was removed 2026-07; its geojson is kept for when real data lands.)",
   "data_source": null,
-  "visuals": [
-    {
-      "province": "nova-scotia",
-      "visual_id": "drug_supply_geographically",
-      "shape": "map_none",
-      "metric": null,
-      "dimension2_type": null,
-      "key_kind": null,
-      "chart_type": "map",
-      "data_types": null,
-      "menu_parent": "Drug Supply",
-      "menu_name": "Drug Supply by Health Authority",
-      "level": 1,
-      "vis_parent": null,
-      "next_vis": null,
-      "is_default": true
-    }
-  ]
+  "visuals": []
 }
