@@ -1,6 +1,7 @@
 # Outbound email via AWS SES. Both the feedback form and the invite flow send through here so the SES
-# client setup lives in one place. Credentials/sender come from the environment (AWS_*, SES_SENDER_EMAIL)
-# and are read per-send so a missing config fails at send time (logged), not at import.
+# client setup lives in one place. Credentials/sender come from the environment (AWS_*, SES_SENDER_EMAIL,
+# optional SES_REPLY_TO_EMAIL) and are read per-send so a missing config fails at send time (logged),
+# not at import.
 
 import os
 
@@ -22,6 +23,7 @@ def send_ses_email(to_addresses, subject, html_body):
     if not sender:
         current_app.logger.error("SES_SENDER_EMAIL is not set; cannot send email %r", subject)
         return False
+    reply_to = os.environ.get("SES_REPLY_TO_EMAIL")
     try:
         client = boto3.client(
             "ses",
@@ -36,6 +38,7 @@ def send_ses_email(to_addresses, subject, html_body):
                 "Subject": {"Data": subject},
                 "Body": {"Html": {"Data": html_body}},
             },
+            **({"ReplyToAddresses": [reply_to]} if reply_to else {}),
         )
         return True
     except ClientError as e:
