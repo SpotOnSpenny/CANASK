@@ -59,7 +59,7 @@ class Config():
     SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URL")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     WTF_CSRF_ENABLED = True
-    INVITE_TOKEN_EXPIRY = timedelta(minutes=10)
+    INVITE_TOKEN_EXPIRY = timedelta(hours=int(os.environ.get("INVITE_EXPIRY_HOURS", "72")))
 
     # --- Rate limiting (Flask-Limiter) ---------------------------------------------------
     # Redis-backed so limits stay correct across multiple gunicorn workers. Reuses the

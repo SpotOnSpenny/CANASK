@@ -15,11 +15,11 @@ App-code hardening from the security audit is done (headers, cookie flags, sessi
 lockout, invite-token no longer leaked, gunicorn prod compose, non-root container, pinned deps, Redis
 auth). These remaining items can only be done outside the code:
 
-- [ ] **Rotate the AWS SES access key and the reCAPTCHA secret NOW.** They have lived in a plaintext
+- [x] **Rotate the AWS SES access key and the reCAPTCHA secret NOW.** They have lived in a plaintext
       `app_config/.env.dev` on a dev disk (not committed to git, but treat as exposed). Issue a new SES
       key pair, delete the old one, and regenerate the reCAPTCHA secret. (See *Secrets storage hardening*
       below for how to store the prod values.)
-- [ ] **Create `app_config/.env.prod`** (see `app_config/.env.example`). It MUST set `DEBUG=false`, a
+- [x] **Create `app_config/.env.prod`** (see `app_config/.env.example`). It MUST set `DEBUG=false`, a
       distinct `INVITE_JWT_SECRET`, `PUBLIC_BASE_URL` (the real https origin, for invite-email links), a
       strong `REDIS_PASSWORD`, and Redis URLs that carry that password (`redis://:PASSWORD@redis:6379/0`
       for Celery, `/1` for the limiter). `make prod-up` runs the full stack with this file.
