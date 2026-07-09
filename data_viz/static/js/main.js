@@ -3,6 +3,14 @@ document.body.addEventListener('htmx:configRequest', (event) => {
     event.detail.headers['X-CSRFToken'] = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
 });
 
+// The server rotates the CSRF token at privilege change (login clears the session), but the login
+// response is an HTMX partial swap that never re-renders base.jinja's meta tag. It hands the fresh
+// token over via an HX-Trigger event instead; keep the meta tag current so configRequest above
+// sends a token that matches the new session.
+document.body.addEventListener('csrfTokenRefresh', (event) => {
+    document.querySelector('meta[name="csrf-token"]').setAttribute('content', event.detail.token);
+});
+
 // --- reCAPTCHA v3 -----------------------------------------------------------------------------
 // The site key is rendered into a <meta> only when reCAPTCHA is enabled (see base.jinja); when it's
 // absent (dev, RECAPTCHA_ENABLED=false) every helper below no-ops and the server verifier returns

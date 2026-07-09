@@ -1,12 +1,14 @@
 # Standard library imports
 from functools import wraps
 from datetime import datetime, timezone
+import json
 
 # External imports
 from flask import Blueprint, request, render_template, flash, current_app, redirect, url_for, session, make_response
 from bcrypt import checkpw, gensalt, hashpw
 import jwt
 from flask_login import login_user, current_user, logout_user
+from flask_wtf.csrf import generate_csrf
 from celery.result import AsyncResult
 from sqlalchemy import or_, func
 
@@ -340,16 +342,16 @@ def login():
             session.clear()
             login_user(user)
             _log_auth_attempt(user, identifier, "Successful login")
-            # Force a full page load instead of an HTMX swap: session.clear() above also dropped the
-            # session's CSRF token, and only a full base.jinja render re-seeds both the session token
-            # and the <meta name="csrf-token"> that the HTMX layer sends on every POST. A partial swap
-            # leaves the stale pre-login token in the DOM and every later POST 400s ("CSRF session
-            # token is missing"). Full reload also rotates the CSRF token at privilege change.
-            if request.headers.get("HX-Request"):
-                response = make_response("", 200)
-                response.headers["HX-Redirect"] = "/"
-                return response
-            return redirect("/")
+            response = make_response(render_template("index.jinja"))
+            response.headers["HX-Push-Url"] = "/"
+            # session.clear() above also dropped the session's CSRF token, and this partial swap does
+            # not re-render base.jinja's <meta name="csrf-token"> -- without a hand-off, every later
+            # POST 400s with a stale token ("CSRF session token is missing"). generate_csrf() seeds a
+            # fresh token into the new session (rotating it at privilege change), and the HX-Trigger
+            # event delivers it to main.js's csrfTokenRefresh listener, which updates the meta tag.
+            response.headers["HX-Trigger"] = json.dumps(
+                {"csrfTokenRefresh": {"token": generate_csrf()}})
+            return response
 
         else:
             # Equalize response time for a non-existent identifier (no password check ran above) so login

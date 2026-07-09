@@ -1040,7 +1040,8 @@ a { text-decoration: none; }
   font-weight: 700;
   line-height: 1.1;
   position: fixed;
-  bottom: 24px;
+  /* Sits above the reCAPTCHA v3 badge (bottom-right, ~74px tall) so the two don't overlap. */
+  bottom: 90px;
   right: 24px;
   cursor: pointer;
 }

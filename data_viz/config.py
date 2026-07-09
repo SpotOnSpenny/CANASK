@@ -122,13 +122,18 @@ class Config():
     # break without it. Tighten to nonces once the inline blocks are refactored. Tunable via env.
     CONTENT_SECURITY_POLICY = os.environ.get("CONTENT_SECURITY_POLICY", "; ".join([
         "default-src 'self'",
+        # static.cloudflareinsights.com: the Web Analytics beacon Cloudflare auto-injects into proxied
+        # pages; blocked, it spams the console and no RUM data is collected.
         "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://www.google.com "
-        "https://www.gstatic.com https://www.googletagmanager.com",
+        "https://www.gstatic.com https://www.googletagmanager.com https://static.cloudflareinsights.com",
         "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com",
         "font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net",
         "img-src 'self' data: https:",
+        # cdn.plot.ly: Plotly geo charts (map/heatmap visuals) fetch their base-map topojson
+        # (e.g. world_110m.json) from there at render time; without it every map visual dies with
+        # "unexpected error while fetching topojson file".
         "connect-src 'self' https://www.google-analytics.com https://*.google-analytics.com "
-        "https://*.analytics.google.com https://www.googletagmanager.com",
+        "https://*.analytics.google.com https://www.googletagmanager.com https://cdn.plot.ly",
         "frame-src https://www.google.com https://recaptcha.google.com",
         "frame-ancestors 'none'",
         "base-uri 'self'",
