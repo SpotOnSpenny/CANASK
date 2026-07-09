@@ -19,6 +19,7 @@ from data_viz.auth.auth_helpers import get_user_groups, get_assignable_roles, va
 from data_viz.auth.role_hierarchy import ROLE_HIERARCHY
 from data_viz.extensions import limiter
 from data_viz.email import send_ses_email
+from data_viz.recaptcha import verify_recaptcha
 from data_viz.validation import validate_email, validate_username, validate_text, validate_role, MAX_GROUP_NAME, MAX_GROUP_DESC
 from celery_worker.tasks.invite_jwt_expiry import expire_invite
 
@@ -303,6 +304,15 @@ def login():
         if not identifier or not password:
             flash("Invalid username or password", "danger")
             return _render_login()
+
+        # Bot gate before any DB work or bcrypt: verify the reCAPTCHA v3 token. The message is
+        # generic and identical whether the token was missing, stale, replayed, or low-score, so it
+        # leaks nothing. Complements (does not replace) the per-IP rate limit and account lockout.
+        recaptcha_ok, _ = verify_recaptcha(form_data.get("recaptcha-token"), "login")
+        if not recaptcha_ok:
+            flash("Could not verify you're human. Please try again.", "danger")
+            return _render_login()
+
         user = User.query.filter(
             or_(
                 User.username == identifier,

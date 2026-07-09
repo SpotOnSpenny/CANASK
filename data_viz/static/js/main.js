@@ -3,6 +3,56 @@ document.body.addEventListener('htmx:configRequest', (event) => {
     event.detail.headers['X-CSRFToken'] = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
 });
 
+// --- reCAPTCHA v3 -----------------------------------------------------------------------------
+// The site key is rendered into a <meta> only when reCAPTCHA is enabled (see base.jinja); when it's
+// absent (dev, RECAPTCHA_ENABLED=false) every helper below no-ops and the server verifier returns
+// ok, so forms submit normally.
+function recaptchaSiteKey() {
+  let meta = document.querySelector('meta[name="recaptcha-site-key"]');
+  return meta ? meta.getAttribute("content") : "";
+}
+
+// Resolve to a fresh v3 token for `action`, or "" when reCAPTCHA is disabled / unavailable (the
+// server fails closed on an empty token when enabled, so "" is safe to submit). Never rejects, so
+// callers don't have to guard the promise. Fetched per-submit because v3 tokens expire in ~2 min.
+function recaptchaToken(action) {
+  return new Promise((resolve) => {
+    let siteKey = recaptchaSiteKey();
+    if (!siteKey || typeof grecaptcha === "undefined") {
+      resolve("");
+      return;
+    }
+    grecaptcha.ready(() => {
+      grecaptcha.execute(siteKey, { action: action }).then(resolve, () => resolve(""));
+    });
+  });
+}
+
+function setHiddenField(form, name, value) {
+  let input = form.querySelector('input[name="' + name + '"]');
+  if (!input) {
+    input = document.createElement("input");
+    input.type = "hidden";
+    input.name = name;
+    form.appendChild(input);
+  }
+  input.value = value;
+}
+
+// Login is an HTMX form, so gate its request through htmx:confirm: hold the request, fetch a token,
+// inject it as recaptcha-token, then resume via issueRequest (which re-serializes the form, picking
+// up the injected field). When reCAPTCHA is disabled we don't intercept and the form posts as-is.
+document.body.addEventListener("htmx:confirm", (event) => {
+  let elt = event.detail.elt;
+  if (!elt || elt.id !== "login-form") return;
+  if (!recaptchaSiteKey()) return;            // disabled -> let HTMX proceed normally
+  event.preventDefault();
+  recaptchaToken("login").then((token) => {
+    setHiddenField(elt, "recaptcha-token", token);
+    event.detail.issueRequest(true);          // resume; true skips re-firing this confirm
+  });
+});
+
 //HTMX config to exclude history cache and require server request on back/forward
 htmx.config.historyCacheSize = 0;
 htmx.config.refreshOnHistoryMiss = true;
@@ -72,6 +122,17 @@ function initFeedback() {
 
   feedbackToggle.addEventListener("click", toggleFeedback);
   feedbackClose.addEventListener("click", toggleFeedback);
+
+  // reCAPTCHA v3 is invisible (no widget callback like v2), so intercept the submit, fetch a token,
+  // then run the existing validate+fetch path. Guarded so re-init doesn't stack listeners.
+  let feedbackForm = document.getElementById("feedback-form");
+  if (feedbackForm && !feedbackForm.dataset.recaptchaWired) {
+    feedbackForm.dataset.recaptchaWired = "true";
+    feedbackForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      recaptchaToken("feedback").then((token) => feedbackSubmit(token));
+    });
+  }
 }
 
 function validateEmail(mail) {

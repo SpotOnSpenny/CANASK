@@ -40,6 +40,15 @@ class Config():
     # Public origin used to build absolute links in outbound email (e.g. the invite accept link).
     # Set to the real domain in prod, e.g. https://canask.example.ca. Validated at import.
     PUBLIC_BASE_URL = _public_base_url()
+    # reCAPTCHA v3 (invisible + score) protects the login and feedback POSTs. Site key is public
+    # (rendered into the page); its matching secret is RECAPTCHA_SECRET -- both must come from the
+    # SAME v3 registration. Env-driven so prod uses its own registration without editing the tracked
+    # template. RECAPTCHA_ENABLED=false bypasses reCAPTCHA entirely (dev, where the old v2 keys can't
+    # verify against v3); MIN_SCORE is the reject threshold (0.0-1.0, Google's default is 0.5).
+    RECAPTCHA_SITE_KEY = os.environ.get("RECAPTCHA_SITE_KEY", "6LckJoIqAAAAAAObcRxSz27BVJDSbg7pPID2V0jJ")
+    RECAPTCHA_SECRET = os.environ.get("RECAPTCHA_SECRET")
+    RECAPTCHA_MIN_SCORE = float(os.environ.get("RECAPTCHA_MIN_SCORE", "0.5"))
+    RECAPTCHA_ENABLED = os.environ.get("RECAPTCHA_ENABLED", "true").lower() == "true"
     DEBUG = os.environ.get("DEBUG", "false").lower() == "true"
     ASSET_DEBUG = os.environ.get("DEBUG", "false").lower() == "true"
     SIMPLELOGIN_LOGIN_URL = os.environ.get("SIMPLELOGIN_LOGIN_URL")
@@ -137,6 +146,12 @@ def configure(app):
         app.logger.warning(
             "INVITE_JWT_SECRET is not set; invite tokens are being signed with SECRET_KEY. "
             "Set a distinct INVITE_JWT_SECRET so a leak of one key doesn't compromise the other.")
+    # reCAPTCHA disabled outside DEBUG means the login/feedback bot protection is off in prod --
+    # surface it loudly (mirrors the INVITE_JWT_SECRET warning above).
+    if not app.config["RECAPTCHA_ENABLED"] and not app.config["DEBUG"]:
+        app.logger.warning(
+            "RECAPTCHA_ENABLED is false while DEBUG is off; login and feedback bot protection is "
+            "DISABLED. Set RECAPTCHA_ENABLED=true with real v3 keys in production.")
 
 # Test code below
 if __name__ == '__main__':

@@ -1,6 +1,4 @@
 # Python Standard Library Dependencies
-import os
-import requests
 from functools import wraps
 
 # External Dependency Imports
@@ -10,6 +8,7 @@ import bleach
 # Internal Dependency Imports
 from data_viz.extensions import limiter
 from data_viz.email import send_ses_email
+from data_viz.recaptcha import verify_recaptcha
 from data_viz.validation import validate_email, validate_text, MAX_FEEDBACK_NAME, MAX_FEEDBACK_BODY
 
 
@@ -67,37 +66,11 @@ def feedback():
     if not ok:
         return jsonify({"status": "error", "message": email}), 400
 
-    # reCAPTCHA is required; a missing token is a bad request, not a server error.
-    recaptcha_token = feedback_data.get("g-recaptcha-response")
-    if not recaptcha_token:
-        return jsonify({"status": "error", "message": "Please complete the reCAPTCHA challenge."}), 400
-
-    # Verify with Google. Any transport failure or unexpected response shape MUST be treated as a
-    # verification failure -- never fall through to sending an email. `.get("success")` being missing
-    # or None is falsy, so `not success` correctly rejects a malformed response.
-    recaptcha_secret = os.environ.get("RECAPTCHA_SECRET")
-    if not recaptcha_secret:
-        # A missing secret would make Google reject every user with invalid-input-secret; that's a
-        # server misconfiguration, not the user's mistake.
-        current_app.logger.error("RECAPTCHA_SECRET is not set; rejecting feedback submission")
-        return jsonify({"status": "error", "message": "Recaptcha verification failed"}), 502
-    try:
-        recaptcha_response = requests.post(
-            "https://www.google.com/recaptcha/api/siteverify",
-            data={"secret": recaptcha_secret, "response": recaptcha_token},
-            timeout=5,
-        )
-        recaptcha_result = recaptcha_response.json()
-    except (requests.RequestException, ValueError):
-        # Fail closed, but never silently: a Google outage/DNS break otherwise looks identical to bot
-        # traffic and a sustained feedback-form outage would be invisible to ops.
-        current_app.logger.exception("reCAPTCHA verification request to Google failed")
-        return jsonify({"status": "error", "message": "Recaptcha verification failed"}), 502
-    if recaptcha_response.status_code != 200 or not recaptcha_result.get("success"):
-        # error-codes distinguishes misconfiguration (invalid-input-secret) from bot traffic.
-        current_app.logger.warning(
-            "reCAPTCHA rejected submission: HTTP %s, error-codes=%s",
-            recaptcha_response.status_code, recaptcha_result.get("error-codes"))
+    # Verify the reCAPTCHA v3 token via the shared verifier (fails closed on missing secret,
+    # transport error, action mismatch, or below-threshold score -- never falls through to sending
+    # an email). See data_viz/recaptcha.verify_recaptcha.
+    recaptcha_ok, _ = verify_recaptcha(feedback_data.get("recaptcha-token"), "feedback")
+    if not recaptcha_ok:
         return jsonify({"status": "error", "message": "Recaptcha verification failed"}), 403
 
     # Send the feedback email. Values are length-capped above and bleach-cleaned here before being

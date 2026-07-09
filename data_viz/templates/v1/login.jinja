@@ -6,6 +6,7 @@
             <p class="text-center">CANASK is currently in a closed beta while it is being developed. If you have a data source you think should be included, or would like to access the tool and provide feedback, please reach out to us at <a href="mailto:spencer.fietz@ucalgary.ca">spencer.fietz@ucalgary.ca</a>.</p>
             <!-- HTMX Login Form -->
             <form
+                id="login-form"
                 hx-post="/v1/login"
                 hx-target="#page-container"
                 hx-swap="innerHTML swap:1s settle:1s"
