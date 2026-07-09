@@ -139,6 +139,26 @@ caps the total damage. The app also enforces a global **100 emails/day** cap on 
 
 ---
 
+## 5. Domain migration: internal-use.dev → canask.ca (when the time comes)
+
+The nginx `server_name` in `deploy/nginx/canask.conf` already answers for both domains, and the TLS
+file *paths* don't change — only their contents. Everything else is per-Cloudflare-zone and must be
+redone in the canask.ca zone:
+
+- [ ] **DNS**: A record for `canask.ca` (+ `www`) → the static IP, proxy ON (orange cloud).
+- [ ] **Origin certificate**: Origin Certificates are issued per zone, so the current `origin.pem`
+      is valid for internal-use.dev only. Generate a new one from the **canask.ca** zone
+      (SSL/TLS → Origin Server → Create Certificate) and overwrite `deploy/nginx/tls/origin.pem` +
+      `origin.key` on the server. Skipping this = Cloudflare 526 errors under Full (strict).
+- [ ] **Zone settings**: set SSL/TLS mode to **Full (strict)** and enable **Authenticated Origin
+      Pulls** on the canask.ca zone (both are per-zone toggles).
+- [ ] **App env**: update `PUBLIC_BASE_URL` in `app_config/.env.prod` (invite-email links) and any
+      other domain-bearing values, then `make prod-up`.
+- [ ] **Cleanup**: once canask.ca is confirmed serving, remove the internal-use.dev names from
+      `server_name`, and retire the old zone's DNS record so the origin IP isn't advertised twice.
+
+---
+
 ## Reference — app-side settings already in place
 Tunable via env (defaults in `data_viz/config.py`; documented in `app_config/.env.example`):
 
