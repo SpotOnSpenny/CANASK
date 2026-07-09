@@ -6,11 +6,10 @@ from functools import wraps
 # External Dependency Imports
 from flask import Blueprint, render_template, redirect, url_for, request, jsonify, views, current_app, session, flash, get_flashed_messages
 import bleach
-import boto3
-from botocore.exceptions import ClientError
 
 # Internal Dependency Imports
 from data_viz.extensions import limiter
+from data_viz.email import send_ses_email
 from data_viz.validation import validate_email, validate_text, MAX_FEEDBACK_NAME, MAX_FEEDBACK_BODY
 
 
@@ -18,6 +17,13 @@ from data_viz.validation import validate_email, validate_text, MAX_FEEDBACK_NAME
 main_blueprint = Blueprint("main", __name__)
 
 ##################################### ROUTES ###########################################
+# Liveness probe for container/nginx healthchecks. Deliberately does NO database or template work so it
+# stays a true liveness signal (the app process is up and serving) and can't itself 500 when the DB is
+# down. Exempt from rate limiting in data_viz/__init__.py so frequent probes don't burn the budget.
+@main_blueprint.route("/healthz")
+def healthz():
+    return "ok", 200
+
 # Routes for main index page
 # Public landing: anonymous visitors get the home page, but the menu/payload only surfaces visuals
 # whose visibility is "public" (the access filtering lives in visual_query.allowed_visuals).
@@ -69,7 +75,6 @@ def feedback():
     # Verify with Google. Any transport failure or unexpected response shape MUST be treated as a
     # verification failure -- never fall through to sending an email. `.get("success")` being missing
     # or None is falsy, so `not success` correctly rejects a malformed response.
-    print("sending recaptcha request")
     try:
         recaptcha_response = requests.post(
             "https://www.google.com/recaptcha/api/siteverify",
@@ -84,40 +89,13 @@ def feedback():
 
     # Send the feedback email. Values are length-capped above and bleach-cleaned here before being
     # embedded in the HTML body.
-    try:
-        ses_client = boto3.client(
-            "ses",
-            region_name=os.environ.get("AWS_REGION"),
-            aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID"),
-            aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY")
-        )
-        response = ses_client.send_email(
-            Source=os.environ.get("SES_SENDER_EMAIL"),
-            Destination = {
-                "ToAddresses": ["spencer.fietz@gmail.com"]
-            },
-            Message = {
-                "Subject": {
-                    "Data": "CANASK Feedback Received"
-                },
-                "Body": {
-                    "Html": {
-                        "Data": f"""
-                        <h2>Name:</h2>{bleach.clean(name) if name else "Anonymous"} </br>
-                        <h2>Feedback:</h2>{bleach.clean(feedback_body)} </br>
-                        <h2>Reach them at:</h2>{bleach.clean(email) if email else "Not provided"}
-                        """
-                    }
-                }
-            }
-        )
-    except ClientError as e:
-        print(e.response['Error']['Message'])
+    html_body = f"""
+        <h2>Name:</h2>{bleach.clean(name) if name else "Anonymous"} </br>
+        <h2>Feedback:</h2>{bleach.clean(feedback_body)} </br>
+        <h2>Reach them at:</h2>{bleach.clean(email) if email else "Not provided"}
+        """
+    if not send_ses_email(["spencer.fietz@gmail.com"], "CANASK Feedback Received", html_body):
         return jsonify({"status": "error", "message": "Failed to send feedback email"}), 500
-    except Exception as e:
-        print(e)
-        return jsonify({"status": "error", "message": "Failed to send feedback email"}), 500
-    print(response)
     return jsonify({"status": "success"}), 200
 
 # Route for V1 data visuals

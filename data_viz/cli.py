@@ -17,11 +17,13 @@ def create_admin_user():
     admin_email = os.environ.get("BOOTSTRAP_ADMIN_EMAIL")
     admin_username = os.environ.get("BOOTSTRAP_ADMIN_USERNAME")
     admin_password = os.environ.get("BOOTSTRAP_ADMIN_PASSWORD")
-    admin_password = hashpw(admin_password.encode("utf-8"), gensalt()).decode("utf-8")
 
+    # Guard BEFORE hashing -- a missing password would otherwise crash on .encode() with AttributeError.
     if not admin_email or not admin_username or not admin_password:
         print("Admin user credentials are not fully set in the environment variables.")
         return
+
+    admin_password = hashpw(admin_password.encode("utf-8"), gensalt()).decode("utf-8")
 
     existing_admin = User.query.filter_by(email=admin_email).first()
     if existing_admin:

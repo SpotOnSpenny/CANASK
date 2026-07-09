@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 # External imports
 from flask import Blueprint, request, render_template, flash, current_app, redirect, url_for, session, make_response
-from bcrypt import checkpw, gensalt
+from bcrypt import checkpw, gensalt, hashpw
 import jwt
 from flask_login import login_user, current_user, logout_user
 from celery.result import AsyncResult
@@ -18,11 +18,67 @@ from data_viz.database.models import User, Invites, Groups, UserGroups, UserActi
 from data_viz.auth.auth_helpers import get_user_groups, get_assignable_roles, validate_password, create_user, create_group, assign_group, assign_site_admin, get_manageable_users, get_user_memberships_in_groups, get_manageable_groups, set_group_data_sources, owned_data_sources, can_manage_source, teams_for_source, visuals_for_source, set_group_visuals, set_visual_visibility, set_province_default_visual, visibility_rows_for_source
 from data_viz.auth.role_hierarchy import ROLE_HIERARCHY
 from data_viz.extensions import limiter
+from data_viz.email import send_ses_email
 from data_viz.validation import validate_email, validate_username, validate_text, validate_role, MAX_GROUP_NAME, MAX_GROUP_DESC
 from celery_worker.tasks.invite_jwt_expiry import expire_invite
 
 # Define the auth blueprint for authentication related routes
 auth_blueprint = Blueprint("auth", __name__)
+
+# A fixed bcrypt hash compared against when no user matches, so a missing identifier costs the same
+# ~bcrypt time as a wrong password -- closes the login timing side-channel that leaks valid usernames.
+_DUMMY_PASSWORD_HASH = hashpw(b"password-does-not-matter", gensalt())
+
+
+def recent_login_failures(user_id):
+    """Count this account's failed login attempts inside the lockout window (see LOGIN_LOCKOUT_*).
+    Used to lock a single account under distributed brute-forcing that rotates source IPs."""
+    cutoff = datetime.now(timezone.utc) - current_app.config["LOGIN_LOCKOUT_WINDOW"]
+    return UserActivity.query.filter(
+        UserActivity.user_id == user_id,
+        UserActivity.activity_type == "authentication attempt",
+        UserActivity.details.like("Failed login%"),
+        UserActivity.timestamp >= cutoff,
+    ).count()
+
+
+def _log_auth_attempt(user, identifier, details):
+    """Append a UserActivity row for a login attempt (success/failure/blocked)."""
+    db.session.add(UserActivity(
+        user_id=user.id if user else None,
+        activity_type="authentication attempt",
+        activity_target_type="User",
+        activity_target_id=user.id if user else None,
+        details=details,
+        ip_address=request.remote_addr,
+    ))
+    db.session.commit()
+
+
+def _render_login():
+    """Render the login page as a bare partial for HTMX or the full base page otherwise."""
+    if request.headers.get("HX-Request"):
+        return render_template("v1/login.jinja")
+    return render_template("base.jinja", include_partials="login")
+
+
+def send_invite_email(invite):
+    """Email the invitee their accept link. The token is a bearer credential, so it is ONLY ever sent
+    over this email channel -- never flashed or logged. Returns True on success, False on failure
+    (callers keep the invite regardless and surface a soft warning)."""
+    base = current_app.config.get("PUBLIC_BASE_URL")
+    if not base:
+        current_app.logger.error("PUBLIC_BASE_URL is not set; cannot build invite link for %s", invite.email)
+        return False
+    accept_url = f"{base}/v1/accept-invite/{invite.token}"
+    subject = "You've been invited to CANASK"
+    html_body = f"""
+        <p>You've been invited to create an account on CANASK.</p>
+        <p><a href="{accept_url}">Accept your invite</a> to set up your account.</p>
+        <p>Or paste this link into your browser:<br>{accept_url}</p>
+        <p>This link expires shortly for security. If it has expired, ask your administrator to resend the invite.</p>
+        """
+    return send_ses_email([invite.email], subject, html_body)
 
 # Decorator to check if user is authenticated or not
 def require_auth(view):
@@ -182,7 +238,7 @@ def create_invite(email, group_assignments, site_admin_invite):
         ip_address = request.remote_addr
     ))
 
-    invite.token = invite.generate_jwt(current_app.config["SECRET_KEY"])
+    invite.token = invite.generate_jwt(current_app.config["INVITE_JWT_SECRET"])
     task = expire_invite.apply_async(args = [invite.id], eta = token_expiry)
     invite.expiry_task_id = task.id
     db.session.commit()
@@ -194,7 +250,6 @@ def create_invite(email, group_assignments, site_admin_invite):
 @limiter.limit(lambda: current_app.config["RATELIMIT_LOGIN"], exempt_when=lambda: request.method == "GET")
 def login():
     if request.method == "POST":
-        print(f"Session will expire in: {current_app.config['PERMANENT_SESSION_LIFETIME']}")
         form_data = request.form
         identifier = form_data.get("username")
         password = form_data.get("password")
@@ -202,52 +257,49 @@ def login():
         # generic message as a bad credential so this doesn't leak which field was missing.
         if not identifier or not password:
             flash("Invalid username or password", "danger")
-            if request.headers.get("HX-Request"):
-                return render_template("v1/login.jinja")
-            return render_template("base.jinja", include_partials="login")
+            return _render_login()
         user = User.query.filter(
             or_(
                 User.username == identifier,
                 func.lower(User.email) == (identifier or "").lower(),
             )
         ).first()
+
+        # Per-account lockout: refuse before verifying the password once this account has too many recent
+        # failures, so a distributed (IP-rotating) attack against one account is bounded, not just per-IP.
+        if user and recent_login_failures(user.id) >= current_app.config["LOGIN_LOCKOUT_THRESHOLD"]:
+            _log_auth_attempt(user, identifier, "Login blocked: too many recent failed attempts")
+            flash("Too many failed login attempts. Please wait a few minutes and try again.", "danger")
+            return _render_login()
+
         if user and checkpw(password.encode("utf-8"), user.password_hash.encode("utf-8")):
+            # Correct password, but a deactivated account must not get a session. The password was already
+            # verified, so this message reveals nothing an attacker couldn't already confirm.
+            if not user.is_active:
+                _log_auth_attempt(user, identifier, "Login refused: account not active")
+                flash("This account is not active. Please contact an administrator.", "danger")
+                return _render_login()
+            # Session fixation defense: drop any pre-auth session so a fixed pre-login session id can't be
+            # reused to ride the authenticated session.
+            session.clear()
             login_user(user)
-            new_login = UserActivity(
-                user_id = user.id,
-                activity_type = "authentication attempt",
-                activity_target_type = "User",
-                activity_target_id = user.id,
-                details = "Successful login",
-                ip_address = request.remote_addr
-            )
-            db.session.add(new_login)
-            db.session.commit()
+            _log_auth_attempt(user, identifier, "Successful login")
             response = make_response(render_template("index.jinja"))
             response.headers["HX-Push-Url"] = "/"
             return response
 
         else:
-            login_attempt = UserActivity(
-                user_id = user.id if user else None,
-                activity_type = "authentication attempt",
-                activity_target_type = "User",
-                activity_target_id = user.id if user else None,
-                details = f"Failed login attempt for {user.email if user else 'unknown user'}, using identifier {identifier}",
-                ip_address = request.remote_addr
-            )
-            db.session.add(login_attempt)
-            db.session.commit()
+            # Equalize response time for a non-existent identifier (no password check ran above) so login
+            # timing can't be used to enumerate valid usernames/emails.
+            if not user:
+                checkpw(password.encode("utf-8"), _DUMMY_PASSWORD_HASH)
+            _log_auth_attempt(
+                user, identifier,
+                f"Failed login attempt for {user.email if user else 'unknown user'}, using identifier {identifier}")
             flash("Invalid username or password", "danger")
-            if request.headers.get("HX-Request"):
-                return render_template("v1/login.jinja")
-            else:
-                return render_template("base.jinja", include_partials="login")
+            return _render_login()
     else:
-        if request.headers.get("HX-Request"):
-            return render_template("v1/login.jinja")
-        else:
-            return render_template("base.jinja", include_partials="login")
+        return _render_login()
 
 @auth_blueprint.route("/v1/logout", methods=["POST"])
 @require_auth
@@ -300,7 +352,7 @@ def invite_user(groups_with_required_role = None):
         email_ok, email = validate_email(request.form.get("email"), required=True)
         if not email_ok:
             flash(email, "danger")
-            return redirect(request.referrer or url_for("auth.invite_user"))
+            return redirect(url_for("auth.invite_user"))
 
         # Parse form data first so we know what's being requested
         site_admin_invite, group_assignments = parse_group_assignments(request.form.to_dict())
@@ -310,17 +362,17 @@ def invite_user(groups_with_required_role = None):
         # their scope. Without this a Group Admin could mint a Site Admin or assign roles anywhere.
         if site_admin_invite and not current_user.site_admin:
             flash("Only site admins can grant site admin access.", "danger")
-            return redirect(request.referrer or url_for("auth.invite_user"))
+            return redirect(url_for("auth.invite_user"))
         ok, error = validate_group_assignments(group_assignments, groups_with_required_role)
         if not ok:
             flash(error, "danger")
-            return redirect(request.referrer or url_for("auth.invite_user"))
+            return redirect(url_for("auth.invite_user"))
 
         # Check to ensure no user with that email already exists
         existing_user = User.query.filter_by(email=email).first()
         if existing_user:
             flash(f"A user with the email {email} already exists. Assign a new role/group to the existing user instead.", "danger")
-            return redirect(request.referrer or url_for("auth.invite_user"))
+            return redirect(url_for("auth.invite_user"))
 
         # Check if a pending invite already exists for this email
         existing_invite = Invites.query.filter_by(email=email, status="pending").first()
@@ -329,7 +381,7 @@ def invite_user(groups_with_required_role = None):
             # Case 1: existing invite is site admin — block everything
             if existing_invite.site_admin_invite:
                 flash(f"A pending invite for {email} already exists with elevated site admin permissions.", "warning")
-                return redirect(request.referrer or url_for("auth.invite_user"))
+                return redirect(url_for("auth.invite_user"))
 
             # Case 2: new invite is site admin — upgrade existing invite
             if site_admin_invite:
@@ -354,7 +406,7 @@ def invite_user(groups_with_required_role = None):
             if duplicate_groups:
                 duplicate_names = ", ".join([Groups.query.get(gid).name for gid in duplicate_groups])
                 flash(f"A pending invite for {email} to {duplicate_names} already exists.", "warning")
-                return redirect(request.referrer or url_for("auth.invite_user"))
+                return redirect(url_for("auth.invite_user"))
 
             # Case 4: add new groups to existing invite
             for group_id, role in group_assignments.items():
@@ -382,9 +434,11 @@ def invite_user(groups_with_required_role = None):
         # Create the invite and invite groups in the database tables
         invite = create_invite(email, group_assignments, site_admin_invite)
 
-        # Send the email to the user with the token and instructions to accept the invite
-        # Send email here
-        flash(f"Invite sent to {invite.email}. JWT = {invite.token}", "success")
+        if send_invite_email(invite):
+            flash(f"Invite sent to {invite.email}.", "success")
+        else:
+            flash(f"Invite created for {invite.email}, but the email could not be sent. "
+                  f"Check email configuration or resend the invite.", "warning")
         return redirect(url_for("main.index"))
 
 @auth_blueprint.route("/v1/invite-management", methods=["GET", "POST"])
@@ -479,6 +533,20 @@ def resend_invite(invite_id, groups_with_required_role=None):
 def renew_invite(invite_id, groups_with_required_role=None):
     invite = Invites.query.get(invite_id)
     managed_group_ids = None if current_user.site_admin else list(groups_with_required_role.keys())
+
+    # Only a still-outstanding invite may be renewed. Refuse revoked/accepted ones so a renewal can't
+    # resurrect a deliberately-cancelled invite or re-open one whose account already exists (previously
+    # any status was flipped back to "pending").
+    if invite is None or invite.status not in ("pending", "expired"):
+        flash("This invite can no longer be renewed.", "warning")
+        if invite is None:
+            return ("", 204)
+        return render_template("v1/partials/invite_row.jinja",
+                            invite=invite,
+                            managed_group_ids=managed_group_ids,
+                            groups_with_required_role=groups_with_required_role,
+                            role_hierarchy=ROLE_HIERARCHY)
+
     if invite.expiry_task_id:
         AsyncResult(invite.expiry_task_id).revoke()
 
@@ -486,16 +554,18 @@ def renew_invite(invite_id, groups_with_required_role=None):
     new_expiry = datetime.now(timezone.utc) + current_app.config["INVITE_TOKEN_EXPIRY"]
     invite.expires_at = new_expiry
     invite.status = "pending"
-    invite.token = invite.generate_jwt(current_app.config["SECRET_KEY"])
-
-    # send email here
-    print(f"Invite for {invite.email} renewed. New JWT = {invite.token}")
+    invite.token = invite.generate_jwt(current_app.config["INVITE_JWT_SECRET"])
 
     # Create new task for celery to handle expiry
     task = expire_invite.apply_async(args=[invite.id], eta=new_expiry)
     invite.expiry_task_id = task.id
 
     db.session.commit()
+
+    if send_invite_email(invite):
+        flash(f"Invite for {invite.email} renewed and re-sent.", "success")
+    else:
+        flash(f"Invite for {invite.email} renewed, but the email could not be sent.", "warning")
 
     return render_template("v1/partials/invite_row.jinja",
                         invite=invite,
@@ -748,7 +818,10 @@ def add_user(groups_with_required_role = None):
             return redirect(url_for("auth.user_management"))
 
         invite = create_invite(email, group_assignments, site_admin_assignment and current_user.site_admin)
-        flash(f"No account exists for {email}, so an invite was sent. JWT = {invite.token}", "success")
+        if send_invite_email(invite):
+            flash(f"No account exists for {email}, so an invite was sent.", "success")
+        else:
+            flash(f"No account exists for {email}; an invite was created but the email could not be sent.", "warning")
         return redirect(url_for("auth.user_management"))
 
 
@@ -1085,7 +1158,7 @@ def accept_invite(token = None):
     # Handle token from URL
     if token:
         try:
-            jwt.decode(token, current_app.config["SECRET_KEY"], algorithms=["HS256"])
+            jwt.decode(token, current_app.config["INVITE_JWT_SECRET"], algorithms=["HS256"])
         except jwt.ExpiredSignatureError:
             flash("This invite link has expired.", "danger")
             return redirect(url_for("auth.login"))
@@ -1102,7 +1175,7 @@ def accept_invite(token = None):
         return redirect(url_for("auth.login"))
 
     try:
-        payload = jwt.decode(token, current_app.config["SECRET_KEY"], algorithms=["HS256"])
+        payload = jwt.decode(token, current_app.config["INVITE_JWT_SECRET"], algorithms=["HS256"])
     except jwt.ExpiredSignatureError:
         session.pop("invite_token", None)
         flash("This invite link has expired.", "danger")
@@ -1117,7 +1190,22 @@ def accept_invite(token = None):
         session.pop("invite_token", None)
         flash("This invite is no longer valid.", "danger")
         return redirect(url_for("auth.login"))
-    
+
+    # Bind the presented token to the invite's current token. Renewing an invite mints a fresh token, so
+    # a previously-issued (not-yet-expired) token must not remain usable while status is still "pending".
+    if token != invite.token:
+        session.pop("invite_token", None)
+        flash("This invite link has been superseded. Please use the most recent invite email.", "danger")
+        return redirect(url_for("auth.login"))
+
+    # An account for this email may have been created since the invite was issued (e.g. a duplicate
+    # invite accepted first). Refuse cleanly rather than 500-ing on the unique-email constraint at
+    # create time.
+    if User.query.filter(func.lower(User.email) == (payload.get("email") or "").lower()).first():
+        session.pop("invite_token", None)
+        flash("An account already exists for this email. Please log in instead.", "danger")
+        return redirect(url_for("auth.login"))
+
     if request.method == "GET":
         return render_template("base.jinja", 
                             include_partials="accept invite",

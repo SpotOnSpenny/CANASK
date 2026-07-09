@@ -75,6 +75,16 @@ def visual_label(visual):
 
 @app.after_request
 def add_cache_control_headers(response):
+    # Security headers (apply to every response, static included). Defense-in-depth on top of Jinja
+    # autoescaping: CSP restricts where scripts/frames/etc. may load from (and frame-ancestors 'none'
+    # blocks clickjacking), nosniff stops MIME-type confusion, HSTS pins HTTPS (ignored by browsers on
+    # plain-HTTP dev responses, so it's safe to always send), and Referrer-Policy limits URL leakage.
+    response.headers.setdefault("Content-Security-Policy", current_app.config["CONTENT_SECURITY_POLICY"])
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+
     # Setup cache control headings
     if not request.path.startswith("/static/"):
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
@@ -152,7 +162,9 @@ limiter.init_app(app)
 
 @limiter.request_filter
 def _exempt_static():
-    return request.endpoint == "static"
+    # Static assets and the liveness probe are exempt: page loads pull many static files, and health
+    # checks poll /healthz frequently -- neither should count against a visitor's global allowance.
+    return request.endpoint in ("static", "main.healthz")
 
 # Register the custom CLI commands for the application
 register_cli(app)

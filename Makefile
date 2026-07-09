@@ -11,18 +11,42 @@ web-logs:
 worker-logs:
 	docker compose --env-file app_config/.env.dev -f docker-compose.yml -f docker-compose.dev.yml logs -f worker
 
-# Production-like
+# Production. APP_ENV_FILE makes the base compose load .env.prod (not .env.dev) into the app services;
+# the prod override adds the nginx TLS front, the one-shot init bootstrap, Redis auth, and restart
+# policies. The init service auto-runs `db upgrade` + `init-db` + `define-visuals` on `prod-up`.
+PROD = APP_ENV_FILE=app_config/.env.prod docker compose --env-file app_config/.env.prod -f docker-compose.yml -f docker-compose.prod.yml
+
 prod-up:
-	docker compose --env-file app_config/.env.prod up --build
+	$(PROD) up --build -d
 
 prod-down:
-	docker compose --env-file app_config/.env.prod down
+	$(PROD) down
 
 prod-logs:
-	docker compose --env-file app_config/.env.prod logs -f
+	$(PROD) logs -f
+
+# Bring up ONLY the database first (for restoring a dump into a fresh volume before the app starts).
+prod-db-up:
+	$(PROD) up -d db
+
+# Load a Postgres dump captured with `make prod-backup` (or pg_dump elsewhere). Usage: make prod-restore DUMP=backup.sql
+prod-restore:
+	$(PROD) exec -T db sh -c 'psql -U $$POSTGRES_USER $$POSTGRES_DB' < "$(DUMP)"
+
+# Dump the running database to stdout -> a file. Usage: make prod-backup > canask-$(date +%F).sql
+prod-backup:
+	$(PROD) exec -T db sh -c 'pg_dump -U $$POSTGRES_USER $$POSTGRES_DB'
+
+# Manual maintenance against prod (the init service already runs these on prod-up).
+prod-migrate:
+	$(PROD) exec web flask db upgrade
+
+prod-build-visuals:
+	$(PROD) exec web flask define-visuals
+	$(PROD) exec web flask gen-visuals
 
 clear-cache:
-	docker compose --env-file app_config/.env.dev exec web rm -rf data_viz/.webassets-cache
+	docker compose --env-file app_config/.env.dev exec web rm -rf data_viz/static/.webassets-cache
 	docker compose --env-file app_config/.env.dev exec web rm -f data_viz/static/assets/main.css
 	docker compose --env-file app_config/.env.dev exec web rm -f data_viz/static/assets/main.js
 

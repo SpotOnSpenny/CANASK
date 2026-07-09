@@ -18,6 +18,15 @@ class User(UserMixin, db.Model):
     status = db.Column(db.String(50), default = "invited")
     site_admin = db.Column(db.Boolean, default = False)
     invited_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable = True)
+
+    @property
+    def is_active(self):
+        # Flask-Login authentication gate. UserMixin.is_active is always True; override it so only
+        # "active" accounts may log in AND keep an existing session (a deactivated user -- status set to
+        # anything other than "active" -- is rejected by load_user on the next request). create_user and
+        # the bootstrap/seed paths all set status="active", so this does not affect normal accounts.
+        return self.status == "active"
+
     def __repr__(self):
         return f"<User {self.username}>"
     

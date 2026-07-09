@@ -17,6 +17,12 @@ load_dotenv()
 
 class Config():
     SECRET_KEY = os.environ["SECRET_KEY"]
+    # Separate signing key for invite JWTs so a session-key rotation or a leak of one key doesn't
+    # compromise the other. Falls back to SECRET_KEY when unset (keeps existing deployments working).
+    INVITE_JWT_SECRET = os.environ.get("INVITE_JWT_SECRET") or SECRET_KEY
+    # Public origin (scheme + host, no trailing slash) used to build absolute links in outbound email
+    # (e.g. the invite accept link). Set to the real domain in prod, e.g. https://canask.example.ca.
+    PUBLIC_BASE_URL = (os.environ.get("PUBLIC_BASE_URL") or os.environ.get("BASE_URL") or "").rstrip("/")
     DEBUG = os.environ.get("DEBUG", "false").lower() == "true"
     ASSET_DEBUG = os.environ.get("DEBUG", "false").lower() == "true"
     SIMPLELOGIN_LOGIN_URL = os.environ.get("SIMPLELOGIN_LOGIN_URL")
@@ -46,6 +52,44 @@ class Config():
     RATELIMIT_FEEDBACK_GLOBAL = os.environ.get("RATELIMIT_FEEDBACK_GLOBAL", "100 per day")  # all IPs, SES cost cap
     RATELIMIT_API = os.environ.get("RATELIMIT_API", "60 per minute")                   # per IP
     RATELIMIT_LOGIN = os.environ.get("RATELIMIT_LOGIN", "10 per minute")               # per IP, POST only
+
+    # Per-account login lockout (complements the per-IP RATELIMIT_LOGIN, which a distributed attacker
+    # can sidestep by rotating IPs). Counts recent failed attempts for one account; time-windowed so it
+    # self-heals without an admin unlock.
+    LOGIN_LOCKOUT_THRESHOLD = int(os.environ.get("LOGIN_LOCKOUT_THRESHOLD", "8"))
+    LOGIN_LOCKOUT_WINDOW = timedelta(minutes=int(os.environ.get("LOGIN_LOCKOUT_WINDOW_MINUTES", "15")))
+
+    # --- Security headers ----------------------------------------------------------------
+    # Session/CSRF cookie hardening. Secure is gated on prod (DEBUG off) because local dev serves
+    # plain HTTP -- a Secure cookie would never be sent and would break the dev login. HttpOnly and
+    # SameSite=Lax are safe in both. REMEMBER_COOKIE_SECURE covers Flask-Login "remember me" if enabled.
+    SESSION_COOKIE_SECURE = not DEBUG
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = "Lax"
+    REMEMBER_COOKIE_SECURE = not DEBUG
+    REMEMBER_COOKIE_HTTPONLY = True
+
+    # Content-Security-Policy. This app pulls several first- and third-party resources (see base.jinja):
+    # jsDelivr (Bootstrap/Popper/icons), Google Fonts, Google reCAPTCHA, and Google Analytics/Tag Manager.
+    # 'unsafe-inline' is required for scripts/styles because the templates carry inline <script> boot
+    # blocks (theme bootstrap, gtag, `| tojson` deep-link data) and inline style= attributes; autoescaping
+    # remains the primary XSS defense, with this CSP as defense-in-depth (notably clickjacking via
+    # frame-ancestors). Tighten to nonces once the inline blocks are refactored. Tunable via env.
+    CONTENT_SECURITY_POLICY = os.environ.get("CONTENT_SECURITY_POLICY", "; ".join([
+        "default-src 'self'",
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://www.google.com "
+        "https://www.gstatic.com https://www.googletagmanager.com",
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com",
+        "font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net",
+        "img-src 'self' data: https:",
+        "connect-src 'self' https://www.google-analytics.com https://*.google-analytics.com "
+        "https://*.analytics.google.com https://www.googletagmanager.com",
+        "frame-src https://www.google.com https://recaptcha.google.com",
+        "frame-ancestors 'none'",
+        "base-uri 'self'",
+        "object-src 'none'",
+        "form-action 'self'",
+    ]))
     # Add more configuration settings here as the need arises
 
 def configure(app):
