@@ -77,6 +77,9 @@ class Config():
     # Number of trusted proxy hops for ProxyFix (Cloudflare + nginx = 2). Fixes remote_addr
     # for audit logging; the limiter itself keys off CF-Connecting-IP above.
     TRUSTED_PROXY_COUNT = int(os.environ.get("TRUSTED_PROXY_COUNT", "2"))
+    # Recipient inbox for feedback-form emails (must be an SES-verified identity while the SES
+    # account is in sandbox mode).
+    FEEDBACK_EMAIL = os.environ.get("FEEDBACK_EMAIL", "spencer.fietz@ucalgary.ca")
     # Per-route limits (tunable without a code change).
     RATELIMIT_FEEDBACK = os.environ.get("RATELIMIT_FEEDBACK", "5 per hour")            # per IP
     RATELIMIT_FEEDBACK_GLOBAL = os.environ.get("RATELIMIT_FEEDBACK_GLOBAL", "100 per day")  # all IPs, SES cost cap

@@ -1066,9 +1066,21 @@ a { text-decoration: none; }
 }
 .feedback-visible { transform: translateY(0); }
 .feedback-title { color: var(--c-text); font-weight: 700; }
-.feedback-close { width: 34px; cursor: pointer; opacity: 0.6; transition: opacity 150ms ease; }
+/* Painted with the accent chevron token so it stays brand orange in both themes
+   (the old white chevron-down.svg img blended into the panel background). */
+.feedback-close {
+  display: inline-block;
+  width: 34px;
+  height: 34px;
+  background-image: var(--chevron-accent);
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+  cursor: pointer;
+  opacity: 0.85;
+  transition: opacity 150ms ease;
+}
 .feedback-close:hover { opacity: 1; }
-[data-theme="dark"] .feedback-close { filter: invert(1); }
 #feedback-form { width: 40%; }
 .feedback-content-container .form-control { background: var(--c-surface-2); }
 #feedback-submit-btn { color: var(--c-accent); border-color: var(--c-accent); }

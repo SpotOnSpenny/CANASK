@@ -836,6 +836,7 @@ async function createVisualLine(province, lineData, currentVisual, dataType, lin
       x: traceData["x"],
       y: value.map(v => (typeof v === "number" ? v : null)),
       name: key.toSentenceCase(),
+      legendgroup: key,
       type: "scatter",
       mode: "lines+markers",
       connectgaps: false,
@@ -872,6 +873,8 @@ async function createVisualLine(province, lineData, currentVisual, dataType, lin
       traces.push({
         x: bridgeX,
         y: bridgeY,
+        // Same legendgroup as the parent series so toggling it in the legend hides/shows the bridge too.
+        legendgroup: key,
         type: "scatter",
         mode: "lines",
         connectgaps: false,

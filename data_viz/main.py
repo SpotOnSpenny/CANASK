@@ -80,7 +80,7 @@ def feedback():
         <h2>Feedback:</h2>{bleach.clean(feedback_body)} </br>
         <h2>Reach them at:</h2>{bleach.clean(email) if email else "Not provided"}
         """
-    if not send_ses_email(["spencer.fietz@gmail.com"], "CANASK Feedback Received", html_body):
+    if not send_ses_email([current_app.config["FEEDBACK_EMAIL"]], "CANASK Feedback Received", html_body):
         return jsonify({"status": "error", "message": "Failed to send feedback email"}), 500
     return jsonify({"status": "success"}), 200
 
