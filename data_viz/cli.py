@@ -208,6 +208,24 @@ def register_cli(app):
             print("Reconciled duplicate data sources:", ", ".join(merges))
         print("Visual data generation complete.")
 
+    @app.cli.command("ingest-das", short_help="Ingest the monthly Drug Analysis Service workbook from output/ into the das_* tables.")
+    @click.option("--file", "file", default=None,
+                  help="Specific workbook to ingest (filename in output/, or an absolute path). "
+                       "Default: every <scraped>_<data-until>_nationalDAS.xlsx in output/, oldest first.")
+    def ingest_das(file):
+        from data_viz.das_ingest import ingest_das as run_ingest
+        run_ingest(file=file)
+        print("DAS ingest complete.")
+
+    @app.cli.command("build-das-gazetteer", short_help="Rebuild the DAS city-coordinates asset from the das_* tables and a GeoNames Canada dump.")
+    @click.option("--file", "file", default=None,
+                  help="GeoNames dump zip (filename in output/, or an absolute path). "
+                       "Default: output/geonames_CA.zip (download.geonames.org/export/dump/CA.zip).")
+    def build_das_gazetteer(file):
+        from data_viz.das_gazetteer import build_gazetteer
+        build_gazetteer(file=file)
+        print("Gazetteer build complete -- commit the refreshed das_city_coords.json.")
+
     @app.cli.command("clear-invites", short_help="Delete revoked invites (and their group rows) from the database, or every invite for a given email.")
     @click.option("--email", default=None, help="Delete ALL invites for this email regardless of status (default: all revoked invites).")
     def clear_invites(email):

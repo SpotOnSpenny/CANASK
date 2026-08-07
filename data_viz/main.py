@@ -103,6 +103,7 @@ national_scopes = {dash["scope"] for dash in NATIONAL_DASHBOARDS.values()}
 STATIC_PAGE_TITLES = {
     "main.index": "Home",
     "main.page_not_found": "Page Not Found",
+    "main.das_explorer_page": "DAS Explorer",
     "auth.login": "Login",
     "auth.invite_user": "Invite User",
     "auth.invite_management": "Invite Management",
@@ -178,6 +179,92 @@ def v1_province_visual(province, rest):
     if province not in active_provinces:
         return redirect(url_for("main.page_not_found"))
     return _render_scope_visual(province, rest)
+
+
+# DAS Explorer: a row-level data table + pivot builder over its own das_* tables, not the visuals
+# chart machinery -- so it gets its own template and JSON endpoints instead of provincial_vis.jinja
+# + /api/v1/province/<...>/data. Access is still the standard per-visual model: the metric-less
+# "canada-das"/das_explorer Visuals row (app_config/visuals/nationalDAS.json) carries the visibility
+# + group grants, checked server-side here AND on both APIs below. A static path segment outranks
+# the /v1/national/<dashboard> converter, so this coexists with the dashboards above.
+@main_blueprint.route("/v1/national/das-explorer")
+def das_explorer_page():
+    from flask_login import current_user
+    from .das_explorer import das_access_allowed, explorer_config
+    from .database.models import DataSources
+    from .das_ingest import DAS_SOURCE_NAME
+    if not das_access_allowed(current_user):
+        flash("That page isn't available.", "danger")
+        if request.headers.get("HX-Request") == "true":
+            return ("", 204, {"HX-Redirect": url_for("main.index")})
+        return redirect(url_for("main.index"))
+    source = DataSources.query.filter_by(name=DAS_SOURCE_NAME).first()
+    context = {"das_config": explorer_config(), "das_source": source}
+    if request.headers.get("HX-Request") == "true":
+        return render_template("v1/das_explorer.jinja", **context)
+    return render_template("base.jinja", include_partials="index",
+                           dash_template="v1/das_explorer.jinja", **context)
+
+
+# JSON APIs the DAS Explorer fetches: one page of table rows (Tabulator's remote pagination/sort/
+# filter contract) and one pivot aggregation. Both enforce the same per-visual access check as the
+# page -- hiding the nav link alone wouldn't protect the data.
+@main_blueprint.route("/api/v1/das/<dataset>/rows")
+@limiter.limit(lambda: current_app.config["RATELIMIT_API"])
+def das_rows(dataset):
+    from flask_login import current_user
+    from .das_explorer import DATASETS, das_access_allowed, parse_filters, query_rows
+    if dataset not in DATASETS:
+        return jsonify({"error": "unknown dataset"}), 404
+    if not das_access_allowed(current_user):
+        return jsonify({"error": "forbidden"}), 403
+    try:
+        page = int(request.args.get("page", 1))
+        size = int(request.args.get("size", 50))
+    except ValueError:
+        return jsonify({"error": "bad paging params"}), 400
+    from .das_filter_expr import FilterSyntaxError
+    try:
+        return jsonify(query_rows(dataset, page, size,
+                                  request.args.getlist("sort"),
+                                  parse_filters(request.args, dataset)))
+    except FilterSyntaxError as err:
+        # A malformed filter expression must fail loudly, never degrade into a wrong result.
+        return jsonify({"error": f"Invalid filter: {err}"}), 400
+
+
+@main_blueprint.route("/api/v1/das/<dataset>/pivot")
+@limiter.limit(lambda: current_app.config["RATELIMIT_API"])
+def das_pivot(dataset):
+    from flask_login import current_user
+    from .das_explorer import (DATASETS, PIVOT_MAX_ROWS, PIVOT_MAX_ROWS_GEO,
+                               das_access_allowed, parse_filters, query_pivot)
+    if dataset not in DATASETS:
+        return jsonify({"error": "unknown dataset"}), 404
+    if not das_access_allowed(current_user):
+        return jsonify({"error": "forbidden"}), 403
+    spec = DATASETS[dataset]
+    rows_field = request.args.get("rows")
+    cols_field = request.args.get("cols") or None
+    measure = request.args.get("measure") or next(iter(spec["measures"]))
+    if (rows_field not in spec["pivot_dims"]
+            or (cols_field is not None and cols_field not in spec["pivot_dims"])
+            or measure not in spec["measures"]):
+        return jsonify({"error": "bad pivot params"}), 400
+    # Optional opt-up for the map charts, which plot every place rather than a top-N;
+    # clamped so the param can't be abused into an unbounded payload.
+    try:
+        rows_limit = request.args.get("rows_limit")
+        rows_cap = max(1, min(int(rows_limit), PIVOT_MAX_ROWS_GEO)) if rows_limit else PIVOT_MAX_ROWS
+    except ValueError:
+        return jsonify({"error": "bad pivot params"}), 400
+    from .das_filter_expr import FilterSyntaxError
+    try:
+        return jsonify(query_pivot(dataset, rows_field, cols_field,
+                                   parse_filters(request.args, dataset), measure,
+                                   rows_cap=rows_cap))
+    except FilterSyntaxError as err:
+        return jsonify({"error": f"Invalid filter: {err}"}), 400
 
 
 # National dashboards: render like a province page but under their own URL space (canada is a data

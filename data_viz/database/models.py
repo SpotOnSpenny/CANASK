@@ -264,3 +264,106 @@ class UserActivity(db.Model):
 
     def __repr__(self):
         return f"<UserActivity User ID: {self.user_id}, Activity Type: {self.activity_type}, Timestamp: {self.timestamp}>"
+
+# --- Drug Analysis Service (DAS) row-level tables -------------------------------------------------
+# The DAS Explorer serves raw sample rows (paginated/filtered server-side), not aggregated facts, so
+# it gets its own tables instead of the DataPoints star schema. Ingested by `flask ingest-das` from
+# the monthly nationalDAS workbook; history accumulates across files, keyed by sample number.
+
+class DasDrugCodes(db.Model):
+    __tablename__ = "das_drug_codes"
+
+    # Natural key from the workbook's "Drug Id" sheet. Codes referenced by sample sheets but missing
+    # from the lookup get placeholder rows (english_name = code) so the FKs below always hold.
+    code = db.Column(db.String(255), primary_key = True)
+    # english_name is the source's full name, which can embed synonym lists after semicolons
+    # ("Psilocybin;(3-[2-(dimethylamino)ethyl]-...)"); display_name is its primary segment (fallback:
+    # the code), computed at ingest -- what the explorer table and pivot labels show.
+    display_name = db.Column(db.String(255), nullable = True)
+    english_name = db.Column(db.String(500), nullable = True)
+    french_name = db.Column(db.String(500), nullable = True)
+    english_legal_name = db.Column(db.String(500), nullable = True)
+    french_legal_name = db.Column(db.String(500), nullable = True)
+    pharm_class = db.Column(db.String(255), nullable = True)
+    pharm_subclass = db.Column(db.String(255), nullable = True)
+    cas = db.Column(db.String(255), nullable = True)
+    act = db.Column(db.String(255), nullable = True)
+    schedule = db.Column(db.String(255), nullable = True)
+    item = db.Column(db.String(255), nullable = True)
+
+    def __repr__(self):
+        return f"<DasDrugCode {self.code}: {self.english_name}>"
+
+class DasSamples(db.Model):
+    __tablename__ = "das_samples"
+
+    sample_number = db.Column(db.String(255), primary_key = True)
+    public_health = db.Column(db.Boolean, nullable = True)
+    contains_nps = db.Column(db.Boolean, nullable = True)
+    date_received = db.Column(db.Date, nullable = True, index = True)
+    date_returned = db.Column(db.Date, nullable = True, index = True)
+    city = db.Column(db.String(255), nullable = True)
+    province = db.Column(db.String(50), nullable = True, index = True)
+    description = db.Column(db.Text, nullable = True)
+    # Denormalized "Psilocybin; Fentanyl" list of resolved drug names -- the table's display/substring-
+    # filter column. The per-drug rows live in das_sample_drugs for pivot joins.
+    drugs_identified = db.Column(db.Text, nullable = True)
+    # Which monthly file the row came from (the filename's data-until month), for provenance.
+    source_month = db.Column(db.Date, nullable = True, index = True)
+
+    def __repr__(self):
+        return f"<DasSample {self.sample_number} ({self.province})>"
+
+class DasSampleDrugs(db.Model):
+    __tablename__ = "das_sample_drugs"
+    __table_args__ = (db.UniqueConstraint("sample_number", "position", name = "uq_das_sample_drug_position"),)
+
+    id = db.Column(db.Integer, primary_key = True)
+    sample_number = db.Column(db.String(255),
+                              db.ForeignKey("das_samples.sample_number", ondelete = "CASCADE"),
+                              nullable = False)
+    drug_code = db.Column(db.String(255), db.ForeignKey("das_drug_codes.code"), nullable = False, index = True)
+    position = db.Column(db.Integer, nullable = False)   # Drug ID 1..20 column the code came from
+
+    def __repr__(self):
+        return f"<DasSampleDrug {self.sample_number} #{self.position}: {self.drug_code}>"
+
+class DasQuant(db.Model):
+    __tablename__ = "das_quant"
+
+    id = db.Column(db.Integer, primary_key = True)
+    # Not an FK -- quantitation sample numbers aren't guaranteed to appear in the ID All sheet. And
+    # no (sample, drug) unique constraint: one sample can carry multiple quantitations of one drug
+    # (e.g. different units). Idempotency is by source_month -- each monthly file owns its month.
+    sample_number = db.Column(db.String(255), nullable = False, index = True)
+    public_health = db.Column(db.Boolean, nullable = True)
+    date_received = db.Column(db.Date, nullable = True)
+    date_returned = db.Column(db.Date, nullable = True)
+    city = db.Column(db.String(255), nullable = True)
+    province = db.Column(db.String(50), nullable = True, index = True)
+    description = db.Column(db.Text, nullable = True)
+    drug_code = db.Column(db.String(255), db.ForeignKey("das_drug_codes.code"), nullable = True)
+    quantity = db.Column(db.Float, nullable = True)
+    units = db.Column(db.String(50), nullable = True)
+    source_month = db.Column(db.Date, nullable = True, index = True)
+
+    def __repr__(self):
+        return f"<DasQuant {self.sample_number}: {self.drug_code} {self.quantity} {self.units}>"
+
+class DasNps(db.Model):
+    __tablename__ = "das_nps"
+
+    id = db.Column(db.Integer, primary_key = True)
+    # Uncertified findings all share the literal sample number "N/A*", so there is no usable unique
+    # key here; idempotency is by source_month, like das_quant.
+    sample_number = db.Column(db.String(255), nullable = False, index = True)
+    drug_code = db.Column(db.String(255), db.ForeignKey("das_drug_codes.code"), nullable = True)
+    substance_name = db.Column(db.String(500), nullable = True)
+    other_name = db.Column(db.Text, nullable = True)
+    province = db.Column(db.String(50), nullable = True, index = True)
+    finding_date = db.Column(db.Date, nullable = True)
+    description = db.Column(db.Text, nullable = True)
+    source_month = db.Column(db.Date, nullable = True, index = True)
+
+    def __repr__(self):
+        return f"<DasNps {self.sample_number}: {self.substance_name}>"

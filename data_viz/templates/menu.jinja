@@ -34,7 +34,7 @@
     </div>
     {% else %}
     <div class="accordion accordion-flush" id="accordionFlushMenu">
-        {% if current_user.is_authenticated %}
+        {% if current_user.is_authenticated or 'canada-das' in accessible_provinces %}
         <div class="accordion-item">
             <h2 class="accordion-header" id="flush-headingOne">
                 <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
@@ -45,11 +45,20 @@
             <div id="flush-collapseOne" class="accordion-collapse collapse" aria-labelledby="flush-headingOne"
                 data-bs-parent="#accordionFlushMenu">
                 <div class="accordion-body bg-transparent p-0">
+                    {% if current_user.is_authenticated %}
                     <a href="/v1/national/drug-checking" hx-get="/v1/national/drug-checking" hx-trigger="click"
                         hx-target="#content-div" hx-swap="innerHTML swap:1s settle:1s"
                         hx-push-url="/v1/national/drug-checking" class="nav-link htmx-element accordion-innard">
                         Drug Checking
                     </a>
+                    {% endif %}
+                    {% if 'canada-das' in accessible_provinces %}
+                    <a href="/v1/national/das-explorer" hx-get="/v1/national/das-explorer" hx-trigger="click"
+                        hx-target="#content-div" hx-swap="innerHTML swap:1s settle:1s"
+                        hx-push-url="/v1/national/das-explorer" class="nav-link htmx-element accordion-innard">
+                        DAS Explorer
+                    </a>
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -138,13 +147,22 @@
         <p class="mobile-nav-link text-muted">No visualizations are publicly available.
             <a href="/v1/login">Sign in</a> to view data shared with your groups.</p>
         {% else %}
-        {% if current_user.is_authenticated %}
+        {% if current_user.is_authenticated or 'canada-das' in accessible_provinces %}
         <h2 class="nav-title">National Trends</h2>
+        {% if current_user.is_authenticated %}
         <a href="/v1/national/drug-checking" hx-get="/v1/national/drug-checking" hx-trigger="click"
             hx-target="#content-div" hx-swap="innerHTML swap:1s settle:1s"
             hx-push-url="/v1/national/drug-checking" class="mobile-nav-link htmx-element">
             Drug Checking
         </a>
+        {% endif %}
+        {% if 'canada-das' in accessible_provinces %}
+        <a href="/v1/national/das-explorer" hx-get="/v1/national/das-explorer" hx-trigger="click"
+            hx-target="#content-div" hx-swap="innerHTML swap:1s settle:1s"
+            hx-push-url="/v1/national/das-explorer" class="mobile-nav-link htmx-element">
+            DAS Explorer
+        </a>
+        {% endif %}
         {% endif %}
         <h2 class="nav-title">Regional Trends</h2>
         {% for key, label in province_links %}

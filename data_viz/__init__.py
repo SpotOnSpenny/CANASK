@@ -44,6 +44,8 @@ assets = Environment(app)
 assets.register(
     "css_all",
     Bundle(
+        # Tabulator first so master_sheet's design-token overrides win the cascade.
+        "css/tabulator.min.css",
         "css/master_sheet.css",
         filters="cssmin",
         output="assets/main.css"
@@ -60,9 +62,11 @@ assets.register(
         "js/htmx.min.js",
         "js/plotly-2.32.0.min.js",
         "js/jquery-3.7.1.min.js",
+        "js/tabulator.min.js",
         "js/plotly-theme.js",
         "js/main.js",
         "js/visualGeneration.js",
+        "js/dasExplorer.js",
         output="assets/main.js"
     )
 )

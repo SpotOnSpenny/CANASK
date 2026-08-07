@@ -1237,6 +1237,107 @@ a { text-decoration: none; }
   color: var(--c-accent-hover);
 }
 
+/* ------------------------ DAS Explorer (Tabulator) ----------------------- */
+/* Re-skin Tabulator's stock (light-only) CSS onto the design tokens so the explorer table follows
+   both themes, matching the look of the app's other tables (sticky uppercase headers, striping,
+   accent hover). Bundled before this file, so these override its defaults by cascade order. */
+.das-table-card { overflow: visible; }
+.tabulator {
+  background: transparent;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+}
+.tabulator .tabulator-header {
+  background: var(--c-surface-3);
+  border-bottom: 2px solid var(--c-border-strong);
+  color: var(--c-text);
+}
+.tabulator .tabulator-header .tabulator-col {
+  background: var(--c-surface-3);
+  border-right: 1px solid var(--c-border);
+}
+.tabulator .tabulator-header .tabulator-col .tabulator-col-title {
+  color: var(--c-text);
+  font-weight: 600;
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.tabulator .tabulator-header .tabulator-col.tabulator-sortable:hover { background: var(--c-accent-soft); }
+.tabulator .tabulator-header .tabulator-col.tabulator-moving { background: var(--c-accent-soft); }
+.tabulator .tabulator-header-filter input,
+.tabulator .tabulator-header-filter select {
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--c-surface);
+  color: var(--c-text);
+  padding: 2px 6px;
+}
+.tabulator .tabulator-tableholder { background: var(--c-surface); }
+.tabulator .tabulator-tableholder .tabulator-table { background: transparent; color: var(--c-text); }
+.tabulator .tabulator-row { background: var(--c-surface); border-bottom: 1px solid var(--c-border); }
+.tabulator .tabulator-row.tabulator-row-even { background: var(--c-surface-2); }
+.tabulator .tabulator-row.tabulator-selectable:hover { background: var(--c-accent-soft); }
+.tabulator .tabulator-row .tabulator-cell { border-right: 1px solid var(--c-border); }
+.tabulator .tabulator-tableholder .tabulator-placeholder .tabulator-placeholder-contents {
+  color: var(--c-muted);
+}
+.tabulator .tabulator-footer {
+  background: var(--c-surface-3);
+  border-top: 1px solid var(--c-border-strong);
+  color: var(--c-text);
+}
+.tabulator .tabulator-footer .tabulator-page,
+.tabulator .tabulator-footer .tabulator-page-size {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--c-text);
+}
+.tabulator .tabulator-footer .tabulator-page.active {
+  background: var(--c-accent);
+  border-color: var(--c-accent);
+  color: #fff;
+}
+.tabulator .tabulator-footer .tabulator-page:not(.disabled):hover { background: var(--c-accent-soft); color: var(--c-text); }
+/* Invalid filter-expression feedback: red ring on the header filter input while the typed
+   AND/OR/NOT expression doesn't parse. */
+.tabulator .tabulator-header-filter input.das-filter-invalid {
+  border-color: var(--c-danger);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--c-danger) 28%, transparent);
+}
+/* The list-editor dropdown (multiselect province/units filter) is appended to <body>, outside
+   .tabulator, and its visible chrome lives on .tabulator-popup-container (NOT .tabulator-edit-list).
+   Theme it to match the site's .dropdown-menu, items to match .dropdown-item. */
+.tabulator-popup-container {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  color: var(--c-text);
+}
+[data-theme="dark"] .tabulator-popup-container {
+  background: var(--c-surface-3);
+  border-color: var(--c-border-strong);
+}
+.tabulator-edit-list { max-height: 260px; padding: 6px; font-size: 0.85rem; }
+.tabulator-edit-list .tabulator-edit-list-item {
+  color: var(--c-text);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+}
+.tabulator-edit-list .tabulator-edit-list-item.active { background: var(--c-accent); color: #fff; }
+.tabulator-edit-list .tabulator-edit-list-item.active.focused { outline: 1px solid rgba(255, 255, 255, 0.5); }
+.tabulator-edit-list .tabulator-edit-list-item.focused { outline: 1px solid var(--c-accent); }
+.tabulator-edit-list .tabulator-edit-list-item:hover { background: var(--c-accent-soft); color: var(--c-text); }
+.tabulator-edit-list .tabulator-edit-list-item.active:hover { background: var(--c-accent-hover); color: #fff; }
+.tabulator-edit-list .tabulator-edit-list-placeholder { color: var(--c-muted); }
+/* Pivot builder controls: mirror the treemap control row's compact select sizing. */
+.das-pivot-controls > div { min-width: 8.5rem; }
+#das-pivot-chart { min-height: 0; }
+#das-pivot-chart .skeleton-chart { height: 300px; }
+
 /* --------------------------- Reduced motion ----------------------------- */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

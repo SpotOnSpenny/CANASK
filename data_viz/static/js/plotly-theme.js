@@ -211,6 +211,14 @@ function canaskRedrawCharts() {
   } catch (e) {
     /* no active V1 chart */
   }
+  // Same full-rebuild treatment for the DAS Explorer's pivot chart, when that page is active.
+  try {
+    if (typeof window.dasRedrawPivot === "function") {
+      window.dasRedrawPivot();
+    }
+  } catch (e) {
+    /* no active DAS pivot chart */
+  }
 }
 
 // Expose the entry points the (non-bundled) base.jinja toggle script needs.

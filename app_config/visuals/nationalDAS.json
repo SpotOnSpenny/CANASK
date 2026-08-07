@@ -1,0 +1,27 @@
+{
+  "data_source": {
+    "name": "Health Canada Drug Analysis Service",
+    "link": "https://www.canada.ca/en/health-canada/services/health-concerns/controlled-substances-precursor-chemicals/drug-analysis-service.html"
+  },
+  "visuals": [
+    {
+      "province": "canada-das",
+      "visual_id": "das_explorer",
+      "shape": "das_table",
+      "metric": null,
+      "geo_type": null,
+      "dimension_type": null,
+      "dimension2_type": null,
+      "key_kind": null,
+      "chart_type": "das_table",
+      "data_types": null,
+      "menu_parent": "National Trends",
+      "menu_name": "DAS Explorer",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": true,
+      "visual_options": null
+    }
+  ]
+}

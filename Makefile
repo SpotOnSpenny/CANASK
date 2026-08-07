@@ -77,6 +77,15 @@ gen-visuals:
 # Sync visual definitions from the manifests, then (re)generate their data points.
 build-visuals: define-visuals gen-visuals
 
+# Ingest the monthly Drug Analysis Service workbook into the das_* row-level tables.
+ingest-das:
+	docker compose --env-file app_config/.env.dev exec web flask ingest-das
+
+# Rebuild the DAS city gazetteer (static/assets/das_city_coords.json) after an ingest
+# introduces new cities. Needs output/geonames_CA.zip (GeoNames CA dump).
+build-das-gazetteer:
+	docker compose --env-file app_config/.env.dev exec web flask build-das-gazetteer
+
 init-db:
 	docker compose --env-file app_config/.env.dev exec web flask init-db
 
