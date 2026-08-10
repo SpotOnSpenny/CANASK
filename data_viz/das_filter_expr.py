@@ -1,5 +1,5 @@
 # External Dependency Imports
-from sqlalchemy import and_, or_, not_
+from sqlalchemy import and_, or_, not_, false, func, select
 
 # The DAS Explorer's text-filter expression language: AND / OR / NOT, parentheses, and quoted
 # phrases over case-insensitive substring terms, e.g.
@@ -7,8 +7,16 @@ from sqlalchemy import and_, or_, not_
 #     fentanyl AND NOT cocaine
 #     "black tar heroin" OR opium
 # Plain spaces are literal -- adjacent bare words form ONE phrase ("black tar heroin" needs no
-# quotes); combining terms always takes an explicit operator. Keywords match case-insensitively,
-# so a standalone literal and/or/not must be quoted. Precedence: NOT > AND > OR.
+# quotes); combining terms always takes an explicit operator, except that an infix NOT implies
+# the AND ("cocaine NOT fentanyl" == "cocaine AND NOT fentanyl"). Keywords match
+# case-insensitively, so a standalone literal and/or/not must be quoted.
+# Precedence: NOT > AND > OR.
+#
+# Fields that opt in (allow_star; currently only Drugs Identified) also get a * wildcard meaning
+# "anything else": * matches any entry of the "; "-joined list value that no term elsewhere in the
+# expression matches, so `cocaine NOT *` reads "cocaine and nothing else". Only a standalone bare
+# * is the wildcard -- inside a quoted phrase or embedded in a word (fent*) it stays a literal
+# character. On fields that don't opt in, a standalone * is a FilterSyntaxError.
 #
 # parse_expression() returns a tuple AST so the grammar is testable without a database column;
 # compile_expression() turns an expression into a SQLAlchemy clause for one column. The client
@@ -27,7 +35,7 @@ class FilterSyntaxError(ValueError):
 
 
 def _tokenize(text):
-    """-> list of ("op", "AND"|"OR"|"NOT") | ("paren", "("|")") | ("phrase", str).
+    """-> list of ("op", "AND"|"OR"|"NOT") | ("paren", "("|")") | ("phrase", str) | ("star", "*").
 
     Bare words merge with their bare-word neighbors into a single space-joined phrase; quoted
     phrases are verbatim and never merge."""
@@ -63,7 +71,10 @@ def _tokenize(text):
             while end < len(text) and not text[end].isspace() and text[end] not in '()"':
                 end += 1
             word = text[i:end]
-            if word.upper() in _KEYWORDS:
+            if word == "*":
+                flush_words()
+                tokens.append(("star", "*"))
+            elif word.upper() in _KEYWORDS:
                 flush_words()
                 tokens.append(("op", word.upper()))
             else:
@@ -75,7 +86,7 @@ def _tokenize(text):
 
 def parse_expression(text):
     """Parse a filter expression into a tuple AST:
-        ("term", phrase) | ("and", [nodes]) | ("or", [nodes]) | ("not", node)
+        ("term", phrase) | ("star",) | ("and", [nodes]) | ("or", [nodes]) | ("not", node)
     Raises FilterSyntaxError on anything malformed."""
     if len(text) > MAX_EXPRESSION_LENGTH:
         raise FilterSyntaxError(f"expression longer than {MAX_EXPRESSION_LENGTH} characters")
@@ -96,10 +107,12 @@ def parse_expression(text):
         return nodes[0] if len(nodes) == 1 else ("or", nodes)
 
     def parse_and(depth):
+        # An infix NOT implies the AND ("a NOT b" == "a AND NOT b"); parse_not consumes it.
         nodes = [parse_not(depth)]
-        while peek() == ("op", "AND"):
+        while peek() in (("op", "AND"), ("op", "NOT")):
             nonlocal pos
-            pos += 1
+            if peek() == ("op", "AND"):
+                pos += 1
             nodes.append(parse_not(depth))
         return nodes[0] if len(nodes) == 1 else ("and", nodes)
 
@@ -125,6 +138,9 @@ def parse_expression(text):
         if kind == "phrase":
             pos += 1
             return ("term", value)
+        if kind == "star":
+            pos += 1
+            return ("star",)
         if kind is None:
             raise FilterSyntaxError("expression ends after an operator")
         raise FilterSyntaxError(f"unexpected '{value}'")
@@ -140,16 +156,51 @@ def _escape_like(phrase):
     return phrase.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
-def compile_expression(column, text):
-    """A SQLAlchemy boolean clause applying the expression to `column` (substring terms)."""
+def _walk(tree):
+    """Yield every AST node, any depth."""
+    stack = [tree]
+    while stack:
+        node = stack.pop()
+        yield node
+        kind = node[0]
+        if kind in ("and", "or"):
+            stack.extend(node[1])
+        elif kind == "not":
+            stack.append(node[1])
+
+
+def _star_clause(column, terms, separator):
+    """EXISTS an entry of the separator-joined list value that no term matches. `terms` is every
+    term in the expression regardless of NOT polarity -- the documented "any entry not matched by
+    any term you typed" rule. With no terms at all, any entry qualifies, so a bare * just means
+    the field is non-empty (and NOT * matches only NULL/empty values)."""
+    entry = func.unnest(func.string_to_array(column, separator)).column_valued("entry")
+    matched = (or_(*(entry.ilike(f"%{_escape_like(t)}%", escape="\\") for t in terms))
+               if terms else false())
+    return select(entry).where(not_(matched)).exists()
+
+
+def compile_expression(column, text, allow_star=False, entry_separator="; "):
+    """A SQLAlchemy boolean clause applying the expression to `column` (substring terms).
+    `allow_star` enables the * "anything else" wildcard for list-valued columns."""
+    tree = parse_expression(text)
+    star = None
+    if any(node[0] == "star" for node in _walk(tree)):
+        if not allow_star:
+            raise FilterSyntaxError("'*' is not supported in this filter")
+        terms = [node[1] for node in _walk(tree) if node[0] == "term"]
+        star = _star_clause(column, terms, entry_separator)
+
     def clause(node):
         kind = node[0]
         if kind == "term":
             return column.ilike(f"%{_escape_like(node[1])}%", escape="\\")
+        if kind == "star":
+            return star
         if kind == "and":
             return and_(*(clause(child) for child in node[1]))
         if kind == "or":
             return or_(*(clause(child) for child in node[1]))
         return not_(clause(node[1]))   # "not"
 
-    return clause(parse_expression(text))
+    return clause(tree)

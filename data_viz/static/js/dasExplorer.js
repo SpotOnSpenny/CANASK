@@ -78,9 +78,15 @@ function dasBuildDatasetToggle() {
 
 // Client-side mirror of the server's filter expression grammar (data_viz/das_filter_expr.py):
 // AND / OR / NOT, parentheses, quoted phrases, adjacent bare words merging into one phrase,
-// precedence NOT > AND > OR. Purely a typing-time convenience -- it never decides results, only
-// whether an expression is worth sending (the server 400s on anything malformed regardless).
-function dasValidExpression(text) {
+// precedence NOT > AND > OR, plus a standalone * wildcard on fields listed in the dataset
+// config's `wildcards` (allowStar). Purely a typing-time convenience -- it never decides
+// results, only whether an expression is worth sending (the server 400s on anything malformed
+// regardless).
+function dasAllowStar(field) {
+    return (dasDatasetCfg().wildcards || []).includes(field);
+}
+
+function dasValidExpression(text, allowStar) {
     if (text.length > 300) return false;
     const tokens = [];
     let words = [];
@@ -99,7 +105,8 @@ function dasValidExpression(text) {
             while (end < text.length && !/[\s()"]/.test(text[end])) end++;
             const word = text.slice(i, end);
             const upper = word.toUpperCase();
-            if (upper === "AND" || upper === "OR" || upper === "NOT") { flush(); tokens.push(["op", upper]); }
+            if (word === "*") { flush(); tokens.push(["star", "*"]); }
+            else if (upper === "AND" || upper === "OR" || upper === "NOT") { flush(); tokens.push(["op", upper]); }
             else words.push(word);
             i = end;
         }
@@ -114,8 +121,12 @@ function dasValidExpression(text) {
         return true;
     }
     function parseAnd(depth) {
+        // An infix NOT implies the AND ("a NOT b" == "a AND NOT b"); parseNot consumes it.
         if (!parseNot(depth)) return false;
-        while (peek()[0] === "op" && peek()[1] === "AND") { pos++; if (!parseNot(depth)) return false; }
+        while (peek()[0] === "op" && (peek()[1] === "AND" || peek()[1] === "NOT")) {
+            if (peek()[1] === "AND") pos++;
+            if (!parseNot(depth)) return false;
+        }
         return true;
     }
     function parseNot(depth) {
@@ -133,6 +144,7 @@ function dasValidExpression(text) {
             return true;
         }
         if (kind === "phrase") { pos++; return true; }
+        if (kind === "star") { pos++; return allowStar === true; }
         return false;
     }
     return parseOr(0) && pos === tokens.length;
@@ -147,7 +159,7 @@ function dasAppendFilterParams(query, filters) {
         const values = Array.isArray(f.value) ? f.value : [f.value];
         values.forEach(value => {
             if (value === "" || value == null) return;
-            if (kinds[f.field] === "text" && !dasValidExpression(String(value).trim())) return;
+            if (kinds[f.field] === "text" && !dasValidExpression(String(value).trim(), dasAllowStar(f.field))) return;
             query.append(`f_${f.field}`, value);
         });
     });
@@ -195,7 +207,7 @@ function dasBuildTable() {
             const kinds = dasDatasetCfg().kinds || {};
             const filters = dasState.table ? dasState.table.getHeaderFilters() : [];
             return !filters.some(f =>
-                kinds[f.field] === "text" && f.value && !dasValidExpression(String(f.value).trim()));
+                kinds[f.field] === "text" && f.value && !dasValidExpression(String(f.value).trim(), dasAllowStar(f.field)));
         },
         // Surface the (filtered) total row count next to the dataset label; last_row rides the
         // rows endpoint's response alongside Tabulator's data/last_page contract.
@@ -230,7 +242,7 @@ function dasWireFilterValidation() {
         const field = cell ? cell.getAttribute("tabulator-field") : null;
         if (!field || (dasDatasetCfg().kinds || {})[field] !== "text") return;
         const value = input.value.trim();
-        input.classList.toggle("das-filter-invalid", value !== "" && !dasValidExpression(value));
+        input.classList.toggle("das-filter-invalid", value !== "" && !dasValidExpression(value, dasAllowStar(field)));
     });
 }
 
@@ -332,7 +344,7 @@ async function dasApplyPivot() {
     // filter holds an invalid expression (its input is already ringed red).
     const headerFilters = dasState.table ? dasState.table.getHeaderFilters() : [];
     const kinds = dasDatasetCfg().kinds || {};
-    if (headerFilters.some(f => kinds[f.field] === "text" && f.value && !dasValidExpression(String(f.value).trim()))) {
+    if (headerFilters.some(f => kinds[f.field] === "text" && f.value && !dasValidExpression(String(f.value).trim(), dasAllowStar(f.field)))) {
         dasResetChart(chart, '<p class="text-warning text-center py-3">Fix the invalid filter expression (outlined in red in the table) first.</p>');
         return;
     }

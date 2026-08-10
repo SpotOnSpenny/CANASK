@@ -49,10 +49,11 @@ def _year(column):
 # (text -> ilike substring, select/bool -> equality, date/number -> substring on the cast text,
 # which lets a "2026-06" header filter match a date column), `joins` names join tags the
 # expression needs (applied once per query), `filter_values` marks a field whose distinct values
-# feed a dropdown header filter.
-def _field(label, expr, kind="text", joins=(), filter_values=False, width=None):
+# feed a dropdown header filter, `allow_star` enables the * "anything else" wildcard on a
+# "; "-joined list column (see das_filter_expr).
+def _field(label, expr, kind="text", joins=(), filter_values=False, width=None, allow_star=False):
     return {"label": label, "expr": expr, "kind": kind, "joins": tuple(joins),
-            "filter_values": filter_values, "width": width}
+            "filter_values": filter_values, "width": width, "allow_star": allow_star}
 
 
 _DRUG_NAME_QUANT = func.coalesce(DasDrugCodes.display_name, DasQuant.drug_code)
@@ -73,7 +74,7 @@ DATASETS = {
             "date_received": _field("Date Received", DasSamples.date_received, kind="date", width=130),
             "province": _field("Prov/Terr", DasSamples.province, kind="select", filter_values=True, width=100),
             "city": _field("City", DasSamples.city, width=130),
-            "drugs_identified": _field("Drugs Identified", DasSamples.drugs_identified),
+            "drugs_identified": _field("Drugs Identified", DasSamples.drugs_identified, allow_star=True),
             "description": _field("Description", DasSamples.description, width=120),
             "public_health": _field("Public Health", _yes_no(DasSamples.public_health), kind="bool", width=110),
             "contains_nps": _field("Contains NPS", _yes_no(DasSamples.contains_nps), kind="bool", width=110),
@@ -174,10 +175,10 @@ def _base_query(dataset, entities, extra_joins=()):
 
 def _apply_filters(query, dataset, filters):
     """Filter the query by {field: value(s)} using each field's kind: select -> any-of (IN) over
-    the list of picked values, text -> the AND/OR/NOT expression language (compile_expression;
-    raises FilterSyntaxError -> 400 in the routes), bool -> equality, date/number -> substring on
-    the cast text. Unknown fields were already dropped by the caller (the registry is the
-    whitelist)."""
+    the list of picked values, text -> the AND/OR/NOT expression language (compile_expression,
+    with the * wildcard only where the field's allow_star opts in; raises FilterSyntaxError ->
+    400 in the routes), bool -> equality, date/number -> substring on the cast text. Unknown
+    fields were already dropped by the caller (the registry is the whitelist)."""
     for field, value in filters.items():
         spec = dataset["fields"][field]
         expr = spec["expr"]
@@ -188,7 +189,7 @@ def _apply_filters(query, dataset, filters):
         elif spec["kind"] in ("date", "number"):
             query = query.filter(cast(expr, String).ilike(f"%{value}%"))
         else:
-            query = query.filter(compile_expression(expr, value))
+            query = query.filter(compile_expression(expr, value, allow_star=spec["allow_star"]))
     return query
 
 
@@ -333,7 +334,8 @@ def explorer_config():
                 column["headerFilter"] = "list"
                 column["headerFilterParams"] = {"values": ["", "Yes", "No"], "clearable": True}
             elif spec["kind"] == "text":
-                column["headerFilterPlaceholder"] = "e.g. (a AND b) OR c"
+                column["headerFilterPlaceholder"] = ("e.g. fentanyl NOT *" if spec["allow_star"]
+                                                    else "e.g. (a AND b) OR c")
             if spec["width"]:
                 column["width"] = spec["width"]
             columns.append(column)
@@ -344,6 +346,8 @@ def explorer_config():
             # keys make Tabulator log warnings). The client uses these to know which inputs get
             # the expression validator and which lists are multiselect.
             "kinds": {field: spec["kind"] for field, spec in dataset["fields"].items()},
+            # Fields whose text filter accepts the * wildcard, for the client-side validator.
+            "wildcards": [field for field, spec in dataset["fields"].items() if spec["allow_star"]],
             # kind lets the client tell date dims (valid slider splits for map charts) from the rest.
             "pivotDims": [{"field": f, "label": s["label"], "kind": s["kind"]}
                           for f, s in dataset["pivot_dims"].items()],
