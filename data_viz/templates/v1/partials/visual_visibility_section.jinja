@@ -1,4 +1,22 @@
 <div id="vis-section-{{ source.id }}" class="table-responsive"{% if oob %} hx-swap-oob="true"{% endif %}>
+    {% if visibility_rows %}
+    <div class="d-flex justify-content-end align-items-center gap-2 py-2">
+        <span class="small text-body-secondary">Set all visuals:</span>
+        <div class="btn-group btn-group-sm" role="group"
+             aria-label="Set visibility for all visuals of {{ source.name }}">
+            {% for level, label, icon in [("private", "Private", "bi-lock"), ("group", "Group", "bi-people"), ("public", "Public", "bi-globe")] %}
+            <button type="button" class="btn btn-outline-primary"
+                hx-post="/v1/sources/{{ source.id }}/visibility"
+                hx-vals='{"visibility": "{{ level }}"}'
+                hx-target="#vis-section-{{ source.id }}"
+                hx-swap="outerHTML"
+                hx-confirm="{% if level == 'public' %}Set ALL visuals of {{ source.name }} to Public? This exposes every visual, including any currently restricted to groups or kept private.{% else %}Set ALL visuals of {{ source.name }} to {{ label }}? This may hide visuals people currently rely on.{% endif %}">
+                <i class="bi {{ icon }} me-1"></i>{{ label }}
+            </button>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
     <table class="table table-hover mb-0 align-middle">
         <thead>
             <tr>

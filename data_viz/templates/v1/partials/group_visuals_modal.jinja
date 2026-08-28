@@ -1,10 +1,10 @@
-{% macro render_node(node, current_ids, depth, parent_id) %}
+{% macro render_node(node, current_ids, depth, parent_id, province_slug) %}
     {% set v = node.visual %}
     <div class="mb-2 p-2 border rounded" style="margin-left: {{ depth * 1.5 }}rem;">
         <div class="form-check mb-0">
             <input class="form-check-input visual-check" type="checkbox" name="visual_ids"
                    value="{{ v.id }}" id="visual_{{ v.id }}"
-                   data-vid="{{ v.id }}"{% if parent_id is not none %} data-parent="{{ parent_id }}"{% endif %}
+                   data-vid="{{ v.id }}" data-province="{{ province_slug }}"{% if parent_id is not none %} data-parent="{{ parent_id }}"{% endif %}
                    {% if v.id in current_ids %}checked{% endif %}>
             <label class="form-check-label fw-semibold" for="visual_{{ v.id }}">
                 {{ v | visual_label }}
@@ -13,7 +13,7 @@
         </div>
     </div>
     {% for child in node.children %}
-        {{ render_node(child, current_ids, depth + 1, v.id) }}
+        {{ render_node(child, current_ids, depth + 1, v.id, province_slug) }}
     {% endfor %}
 {% endmacro %}
 
@@ -32,11 +32,23 @@
         {% else %}
             <p class="form-intro">Choose which visuals <strong>{{ group.name }}</strong> can see.
                 A drill-down level can only be granted if the level above it is.</p>
+            <div class="mb-2">
+                <button type="button" class="btn btn-sm btn-outline-secondary select-all-btn"
+                        data-scope="all">Select all</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary clear-all-btn"
+                        data-scope="all">Clear all</button>
+            </div>
             {% for p in provinces %}
                 {% if p.trees %}
-                    <p class="fw-semibold mb-1 mt-2">{{ p.province.replace("-", " ").title() }}</p>
+                    <div class="d-flex align-items-center gap-2 mb-1 mt-2">
+                        <p class="fw-semibold mb-0">{{ p.province.replace("-", " ").title() }}</p>
+                        <button type="button" class="btn btn-sm btn-link p-0 select-all-btn"
+                                data-scope="{{ p.province }}">Select all</button>
+                        <button type="button" class="btn btn-sm btn-link p-0 clear-all-btn"
+                                data-scope="{{ p.province }}">Clear all</button>
+                    </div>
                     {% for node in p.trees %}
-                        {{ render_node(node, current_ids, 0, None) }}
+                        {{ render_node(node, current_ids, 0, None, p.province) }}
                     {% endfor %}
                 {% endif %}
             {% endfor %}
@@ -68,6 +80,25 @@
         }
         checks.forEach(c => c.addEventListener('change', applyHierarchy));
         applyHierarchy();
+
+        // Bulk select/clear, globally or per province. Checks render parent-before-child, so
+        // clearing `disabled` while checking is safe -- applyHierarchy() re-derives the final state.
+        function setScope(scope, on) {
+            checks.forEach(c => {
+                if (scope !== 'all' && c.dataset.province !== scope) return;
+                if (on) {
+                    c.checked = true;
+                    c.disabled = false;
+                } else {
+                    c.checked = false;
+                }
+            });
+            applyHierarchy();
+        }
+        document.querySelectorAll('.select-all-btn').forEach(b =>
+            b.addEventListener('click', () => setScope(b.dataset.scope, true)));
+        document.querySelectorAll('.clear-all-btn').forEach(b =>
+            b.addEventListener('click', () => setScope(b.dataset.scope, false)));
 
         // Block a no-op submit (matches the data-sources modal pattern)
         const initial = {};
