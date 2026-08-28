@@ -214,7 +214,7 @@ function dasBuildTable() {
         ajaxResponse: function (url, params, response) {
             if (response.last_row != null) {
                 document.getElementById("das-table-title").textContent =
-                    `${ds.label} — ${Number(response.last_row).toLocaleString()} rows`;
+                    `${ds.label} · ${Number(response.last_row).toLocaleString()} rows`;
             }
             return response;
         },
@@ -224,7 +224,7 @@ function dasBuildTable() {
         let hint = "";
         if (message.includes("429")) hint = " (too many requests, wait a moment)";
         else if (message.includes("400")) hint = " (check your filter syntax)";
-        document.getElementById("das-table-title").textContent = `${ds.label} — data failed to load${hint}`;
+        document.getElementById("das-table-title").textContent = `${ds.label}: data failed to load${hint}`;
     });
     dasWireFilterValidation();
 }
@@ -573,7 +573,7 @@ function dasRenderPivot() {
         const notes = [];
         if (unmapped.length) {
             const shown = unmapped.slice(0, 5).join("; ") + (unmapped.length > 5 ? "; …" : "");
-            notes.push(`${unmapped.length} ${unmapped.length === 1 ? "city" : "cities"} with no known map location not shown: ${shown}`);
+            notes.push(`${unmapped.length} ${unmapped.length === 1 ? "city is" : "cities are"} missing from the map (no known coordinates): ${shown}`);
         }
         if (p.rows.includes("Unknown")) notes.push("Results with no recorded city are not shown.");
         if (notes.length) dasSetUnmappedNote(notes.join(" "));
