@@ -555,6 +555,11 @@ function masterLoop(location = null, year = null, category = null) {
       createVisualStratifiedBar(province, block, currentVisual, source,
                                 cfg["type"] === "stacked_bar" ? "stack" : "group");
       break;
+    case "stacked_hbar":
+      // Self-contained: horizontal 100%-stacked bars with a client-side "Date checked" filter,
+      // re-rendering in place like the treemap.
+      createVisualExpectedActual(province, block, currentVisual, source);
+      break;
   }
 
   // Reflect the current visual + drill context in the address bar (single sync point for every
@@ -1782,6 +1787,205 @@ async function createVisualStratifiedBar(province, block, currentVisual, source,
 
   makeSelect(cfg.filter_label || "Substance", substances.map(s => ({ value: s, label: substanceLabel(s) })), sel.substance, v => { sel.substance = v; });
   makeSlider(cfg.time_label || "Year", years, years.length - 1, v => { sel.year = v; });
+  render();
+}
+
+
+// ---- Expected vs. actual (expected_actual_bar): horizontal 100%-stacked bars per expected drug ----
+// Facts: d = expected drug (chart row), d2 = outcome key (segment: expected_only / expected_plus /
+// not_expected), t = month ("YYYY-MM"), v = sample count. Self-contained like the treemap: it builds
+// its own "Date checked" unit select + period slider (same rig as the treemap's time control) and
+// re-renders in place. Percentages are computed here from the counts left after the date filter, so
+// each row always reads as 100% of its currently-selected samples; segment colors are semantic
+// (green = as expected, yellow = expected + other noteworthy, red = not the expected substance).
+async function createVisualExpectedActual(province, block, currentVisual, source) {
+  const cfg = (block && block.visual_options) || {};
+  const facts = (block && block.facts) || [];
+  const visDiv = document.getElementById("vis-div");
+  const aboutDataDiv = document.getElementById("about-data");
+  const tableDiv = document.getElementById("data-table");
+  const tableTitle = document.getElementById("table-title");
+  const toggle = document.getElementById("data-type-toggle");
+
+  setActiveVisual(province, currentVisual);
+  if (toggle) toggle.innerHTML = "";   // single data type (counts) -> no data-type toggle
+
+  const parsed = [];
+  for (const f of facts) {
+    if (f.dt !== "counts" || typeof f.v !== "number") continue;
+    parsed.push({ drug: f.d, outcome: f.d2, t: String(f.t), v: f.v });
+  }
+  if (parsed.length === 0) { renderEmptyVisual("No data is available for this visual."); return; }
+
+  const segments = (cfg.segments && cfg.segments.length) ? cfg.segments : [
+    { key: "expected_only", label: "Only expected substance", color: "success" },
+    { key: "expected_plus", label: "Expected substance + other noteworthy substances", color: "warning" },
+    { key: "not_expected", label: "Did not contain expected substance", color: "danger" },
+  ];
+  const sel = { unit: "all", bucket: null };
+
+  // Layout: title + subtitle (header), chart, controls + note (footer) -- all inside #vis-div so the
+  // next visual's render tears the whole stack down (auto-cleanup), reusing the treemap layout CSS.
+  visDiv.className = "treemap-layout";
+  visDiv.innerHTML = "";
+  const headerEl = document.createElement("div"); headerEl.className = "treemap-header";
+  const titleEl = document.createElement("div"); titleEl.className = "treemap-title";
+  titleEl.innerText = cfg.title || "How do samples compare to what people expect?";
+  headerEl.appendChild(titleEl);
+  if (cfg.subtitle) {
+    // var(--c-muted) rather than .text-muted: the token adapts to the dark theme, Bootstrap's
+    // class does not (same below for the note).
+    const subEl = document.createElement("div"); subEl.className = "small";
+    subEl.style.color = "var(--c-muted)";
+    subEl.innerText = cfg.subtitle;
+    headerEl.appendChild(subEl);
+  }
+  const chartDiv = document.createElement("div"); chartDiv.className = "treemap-chart";
+  const footerEl = document.createElement("div"); footerEl.className = "treemap-footer";
+  const controlHost = document.createElement("div"); controlHost.className = "treemap-controls-row";
+  controlHost.style.alignItems = "center";
+  footerEl.appendChild(controlHost);
+  if (cfg.note) {
+    const noteEl = document.createElement("div"); noteEl.className = "small mt-1";
+    noteEl.style.color = "var(--c-muted)";
+    noteEl.innerText = cfg.note;
+    footerEl.appendChild(noteEl);
+  }
+  visDiv.appendChild(headerEl); visDiv.appendChild(chartDiv); visDiv.appendChild(footerEl);
+
+  function render() {
+    // Aggregate the facts surviving the date filter: per-drug totals + per-segment counts.
+    const totals = {};    // drug -> n samples in the current view
+    const bySeg = {};     // outcome key -> {drug -> count}
+    for (const p of parsed) {
+      if (sel.unit !== "all" && sel.bucket != null && timeBucketOf(p, sel.unit) !== sel.bucket) continue;
+      totals[p.drug] = (totals[p.drug] || 0) + p.v;
+      if (!bySeg[p.outcome]) bySeg[p.outcome] = {};
+      bySeg[p.outcome][p.drug] = (bySeg[p.outcome][p.drug] || 0) + p.v;
+    }
+
+    // Row order from config, keeping only drugs present in the current view (a narrow date pick can
+    // empty a row); any unexpected drug values are appended so new data surfaces rather than vanishing.
+    const ordered = (cfg.row_order && cfg.row_order.length) ? cfg.row_order : Object.keys(totals).sort();
+    const rows = ordered.filter(d => totals[d] > 0)
+      .concat(Object.keys(totals).filter(d => totals[d] > 0 && !ordered.includes(d)));
+    if (rows.length === 0) {
+      Plotly.purge(chartDiv);
+      chartDiv.innerHTML = '<p class="text-muted text-center py-5">No samples were checked in this period.</p>';
+      tableTitle.innerText = ""; tableDiv.innerHTML = "";
+      aboutDataDiv.innerHTML = buildAboutDataHTML(source);
+      return;
+    }
+    chartDiv.innerHTML = "";
+    const rowLabels = rows.map(d => `${d}<br>(${totals[d]})`);
+    const segCount = (seg, drug) => (bySeg[seg.key] && bySeg[seg.key][drug]) || 0;
+    const segPct = (seg, drug) => totals[drug] ? (100 * segCount(seg, drug)) / totals[drug] : 0;
+
+    const colors = canaskSemanticColors();
+    const traces = segments.map(seg => {
+      const pcts = rows.map(d => segPct(seg, d));
+      return {
+        type: "bar",
+        orientation: "h",
+        y: rowLabels,
+        x: pcts,
+        name: seg.label,
+        customdata: rows.map(d => segCount(seg, d)),
+        // Overlay the rounded percentage on each segment; slivers that would round to 0% stay
+        // unlabeled (their exact share is still in the hover + table).
+        text: pcts.map(p => (Math.round(p) >= 1 ? Math.round(p) + "%" : "")),
+        textposition: "inside",
+        insidetextanchor: "middle",
+        hovertemplate: "%{x:.1f}% (%{customdata} samples)<extra>" + seg.label + "</extra>",
+        marker: { color: colors[seg.color] || colors.success, line: { width: 1, color: canaskMarkerLineColor() } },
+      };
+    });
+
+    const cardW = $("#viz-card").width(), cardH = $("#viz-card").height();
+    Plotly.purge(chartDiv);
+    Plotly.react(chartDiv, traces, themeChartLayout({
+      barmode: "stack",
+      width: cardW,
+      height: Math.max(260, cardH - headerEl.offsetHeight - footerEl.offsetHeight - 6),
+      xaxis: { range: [0, 100], ticksuffix: "%", title: { text: cfg.x_axis_title || "% of drug samples checked", standoff: 5 }, fixedrange: true },
+      // Reversed so row_order[0] renders at the top (Plotly stacks category axes bottom-up).
+      yaxis: { title: { text: cfg.y_axis_title || "Expected drug", standoff: 10 }, autorange: "reversed", automargin: true, fixedrange: true },
+      // traceorder "normal" keeps the legend reading green -> yellow -> red (Plotly reverses it
+      // for stacked bars by default).
+      legend: Object.assign(responsiveLegend(), { traceorder: "normal" }),
+      margin: responsiveMargin(),
+    }), { displaylogo: false, responsive: false });
+
+    // Table: one row per expected drug -- sample count plus each segment as "count (share%)".
+    tableTitle.innerText = cfg.table_title || cfg.title || "Samples vs. Expectations";
+    const table = document.createElement("table");
+    table.setAttribute("class", "mb-0 table table-striped table-bordered table-hover");
+    const head = table.insertRow(-1);
+    ["Expected drug", "Samples"].concat(segments.map(s => s.label)).forEach(h => {
+      const th = document.createElement("th"); th.innerText = h; head.appendChild(th);
+    });
+    rows.forEach(drug => {
+      const tr = table.insertRow(-1); tr.setAttribute("class", "align-middle");
+      tr.insertCell(-1).innerText = drug;
+      tr.insertCell(-1).innerText = totals[drug];
+      segments.forEach(seg => {
+        tr.insertCell(-1).innerText = `${segCount(seg, drug)} (${segPct(seg, drug).toFixed(1)}%)`;
+      });
+    });
+    tableDiv.innerHTML = ""; tableDiv.appendChild(table);
+    aboutDataDiv.innerHTML = buildAboutDataHTML(source);
+  }
+
+  // "Date checked" control: unit select + period slider, mirroring the treemap's time control (the
+  // sibling visual on this dashboard) so the two filters read as one pattern. No seasonal unit here
+  // -- a season row would mix years and misread as a period.
+  (function buildDateControl() {
+    const wrap = document.createElement("div");
+    wrap.className = "treemap-control text-start";
+    const lab = document.createElement("label");
+    lab.className = "form-label mb-0 small fw-semibold";
+    lab.innerText = (cfg.time && cfg.time.label) || "Date checked";
+    const unitSelect = document.createElement("select");
+    unitSelect.className = "form-select form-select-sm";
+    [["all", "All time"], ["year", "Year"], ["month", "Month"]].forEach(u => {
+      const opt = document.createElement("option");
+      opt.value = u[0]; opt.innerText = u[1];
+      unitSelect.appendChild(opt);
+    });
+    unitSelect.value = sel.unit;
+    const sliderWrap = document.createElement("div");
+    sliderWrap.className = "mt-1";
+    const slider = document.createElement("input");
+    slider.type = "range"; slider.className = "form-range"; slider.min = 0; slider.step = 1;
+    const readout = document.createElement("div");
+    readout.className = "small text-muted";
+    sliderWrap.appendChild(slider); sliderWrap.appendChild(readout);
+
+    let buckets = [];
+    function applyBucket() {
+      const idx = parseInt(slider.value, 10) || 0;
+      sel.bucket = buckets.length ? buckets[idx].value : null;
+      readout.innerText = buckets.length ? buckets[idx].label : "";
+    }
+    function rebuildBuckets() {
+      buckets = treemapTimeBuckets(parsed, sel.unit);
+      if (sel.unit === "all" || buckets.length === 0) {
+        sliderWrap.style.display = "none";
+        sel.bucket = null;
+      } else {
+        sliderWrap.style.display = "";
+        slider.max = buckets.length - 1;
+        slider.value = buckets.length - 1;   // default to the most recent period
+        applyBucket();
+      }
+    }
+    unitSelect.onchange = () => { sel.unit = unitSelect.value; sel.bucket = null; rebuildBuckets(); render(); };
+    slider.oninput = () => { applyBucket(); render(); };
+    wrap.appendChild(lab); wrap.appendChild(unitSelect); wrap.appendChild(sliderWrap);
+    controlHost.appendChild(wrap);
+    rebuildBuckets();
+  })();
+
   render();
 }
 

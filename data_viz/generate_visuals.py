@@ -4,6 +4,7 @@ import json
 import datetime
 import logging
 import re
+import unicodedata
 
 # External Dependency Imports
 import pandas
@@ -23,8 +24,11 @@ def pull_data(data_source: list):
     sheets = {}
     for source in data_source:
         output_dir = os.path.join(os.path.abspath(os.path.dirname(os.path.dirname(__file__))), "output")
-        if any(source in file for file in os.listdir(output_dir)):
-            file = [file for file in os.listdir(output_dir) if source in file][0]
+        # Windows/WSL copies leave "<name>:Zone.Identifier" ADS artifacts beside the real file; they
+        # match the same substring but ".xlsx:Zone" hits no extension case, so filter them out here.
+        candidates = [f for f in os.listdir(output_dir) if not f.endswith("Zone.Identifier")]
+        if any(source in file for file in candidates):
+            file = [file for file in candidates if source in file][0]
             match file.split(".")[-1]:
                 case "csv":
                     sheets[source] = {
@@ -36,7 +40,17 @@ def pull_data(data_source: list):
                     # Specific handling for ontario data (match the source name anywhere in the
                     # filename -- the convention is <scraped>_<data-until>_onODPRN.xlsx, so the
                     # source token isn't at a fixed split position).
-                    if "onODPRN" in file:
+                    # The harmonized drug-checking workbook is per-sample data with a real header
+                    # row and sparse FTIR/strip columns -- the generic branch below (header
+                    # promotion + dropna) would destroy it. Keyed by the source token so the
+                    # return shape matches the csv branch the cleaner originally consumed.
+                    if "drugChecking" in file:
+                        sheets["drugChecking"] = {
+                            "date_updated": datetime.datetime.strptime(file.split("_")[0], "%Y%m%d").strftime("%B %d, %Y"),
+                            "data_until": datetime.datetime.strptime(file.split("_")[1], "%Y%m%d").strftime("%B %d, %Y"),
+                            "dataframe": pandas.read_excel(os.path.join(output_dir, file), engine="calamine", sheet_name=0),
+                            }
+                    elif "onODPRN" in file:
                         dataframes = pandas.read_excel(os.path.join(output_dir, file), engine="calamine", sheet_name=None)
                         for name, dataframe in dataframes.items():
                             dataframe.set_flags(allows_duplicate_labels=False)
@@ -88,27 +102,40 @@ def filter_data(data: dict, find_these: list, exact_match: bool = False):
     return dataframes
 
 
-# The drug-checking feed is hand-entered across sites in English and French, and lost its accents
-# upstream (é/ï arrive as the U+FFFD replacement char "�" in drug names, a literal "?" in site
-# names), so one drug/category shows up under several spellings. These maps fold every observed
-# variant onto a single canonical label before grouping, so the treemap doesn't split a drug across
-# near-duplicate nodes; anything unmapped falls through as its trimmed original (a new value surfaces
-# rather than silently vanishing). Extend the maps as new spellings appear.
+# The drug-checking feed is hand-entered across sites in English and French. The original CSV export
+# lost its accents upstream (é/ï arrived as the U+FFFD replacement char "�" in drug names, a literal
+# "?" in site names) while the harmonized Cycle-2 workbook carries them properly, so one drug/
+# category/site shows up under several spellings. These maps fold every observed variant onto a
+# single canonical label before grouping, so the treemap doesn't split a drug across near-duplicate
+# nodes; anything unmapped falls through as its trimmed original (a new value surfaces rather than
+# silently vanishing). Extend the maps as new spellings appear.
 _DRUGCHECK_CATEGORY_CANON = {
     "dissociatifs": "Dissociatives",
+    "Dissociative": "Dissociatives",
+    "Sedatives/hypnotics": "Sedatives/Hypnotics",
     "substance inconnue": "Unknown drug",
 }
 # Categories carrying no substance signal ("sans objet" == not applicable) -- drop these rows.
 _DRUGCHECK_DROP_CATEGORIES = {"sans objet"}
 _DRUGCHECK_DRUG_CANON = {
     "Coca�ne": "Cocaine",
+    "Cocaïne": "Cocaine",
+    "cocaine": "Cocaine",
     "Cocaine HCL": "Cocaine",
+    "crack": "Crack",
     "Cocaine Base (crack)": "Crack",
     "Crack (coca�ne base)": "Crack",
+    "Crack (cocaïne base)": "Crack",
+    "Cocaine base": "Crack",
+    "Cocane base": "Crack",
     "K�tamine": "Ketamine",
+    "Kétamine": "Ketamine",
     "Benzodiaz�pine": "Benzodiazepine",
+    "Benzodiazepene": "Benzodiazepine",
     "Dextroamph�tamine": "Dextroamphetamine",
+    "Dextroamphétamine": "Dextroamphetamine",
     "Magn�sium": "Magnesium",
+    "Magnésium": "Magnesium",
     "MDMA - (3,4-Methylenedioxymethamphetamine)": "MDMA",
     "MDA - (3,4-Methylenedioxyamphetamine)": "MDA",
     "Probiotique": "Probiotic",
@@ -117,54 +144,198 @@ _DRUGCHECK_DRUG_CANON = {
     "speed": "Speed",
 }
 _DRUGCHECK_SITE_CANON = {
-    "N?wo Y?tina Friendship Centre": "Nïwo Yëtina Friendship Centre",
+    # The workbook's macron spelling is the organization's actual name; fold the CSV mojibake and
+    # the earlier diaeresis guess onto it.
+    "N?wo Y?tina Friendship Centre": "Nēwo Yōtina Friendship Centre",
+    "Nïwo Yëtina Friendship Centre": "Nēwo Yōtina Friendship Centre",
 }
 
+# --- Expected-vs-actual classification (the stacked horizontal bar visual) -------------------
+#
+# Each checked sample is classified against the drug the submitter expected:
+#   expected_only  -- expected substance found, no other noteworthy substances detected
+#   expected_plus  -- expected substance found, plus >=1 other noteworthy substance
+#   not_expected   -- expected substance not found in any FTIR or strip test
+# Samples whose expected drug isn't one of the seven charted targets, or that carry no usable
+# test result (no FTIR identification and every strip Not done/Not available), are excluded.
+# All substance-name lookups go through _norm_substance(), so the sets below hold accent-less,
+# lowercase, alphanumeric-only tokens covering every observed spelling/salt-form variant.
 
-def v1_drugchecking_export_clean(writer, province):
-    # Pan-Canadian drug-checking harmonized data: one row per checked sample, spanning provinces.
-    # New-style cleaner -- emits a category_treemap (Category -> Expected Drug, Province + Site as
-    # geo levels) straight to the writer, no intermediate block dict. `province` is the target scope
-    # key ("canada"); the per-sample Province lives in the geo composite.
+_DRUGCHECK_STRIP_VOCAB = {"Positive", "Negative", "Not done", "Not available"}
+_DRUGCHECK_STRIP_COLS = [
+    "Fentanyl test strip", "Benzodiazepine test strip", "Nitazene test strip",
+    "Xylazine test strip", "MDMA Test strip", "Medetomidine test strip",
+]
+_DRUGCHECK_FTIR_COLS = ["FTIR (1)", "FTIR (2)", "FTIR (3)", "FTIR (4)", "FTIR (5)"]
+
+_FENTANYL_FAMILY = {
+    "fentanyl", "fentanylanalogue", "parafluorofentanyl", "paraflurofentanyl",
+    "orthofluorofentanyl", "orthoflurofentanyl", "orthomethylfentanyl",
+}
+
+# Normalized "Expected Drug (1)" -> chart row. Anything unmapped is excluded from this visual
+# (deliberately including "speed" -- it usually denotes amphetamine, not methamphetamine).
+_DRUGCHECK_TARGET_CANON = {
+    "ketamine": "Ketamine",
+    "mdma": "MDMA",
+    "mdma34methylenedioxymethamphetamine": "MDMA",
+    "methamphetamine": "Methamphetamine",
+    "cocaine": "Cocaine",
+    "cocainehcl": "Cocaine",
+    "crack": "Crack cocaine",
+    "cocainebase": "Crack cocaine",
+    "cocanebase": "Crack cocaine",
+    "cocainebasecrack": "Crack cocaine",
+    "crackcocainebase": "Crack cocaine",
+    "heroin": "Heroin",
+    "fentanyl": "Fentanyl",
+}
+
+# Target -> normalized FTIR names that count as "the expected substance was found". Cocaine and
+# crack match strictly by salt form (powder vs base); a bare "Cocaine" identification is
+# form-ambiguous and counts for both.
+_DRUGCHECK_FTIR_MATCH = {
+    "Ketamine": {"ketamine", "ketaminehcl"},
+    "MDMA": {"mdma", "mdmahcl", "mdma34methylenedioxymethamphetamine"},
+    "Methamphetamine": {
+        "methamphetamine", "methamphetaminehcl", "methylamphetamine",
+        "methylamphetaminehcl", "methylamphetemine", "methylampheteminehcl",
+        "uncertainmethamphetamine",
+    },
+    "Cocaine": {"cocaine", "cocainehcl"},
+    "Crack cocaine": {
+        "cocaine", "cocainefreebase", "cocainebase", "cocainebasecrack",
+        "crackcocaine", "cocanebase",
+    },
+    "Heroin": {"heroin", "heroinbase"},
+    "Fentanyl": set(_FENTANYL_FAMILY),
+}
+
+# Normalized FTIR name -> noteworthy-substance family (benzodiazepines, xylazine, medetomidine,
+# nitazenes, high-potency opioids, fentanyl -- substances of public health concern).
+_DRUGCHECK_NOTEWORTHY_FTIR = {
+    **{name: "fentanyl" for name in _FENTANYL_FAMILY},
+    "carfentanil": "high_potency_opioid",
+    "carfentanilhcl": "high_potency_opioid",
+    "etonitazepine": "nitazene",
+    "alprazolam": "benzo",
+    "aplrazolam": "benzo",
+    "bromazolam": "benzo",
+    "clonazolam": "benzo",
+    "desalkylgidazepam": "benzo",
+    "deschloroetizolam": "benzo",
+    "etizolam": "benzo",
+    "flubromazepam": "benzo",
+    "xylazine": "xylazine",
+    "medetomidine": "medetomidine",
+    "dexmedetomidine": "medetomidine",
+}
+_DRUGCHECK_NOTEWORTHY_STRIPS = {
+    "Fentanyl test strip": "fentanyl",
+    "Benzodiazepine test strip": "benzo",
+    "Nitazene test strip": "nitazene",
+    "Xylazine test strip": "xylazine",
+    "Medetomidine test strip": "medetomidine",
+}
+# Strips that directly detect a charted target (a Positive counts as "expected found").
+_DRUGCHECK_DEDICATED_STRIP = {"Fentanyl": "Fentanyl test strip", "MDMA": "MDMA Test strip"}
+# Families that ARE the expected drug for a target -- never counted as a "noteworthy other"
+# (expecting fentanyl and finding fentanyl is a match, not an adulterant).
+_DRUGCHECK_EXPECTED_FAMILY = {"Fentanyl": {"fentanyl"}}
+# FTIR entries that identify nothing -- ignored entirely.
+_DRUGCHECK_FTIR_INCONCLUSIVE = {"inconclusive", "nonconcluant", "uncertainmatch", "matchincertain", "other"}
+_DRUGCHECK_OUTCOMES = ("expected_only", "expected_plus", "not_expected")
+
+
+def _norm_substance(value):
+    """Canonical comparison token for a hand-entered substance name: accents decomposed and
+    dropped, lowercased, every non-alphanumeric removed ("Cocaine HCl" / "Cocaïne" -> "cocainehcl"
+    / "cocaine"). Returns "" for missing values."""
+    if value is None or (isinstance(value, float) and pandas.isna(value)):
+        return ""
+    decomposed = unicodedata.normalize("NFKD", str(value))
+    stripped = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
+    return re.sub(r"[^a-z0-9]", "", stripped.lower())
+
+
+def _drugcheck_repair_shifted(df):
+    """Repair the Cycle-1 rows whose cells were exported two columns left of their headers (strip
+    vocab sitting in "Expected Drug (2)", FTIR names polluting the MDMA/Medetomidine strip
+    columns). Detected rows get every cell from "Expected Drug (2)" onward shifted right by two,
+    with the two vacated expected-drug-2 columns nulled. Must run before any strip/FTIR logic."""
+    if "Expected Drug (2)" not in df.columns:
+        return df
+    df = df.copy()
+    cols = list(df.columns)
+    start = cols.index("Expected Drug (2)")
+    mask = df["Expected Drug (2)"].astype(str).str.strip().isin(_DRUGCHECK_STRIP_VOCAB)
+    if mask.any():
+        df.loc[mask, cols[start + 2:]] = df.loc[mask, cols[start:len(cols) - 2]].to_numpy()
+        df.loc[mask, [cols[start], cols[start + 1]]] = None
+    return df
+
+
+def classify_drugcheck_sample(row):
+    """Classify one checked sample (a mapping of column -> cell) as (target, outcome), or None if
+    it's excluded (expected drug not charted, or no usable FTIR/strip result)."""
+    target = _DRUGCHECK_TARGET_CANON.get(_norm_substance(row.get("Expected Drug (1)")))
+    if target is None:
+        return None
+
+    ftir = {name for col in _DRUGCHECK_FTIR_COLS
+            for name in [_norm_substance(row.get(col))] if name}
+    ftir -= _DRUGCHECK_FTIR_INCONCLUSIVE
+    strips = {col: str(row.get(col)).strip() for col in _DRUGCHECK_STRIP_COLS}
+    if not ftir and not any(result in ("Positive", "Negative") for result in strips.values()):
+        return None   # nothing was actually tested -- excluded from the denominator
+
+    found = bool(ftir & _DRUGCHECK_FTIR_MATCH[target])
+    dedicated = _DRUGCHECK_DEDICATED_STRIP.get(target)
+    if dedicated and strips.get(dedicated) == "Positive":
+        found = True
+    if not found:
+        return target, "not_expected"
+
+    others = {_DRUGCHECK_NOTEWORTHY_FTIR[name] for name in ftir if name in _DRUGCHECK_NOTEWORTHY_FTIR}
+    others |= {family for col, family in _DRUGCHECK_NOTEWORTHY_STRIPS.items()
+               if strips.get(col) == "Positive"}
+    others -= _DRUGCHECK_EXPECTED_FAMILY.get(target, set())
+    return target, ("expected_plus" if others else "expected_only")
+
+
+def _drugcheck_load():
+    """Pull the harmonized drug-checking workbook and return (pulled, df) with every fix both
+    drug-checking visuals depend on already applied: normalized headers (with the Cycle-2
+    "Drug Category (1)" rename folded back to the original "Expected Drug Category (1)"), every
+    string cell trimmed, the shifted Cycle-1 rows repaired, provinces canonicalized, and a
+    "YYYY-MM" `_month` key parsed from the mixed string/datetime "Visit Date" cells."""
     pulled = pull_data(["drugChecking"])["drugChecking"]
     df = pulled["dataframe"].copy()
     # The raw headers carry stray leading/trailing and double spaces (e.g. "Visit Date ",
-    # "Expected Drug Category  (1)"); normalize whitespace so the column refs below are clean.
+    # "Drug Category  (1)"); normalize whitespace so the column refs below are clean.
     df.columns = df.columns.str.strip().str.replace(r"\s+", " ", regex=True)
+    df = df.rename(columns={"Drug Category (1)": "Expected Drug Category (1)"})
+    df = df.map(lambda cell: cell.strip() if isinstance(cell, str) else cell)
+    df = _drugcheck_repair_shifted(df)
     # Province arrives both abbreviated and spelled out; canonicalize known abbreviations so the
     # Province dropdown groups them as one (extend this map as new provinces appear).
     df["Province"] = df["Province"].replace({"Sask": "Saskatchewan"})
+    # Month grain matches the BC treemap (client derives year/seasonal/all-time buckets).
+    df["_month"] = pandas.to_datetime(
+        df["Visit Date"], format="mixed", errors="coerce").dt.strftime("%Y-%m")
+    return pulled, df
 
-    v = writer.visual(province, "checked_samples_by_expected_drug")
-    if v is None:
-        return   # no definition yet (run `define-visuals`); writer already warned
-    v.use_source({
-        "name": "Pan-Canadian Drug Checking Data Harmonization",
-        "about": """
-This data is collected by individual organizations across Canada, and provided to the CCSA working towards the goal of data harmonization across drug checking sites.
 
-To find out more about drug checking, and the CCSA's Drug Checking working group, please visit the link below:
-        """,
-        "link": "https://www.ccsa.ca/en/data-trends/drug-checking",
-        "last_updated": pulled["date_updated"],
-        "data_until": pulled["data_until"],
-    })
-
-    # Drop rows missing any grouping key first (so the string ops below never hit NaN), then trim and
+def _emit_drugcheck_treemap(v, df):
+    # Drop rows missing any grouping key first (so the replaces below never hit NaN), then
     # canonicalize the three label columns onto their stable forms (see the maps above). The
     # "sans objet" rows are dropped outright -- they carry no substance to place in the tree.
     df = df.dropna(
         subset=["Site/Organization", "Province", "Expected Drug Category (1)", "Expected Drug (1)"]).copy()
-    df["Site/Organization"] = df["Site/Organization"].str.strip().replace(_DRUGCHECK_SITE_CANON)
-    df["Expected Drug Category (1)"] = df["Expected Drug Category (1)"].str.strip()
+    df["Site/Organization"] = df["Site/Organization"].replace(_DRUGCHECK_SITE_CANON)
     df = df[~df["Expected Drug Category (1)"].isin(_DRUGCHECK_DROP_CATEGORIES)]
     df["Expected Drug Category (1)"] = df["Expected Drug Category (1)"].replace(_DRUGCHECK_CATEGORY_CANON)
-    df["Expected Drug (1)"] = df["Expected Drug (1)"].str.strip().replace(_DRUGCHECK_DRUG_CANON)
-
-    # Parse "Visit Date" (M/D/YYYY) to a "YYYY-MM" month key -- the same month grain the BC treemap
-    # uses (client derives year/seasonal/all-time).
-    df["_month"] = pandas.to_datetime(
-        df["Visit Date"], format="%m/%d/%Y", errors="coerce").dt.strftime("%Y-%m")
+    df["Expected Drug (1)"] = df["Expected Drug (1)"].replace(_DRUGCHECK_DRUG_CANON)
     df = df[df["_month"].notna()]
     # Geo levels ordered broad -> narrow ("Province||Site") so the client's cascade is Province then
     # Site; matches manifest geo_levels=["Province", "Site/Organization"]. Types (metric/geo_type/
@@ -174,6 +345,52 @@ To find out more about drug checking, and the CCSA's Drug Checking working group
         counts = site_df.groupby(["_month", "Expected Drug Category (1)", "Expected Drug (1)"]).size()
         for (month, category, drug), n in counts.items():
             v.fact(geo, month, int(n), dimension=category, dimension2=drug, time_frame_type="month")
+
+
+def _emit_drugcheck_expected_actual(v, df):
+    # Per-sample expected-vs-actual classification (see classify_drugcheck_sample); emits counts
+    # keyed by (Province||Site, month, expected drug, outcome). Missing outcomes are simply absent
+    # -- the client treats them as zero.
+    df = df.dropna(subset=["Site/Organization", "Province", "Expected Drug (1)"]).copy()
+    df = df[df["_month"].notna()]
+    df["Site/Organization"] = df["Site/Organization"].replace(_DRUGCHECK_SITE_CANON)
+    counts = {}
+    for row in df.to_dict("records"):
+        classified = classify_drugcheck_sample(row)
+        if classified is None:
+            continue
+        target, outcome = classified
+        key = (f"{row['Province']}||{row['Site/Organization']}", row["_month"], target, outcome)
+        counts[key] = counts.get(key, 0) + 1
+    for (geo, month, target, outcome), n in counts.items():
+        v.fact(geo, month, n, dimension=target, dimension2=outcome, time_frame_type="month")
+
+
+def v1_drugchecking_export_clean(writer, province):
+    # Pan-Canadian drug-checking harmonized data: one row per checked sample, spanning provinces.
+    # New-style cleaner -- emits straight to the writer, no intermediate block dict. `province` is
+    # the target scope key ("canada"); the per-sample Province lives in the geo composite. Two
+    # visuals share one load: the category_treemap (Category -> Expected Drug) and the
+    # expected-vs-actual stacked bar; each is skipped independently if undefined (the writer
+    # already warned -- run `define-visuals`).
+    pulled, df = _drugcheck_load()
+    source = {
+        "name": "Pan-Canadian Drug Checking Data Harmonization",
+        "about": """
+This data is collected by individual organizations across Canada, and provided to the CCSA working towards the goal of data harmonization across drug checking sites.
+
+To find out more about drug checking, and the CCSA's Drug Checking working group, please visit the link below:
+        """,
+        "link": "https://www.ccsa.ca/en/data-trends/drug-checking",
+        "last_updated": pulled["date_updated"],
+        "data_until": pulled["data_until"],
+    }
+    v_treemap = writer.visual(province, "checked_samples_by_expected_drug")
+    if v_treemap is not None:
+        _emit_drugcheck_treemap(v_treemap.use_source(source), df)
+    v_expected = writer.visual(province, "expected_vs_actual_samples")
+    if v_expected is not None:
+        _emit_drugcheck_expected_actual(v_expected.use_source(source), df)
 
 
 def v1_BCCSU_export_clean(writer, province):

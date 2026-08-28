@@ -39,6 +39,15 @@ function canaskColorway() {
     : CANASK_COLORWAY_LIGHT;
 }
 
+// Semantic good/caution/bad colors for charts whose segments carry meaning (e.g. the
+// expected-vs-actual sample bars). Mirrors the --c-success/--c-warning/--c-danger tokens in
+// master_sheet.css -- keep the two in sync if either changes.
+function canaskSemanticColors() {
+  return document.documentElement.getAttribute("data-theme") === "dark"
+    ? { success: "#4ade80", warning: "#fbbf24", danger: "#f87171" }
+    : { success: "#16a34a", warning: "#d97706", danger: "#dc2626" };
+}
+
 // A quiet, non-color cue for line series: a distinct marker shape each, so
 // series stay distinguishable without busy dash patterns. (Bars rely on the
 // data table below the chart as their non-color alternative.)

@@ -32,6 +32,38 @@
         "filters": [{"axis": "dimension", "label": "Category"}],
         "time": {"label": "Date checked"}
       }
+    },
+    {
+      "province": "canada",
+      "visual_id": "expected_vs_actual_samples",
+      "shape": "expected_actual_bar",
+      "metric": "expected_vs_actual_samples",
+      "geo_type": "site",
+      "dimension_type": "expected_drug",
+      "dimension2_type": "sample_outcome",
+      "key_kind": null,
+      "chart_type": "stacked_hbar",
+      "data_types": ["counts"],
+      "menu_parent": "Drug Supply",
+      "menu_name": "Samples vs. Expectations",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false,
+      "visual_options": {
+        "title": "How do samples compare to what people expect?",
+        "subtitle": "By expected drug, the percentage of samples that: (1) only contained the expected substance (no other noteworthy substances), (2) contained the expected substance plus other noteworthy substances, or (3) did not contain the expected substance.",
+        "x_axis_title": "% of drug samples checked",
+        "y_axis_title": "Expected drug",
+        "row_order": ["Ketamine", "MDMA", "Methamphetamine", "Cocaine", "Crack cocaine", "Heroin", "Fentanyl"],
+        "segments": [
+          {"key": "expected_only", "label": "Only expected substance (no other noteworthy substances)", "color": "success"},
+          {"key": "expected_plus", "label": "Expected substance + other noteworthy substances", "color": "warning"},
+          {"key": "not_expected", "label": "Did not contain expected substance", "color": "danger"}
+        ],
+        "time": {"label": "Date checked"},
+        "note": "Noteworthy substances include benzodiazepines, xylazine, medetomidine, nitazenes, and other substances of public health concern. Samples with no usable test results are excluded."
+      }
     }
   ]
 }
