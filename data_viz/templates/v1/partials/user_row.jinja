@@ -56,6 +56,17 @@
                             Adjust Permissions
                         </button>
                     </li>
+                    {% if current_user.site_admin and user.site_admin %}
+                    <li>
+                        <button class="dropdown-item text-danger"
+                            hx-get="/v1/users/{{ user.id }}/remove-admin"
+                            hx-target="#modal-container"
+                            hx-swap="innerHTML"
+                            hx-on::after-request="new bootstrap.Modal(document.getElementById('adjustPermissionsModal')).show()">
+                            Remove Site Admin
+                        </button>
+                    </li>
+                    {% endif %}
                 </ul>
             </div>
             {% else %}

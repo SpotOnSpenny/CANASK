@@ -31,6 +31,13 @@ auth). These remaining items can only be done outside the code:
       *(Verified 2026-07-09: `seed-db` is a dev-only Makefile target; the prod init service runs only
       `db upgrade` + `init-db` + `define-visuals`, and a fresh prod boot creates exactly one user — the
       bootstrap admin. `account_seed.json` stays on the dev disk only.)*
+- [ ] **Set the site-admin removal password after deploy**: run `make prod-rotate-removal-password`
+      once the stack is up (after `db upgrade` creates the `removal_password` table). The initial set
+      is CLI-only — until it runs, the "Remove Site Admin" / "Removal password" flows refuse with a
+      message pointing at this command. It prints a strong generated secret **once**; distribute it
+      out-of-band to the select group of admins who should hold it (never by email/chat that persists).
+      Re-run the same command any time a holder of the secret leaves (break-glass rotation, no current
+      password needed).
 
 ### Secrets storage hardening
 A plaintext `app_config/.env.prod` on the server is an accepted baseline for an app this size **only if

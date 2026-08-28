@@ -1,0 +1,53 @@
+{% set selected = selected_action or "demote" %}
+<div class="modal-header">
+    <h5 class="modal-title">Remove Site Admin — {{ target.username }}</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+</div>
+{# Field-level failures re-render this partial into the open modal (HX-Retarget); the hide
+   below only fires on responses without that header, so the modal survives a typo. #}
+<form hx-post="/v1/users/{{ target.id }}/remove-admin"
+      hx-target="#user-row-{{ target.id }}"
+      hx-swap="outerHTML"
+      hx-on::after-request="if (!event.detail.xhr.getResponseHeader('HX-Retarget')) bootstrap.Modal.getInstance(document.getElementById('adjustPermissionsModal')).hide()">
+    <div class="modal-body">
+        {% if error %}
+            <div class="alert alert-danger">{{ error }}</div>
+        {% endif %}
+        <p>Remove site admin access from <strong>{{ target.username }}</strong> ({{ target.email }}).</p>
+
+        <div class="mb-3">
+            <div class="form-check">
+                <input class="form-check-input" type="radio" name="removal_action"
+                       id="removal-action-demote" value="demote"{% if selected == "demote" %} checked{% endif %}>
+                <label class="form-check-label" for="removal-action-demote">
+                    Demote to regular user
+                    <div class="form-text mt-0">Keeps the account and its group memberships.</div>
+                </label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="radio" name="removal_action"
+                       id="removal-action-deactivate" value="deactivate"{% if selected == "deactivate" %} checked{% endif %}>
+                <label class="form-check-label" for="removal-action-deactivate">
+                    Deactivate account entirely
+                    <div class="form-text mt-0">Locks the account. There is no reactivation flow.</div>
+                </label>
+            </div>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label" for="removal-own-password">Your account password</label>
+            <input class="form-control" type="password" name="own_password"
+                   id="removal-own-password" autocomplete="current-password" required>
+        </div>
+        <div class="mb-3">
+            <label class="form-label" for="removal-shared-password">Removal password</label>
+            <input class="form-control" type="password" name="removal_password"
+                   id="removal-shared-password" autocomplete="off" required>
+            <div class="form-text">The shared removal password. All site admins are notified when it is used.</div>
+        </div>
+    </div>
+    <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-danger">Remove Access</button>
+    </div>
+</form>

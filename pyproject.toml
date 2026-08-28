@@ -1,0 +1,11 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# The repo root is not on sys.path when pytest is the entrypoint (data_viz is imported
+# from the working directory in every other context: gunicorn, flask CLI).
+pythonpath = ["."]
+markers = [
+    "migrations: runs flask db upgrade against a scratch database (slower)",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning:kombu.*",
+]

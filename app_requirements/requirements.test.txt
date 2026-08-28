@@ -1,0 +1,7 @@
+# Test-only dependencies, layered on the exact webapp pins so tests exercise the
+# same library versions that run in prod. Loose pins are fine here: these never ship.
+-r requirements.webapp.txt
+pytest~=8.4
+pytest-cov~=6.2
+# Writes the in-test DAS workbook fixture (the app itself only reads xlsx, via calamine).
+openpyxl~=3.1

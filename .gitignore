@@ -28,6 +28,12 @@ CLAUDE.md
 *_seed.json
 PRODUCT.md
 docs/
+
+# Test artifacts
+.coverage
+.pytest_cache/
+pytest-results.xml
+htmlcov/
 # nginx origin TLS material (Cloudflare origin cert/key + origin-pull CA) -- operator-provided secrets
 deploy/nginx/tls/*
 !deploy/nginx/tls/README.md

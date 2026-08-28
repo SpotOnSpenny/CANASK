@@ -97,6 +97,15 @@ class Config():
     LOGIN_LOCKOUT_ACCOUNT_THRESHOLD = (int(os.environ.get("LOGIN_LOCKOUT_ACCOUNT_THRESHOLD", "0"))
                                        or LOGIN_LOCKOUT_THRESHOLD * 4)
 
+    # Lockout for the shared removal password (site-admin removal + rotation endpoints). Stricter
+    # than login's: the actors are already-authenticated admins confirming a destructive action.
+    # The secret is shared, so a global ceiling bounds a brute force spread across several
+    # compromised admin accounts; the per-actor threshold trips first.
+    REMOVAL_LOCKOUT_THRESHOLD = int(os.environ.get("REMOVAL_LOCKOUT_THRESHOLD", "5"))
+    REMOVAL_LOCKOUT_WINDOW = timedelta(minutes=int(os.environ.get("REMOVAL_LOCKOUT_WINDOW_MINUTES", "15")))
+    REMOVAL_LOCKOUT_GLOBAL_THRESHOLD = (int(os.environ.get("REMOVAL_LOCKOUT_GLOBAL_THRESHOLD", "0"))
+                                        or REMOVAL_LOCKOUT_THRESHOLD * 4)
+
     # --- Security headers ----------------------------------------------------------------
     # Session/CSRF cookie hardening. Secure defaults ON and is its own knob (COOKIE_SECURE) rather
     # than riding on DEBUG -- a mis-set DEBUG=true in prod shouldn't silently strip Secure from the

@@ -1,0 +1,23 @@
+# Test runner overlay. Layered on the base + dev files by the Makefile's TESTC:
+#   docker compose --env-file app_config/.env.dev \
+#     -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose.test.yml run --rm test
+# `run` auto-starts the db dependency, so `make test` works without a running dev stack.
+# tests/conftest.py rewrites DATABASE_URL's database name to <name>_test before the app
+# imports, so the dev database is never touched.
+services:
+  test:
+    build:
+      context: .
+      args:
+        REQUIREMENTS_FILE: app_requirements/requirements.test.txt
+    command: pytest -v
+    env_file:
+      - ${APP_ENV_FILE:-app_config/.env.dev}
+    environment:
+      RATELIMIT_ENABLED: "false"
+      RECAPTCHA_ENABLED: "false"
+    volumes:
+      - .:/canask_webapp
+    depends_on:
+      db:
+        condition: service_healthy
