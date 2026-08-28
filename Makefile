@@ -11,6 +11,34 @@ web-logs:
 worker-logs:
 	docker compose --env-file app_config/.env.dev -f docker-compose.yml -f docker-compose.dev.yml logs -f worker
 
+# Tests. The `test` service image layers pytest onto the webapp requirements
+# (docker-compose.test.yml); tests/conftest.py rewrites the database name in
+# DATABASE_URL to <name>_test before the app imports, so the dev DB is never touched.
+# `run --rm` works without a running dev stack (compose auto-starts db) and shares the
+# dev compose project, so an already-running db container is reused.
+TESTC = docker compose --env-file app_config/.env.dev -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose.test.yml
+
+# Full suite. Usage: make test          -> everything
+#                    make test k=das    -> pytest -k "das"
+test:
+	$(TESTC) run --rm test pytest -v $(if $(k),-k "$(k)")
+
+# Pure unit tests only: no DB started, fast inner loop.
+test-fast:
+	$(TESTC) run --rm --no-deps test pytest tests/unit -v
+
+# Full suite with a line-by-line coverage report.
+test-cov:
+	$(TESTC) run --rm test pytest -v --cov=data_viz --cov-report=term-missing
+
+# Full suite + report files: htmlcov/index.html (browsable per-line coverage) and
+# pytest-results.xml (junit, same format CI uploads). Both are gitignored.
+test-report:
+	$(TESTC) run --rm test pytest -v --cov=data_viz --cov-report=html --junitxml=pytest-results.xml
+	@echo ""
+	@echo "Coverage report: htmlcov/index.html"
+	@echo "JUnit results:   pytest-results.xml"
+
 # Production. APP_ENV_FILE makes the base compose load .env.prod (not .env.dev) into the app services;
 # the prod override adds the nginx TLS front, the one-shot init bootstrap, Redis auth, and restart
 # policies. The init service auto-runs `db upgrade` + `init-db` + `define-visuals` on `prod-up`.
@@ -51,6 +79,11 @@ prod-build-visuals:
 
 prod-clear-invites:
 	$(PROD) exec web flask clear-invites $(if $(email),--email "$(email)")
+
+# Break-glass set/rotate of the site-admin removal password. Default: generates and prints a strong
+# secret once. Usage: make prod-rotate-removal-password [password=...]
+prod-rotate-removal-password:
+	$(PROD) exec web flask rotate-removal-password $(if $(password),--password "$(password)")
 
 clear-cache:
 	docker compose --env-file app_config/.env.dev exec web rm -rf data_viz/static/.webassets-cache
@@ -97,3 +130,9 @@ drop-db:
 #        make clear-invites email=x@y  -> delete ALL invites for that email, any status
 clear-invites:
 	docker compose --env-file app_config/.env.dev exec web flask clear-invites $(if $(email),--email "$(email)")
+
+# Break-glass set/rotate of the site-admin removal password (dev).
+# Usage: make rotate-removal-password            -> generate + print a strong secret once
+#        make rotate-removal-password password=X -> use an explicit value (lands in shell history)
+rotate-removal-password:
+	docker compose --env-file app_config/.env.dev exec web flask rotate-removal-password $(if $(password),--password "$(password)")

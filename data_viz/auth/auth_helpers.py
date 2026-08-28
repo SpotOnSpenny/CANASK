@@ -2,12 +2,12 @@
 import re
 
 # External Imports
-from bcrypt import hashpw, gensalt
+from bcrypt import hashpw, gensalt, checkpw
 from flask import flash, has_request_context
 
 # Internal Imports
 from data_viz.database import db
-from data_viz.database.models import User, Invites, UserGroups, Groups, UserActivity, DataSources, GroupDataSources, Visuals, GroupVisuals, VISUAL_VISIBILITY
+from data_viz.database.models import User, Invites, UserGroups, Groups, UserActivity, DataSources, GroupDataSources, Visuals, GroupVisuals, RemovalPassword, VISUAL_VISIBILITY
 from data_viz.auth.role_hierarchy import ROLE_HIERARCHY
 
 def create_user(email, username, password, invited_by = None, status = User.STATUS_ACTIVE, site_admin = False):
@@ -145,17 +145,94 @@ def assign_site_admin(user_id, remove = False, assigned_by = None):
 
     user.site_admin = not remove
 
+    verb = "removed from" if remove else "granted to"
     if assigned_by:
         assigner = User.query.get(assigned_by)
-        details = f"User {user.username} was granted site admin privileges by {assigner.username}."
+        details = f"Site admin privileges {verb} user {user.username} by {assigner.username}."
     else:
-        details = f"User ID {user_id} was granted site admin privileges without assigner."
+        details = f"Site admin privileges {verb} user ID {user_id} without assigner."
 
     activity = UserActivity(
         user_id = user_id,
         activity_type = "site_admin_assignment",
         activity_target_type = "user", 
         details = details
+    )
+
+    db.session.add(activity)
+    db.session.add(user)
+    db.session.commit()
+    return user
+
+def active_site_admins():
+    return User.query.filter_by(site_admin = True, status = User.STATUS_ACTIVE).all()
+
+def is_last_active_site_admin(user_id):
+    return not User.query.filter(
+        User.site_admin == True,
+        User.status == User.STATUS_ACTIVE,
+        User.id != user_id
+    ).count()
+
+def removal_password_is_set():
+    return RemovalPassword.query.get(1) is not None
+
+def check_removal_password(candidate):
+    row = RemovalPassword.query.get(1)
+    if not row or not candidate:
+        return False
+    return checkpw(candidate.encode("utf-8"), row.password_hash.encode("utf-8"))
+
+def set_removal_password(new_password, changed_by = None, ip_address = None):
+    # Single-row upsert pinned to id=1, so two concurrent initial sets collide on the PK and
+    # one fails loudly instead of silently leaving two rows with divergent hashes. Strength
+    # validation is the callers' job (rotation route / CLI); verification here is bcrypt-compare only.
+    row = RemovalPassword.query.get(1) or RemovalPassword(id = 1)
+    row.password_hash = hashpw(new_password.encode("utf-8"), gensalt()).decode("utf-8")
+    row.updated_at = db.func.current_timestamp()
+    row.updated_by = changed_by
+
+    if changed_by:
+        rotator = User.query.get(changed_by)
+        details = f"Removal password rotated by {rotator.username}."
+    else:
+        details = "Removal password rotated by the CLI (break-glass)."
+
+    activity = UserActivity(
+        user_id = changed_by,
+        activity_type = "removal_password_rotated",
+        activity_target_type = "removal_password",
+        details = details,
+        ip_address = ip_address
+    )
+
+    db.session.add(row)
+    db.session.add(activity)
+    db.session.commit()
+    return row
+
+def deactivate_user(user_id, deactivated_by = None, ip_address = None):
+    user = User.query.get(user_id)
+    if not user:
+        raise ValueError("User not found. Unable to deactivate account.")
+
+    user.status = User.STATUS_DEACTIVATED
+    # There is no reactivation flow, so don't leave a dormant admin bit behind.
+    user.site_admin = False
+
+    if deactivated_by:
+        actor = User.query.get(deactivated_by)
+        details = f"Account for {user.username} deactivated by {actor.username}."
+    else:
+        details = f"Account for {user.username} deactivated without actor."
+
+    activity = UserActivity(
+        user_id = deactivated_by,
+        activity_type = "account_deactivated",
+        activity_target_type = "user",
+        activity_target_id = user.id,
+        details = details,
+        ip_address = ip_address
     )
 
     db.session.add(activity)
@@ -465,6 +542,63 @@ def set_visual_visibility(visual_id, visibility, changed_by = None):
         ))
     db.session.commit()
     return visibility
+
+def set_source_visibility(source_id, visibility, changed_by = None):
+    """Set every visual of a data source to `visibility` in one transaction. The caller must already
+    have verified the user may manage the source (can_manage_source).
+
+    A uniform level trivially satisfies the drill-hierarchy rank invariant within the source; chain
+    links that cross into another source are guarded (raise ValueError) rather than cascaded, since
+    the caller's authorization covers only this source. Logs a single summary UserActivity row (details
+    stays bounded regardless of how many visuals the source has). Returns the number of visuals that
+    changed (0 for a no-op, which neither commits nor logs)."""
+    if visibility not in VISUAL_VISIBILITY:
+        raise ValueError(f"Invalid visibility '{visibility}'.")
+    source = DataSources.query.get(source_id)
+    if not source:
+        raise ValueError("Data source not found.")
+
+    visuals = Visuals.query.filter_by(data_source_id = source_id).all()
+    changed = [v for v in visuals if v.visibility != visibility]
+    if not changed:
+        return 0
+
+    # Guard: a uniform level satisfies the drill-hierarchy rank invariant *within* the source, but a
+    # drill chain can cross sources. Refuse rather than break the invariant -- or silently mutate a
+    # visual in a source this caller was never authorized to manage.
+    new_rank = VISIBILITY_RANK[visibility]
+    for visual in changed:
+        for ancestor in _chain_ancestors(visual):
+            if ancestor.data_source_id != source_id and VISIBILITY_RANK[ancestor.visibility] < new_rank:
+                raise ValueError(
+                    f'"{_label(visual)}" can\'t be more visible than its access point '
+                    f'"{_label(ancestor)}" ({ancestor.visibility}), which belongs to another data '
+                    f'source. Raise "{_label(ancestor)}" first.')
+        for descendant in _chain_descendants(visual):
+            if descendant.data_source_id != source_id and VISIBILITY_RANK[descendant.visibility] > new_rank:
+                raise ValueError(
+                    f'Setting "{_label(visual)}" to {visibility} would leave its drill-down '
+                    f'"{_label(descendant)}" ({descendant.visibility}), which belongs to another '
+                    f'data source, more visible than its access point. Lower '
+                    f'"{_label(descendant)}" first.')
+
+    for visual in changed:
+        visual.visibility = visibility
+
+    # Only log with an actor to attribute the change to (same convention as set_group_visuals).
+    if changed_by is not None:
+        changer = User.query.get(changed_by)
+        changer_name = changer.username if changer else f"user ID {changed_by}"
+        db.session.add(UserActivity(
+            user_id = changed_by,
+            activity_type = "source_visibility_updated",
+            activity_target_type = "data_source",
+            activity_target_id = source_id,
+            details = (f"All visuals of data source {source.name} set to {visibility} by "
+                       f"{changer_name} ({len(changed)} of {len(visuals)} changed).")
+        ))
+    db.session.commit()
+    return len(changed)
 
 def set_province_default_visual(visual_id, changed_by = None):
     """Set (or unset) the landing visual for a province page. The caller must already have verified

@@ -17,7 +17,7 @@ from sqlalchemy import or_, func
 from data_viz.auth import login_manager
 from data_viz.database import db
 from data_viz.database.models import User, Invites, Groups, UserGroups, UserActivity, InviteGroups, DataSources, GroupDataSources, Visuals, GroupVisuals
-from data_viz.auth.auth_helpers import get_user_groups, get_assignable_roles, validate_password, create_user, create_group, assign_group, assign_site_admin, get_manageable_users, get_user_memberships_in_groups, get_manageable_groups, set_group_data_sources, owned_data_sources, can_manage_source, teams_for_source, visuals_for_source, set_group_visuals, set_visual_visibility, set_province_default_visual, visibility_rows_for_source
+from data_viz.auth.auth_helpers import get_user_groups, get_assignable_roles, validate_password, create_user, create_group, assign_group, assign_site_admin, get_manageable_users, get_user_memberships_in_groups, get_manageable_groups, set_group_data_sources, owned_data_sources, can_manage_source, teams_for_source, visuals_for_source, set_group_visuals, set_visual_visibility, set_source_visibility, set_province_default_visual, visibility_rows_for_source, active_site_admins, is_last_active_site_admin, removal_password_is_set, check_removal_password, set_removal_password, deactivate_user
 from data_viz.auth.role_hierarchy import ROLE_HIERARCHY
 from data_viz.extensions import limiter
 from data_viz.email import send_ses_email
@@ -80,6 +80,53 @@ def _log_auth_attempt(user, identifier, details):
         ip_address=request.remote_addr,
     ))
     db.session.commit()
+
+
+def recent_removal_password_failures(user_id=None):
+    """Count failed removal-password attempts inside the lockout window (see REMOVAL_LOCKOUT_*).
+    With user_id, the acting admin's own failures; without, all actors' -- the secret is shared,
+    so the global count bounds a brute force spread across several compromised admin accounts.
+    Both the removal and rotation endpoints log the same activity_type, so they share this
+    counter."""
+    cutoff = datetime.now(timezone.utc) - current_app.config["REMOVAL_LOCKOUT_WINDOW"]
+    query = UserActivity.query.filter(
+        UserActivity.activity_type == "removal_password_attempt",
+        UserActivity.details.like("Failed removal%"),
+        UserActivity.timestamp >= cutoff,
+    )
+    if user_id is not None:
+        query = query.filter(UserActivity.user_id == user_id)
+    return query.count()
+
+
+def removal_locked_out(user):
+    if recent_removal_password_failures(user.id) >= current_app.config["REMOVAL_LOCKOUT_THRESHOLD"]:
+        return True
+    return recent_removal_password_failures() >= current_app.config["REMOVAL_LOCKOUT_GLOBAL_THRESHOLD"]
+
+
+def _log_removal_attempt(details, target=None):
+    """Append a UserActivity row for a removal-password attempt. Failure details must start with
+    'Failed removal' -- that's the exact prefix recent_removal_password_failures counts -- and
+    'Blocked ...' details must NOT, or a lockout would extend itself."""
+    db.session.add(UserActivity(
+        user_id=current_user.id,
+        activity_type="removal_password_attempt",
+        activity_target_type="user" if target else "removal_password",
+        activity_target_id=target.id if target else None,
+        details=details,
+        ip_address=request.remote_addr,
+    ))
+    db.session.commit()
+
+
+def notify_site_admins(subject, html_body):
+    """One email to every active site admin. Returns False when there are no recipients or SES
+    fails; callers surface a soft warning -- the mutation itself has already committed."""
+    recipients = [admin.email for admin in active_site_admins()]
+    if not recipients:
+        return False
+    return send_ses_email(recipients, subject, html_body)
 
 
 def _render_login():
@@ -1005,6 +1052,163 @@ def adjust_user_permissions(user_id, groups_with_required_role = None):
                             role_hierarchy = ROLE_HIERARCHY)
 
 
+def _removal_refused(message, category = "danger"):
+    """Standard refusal for the removal-password modal endpoints. On GET the opener button will
+    show the modal no matter what, so an empty body would pop a blank shell (or stale content
+    from an earlier modal) -- render the message as modal content instead. On POST: flash + swap
+    nothing; the message rides back as an OOB flash (see the after_request hook)."""
+    if request.method == "GET":
+        return render_template("v1/partials/removal_message_modal.jinja",
+                               message = message, category = category)
+    flash(message, category)
+    return "", 200, {"HX-Reswap": "none"}
+
+
+def _removal_form_error(template, message, **context):
+    """Field-level failure inside one of the removal modals: re-render the form with an inline
+    error into the still-open modal (retarget to #modal-container), so the admin's radio choice
+    survives and the modal doesn't close on a typo. Password fields are never re-filled."""
+    return render_template(template, error = message, **context), 200, {
+        "HX-Retarget": "#modal-container", "HX-Reswap": "innerHTML"}
+
+
+@auth_blueprint.route("/v1/users/<int:user_id>/remove-admin", methods = ["GET", "POST"])
+@require_auth
+def remove_site_admin(user_id):
+    # Site-admin-only, enforced inline: require_role can't express this (site admins bypass it).
+    if not current_user.site_admin:
+        return _removal_refused("Only site admins can remove site admin access.")
+
+    target = User.query.get(user_id)
+    if not target:
+        return _removal_refused("User not found.")
+
+    # Self guardrail, same as adjust-permissions -- and it keeps one rogue admin from
+    # quietly demoting themself out of the audit trail's reach.
+    if user_id == current_user.id:
+        return _removal_refused("You cannot remove your own site admin access.")
+
+    if not target.site_admin:
+        return _removal_refused(f"{target.username} is not a site admin.", "info")
+
+    if not removal_password_is_set():
+        return _removal_refused("No removal password has been set. Run `flask rotate-removal-password` "
+                                "on the server to set one first.", "warning")
+
+    if request.method == "GET":
+        return render_template("v1/partials/remove_admin_modal.jinja", target = target)
+
+    # POST -- lockout is checked before any bcrypt work or logging.
+    if removal_locked_out(current_user):
+        _log_removal_attempt(f"Blocked removal attempt against {target.username}: locked out", target = target)
+        return _removal_refused("Too many failed attempts. Try again later.")
+
+    removal_action = request.form.get("removal_action")
+    if removal_action not in ("demote", "deactivate"):
+        # No secret was tested, so nothing is logged against the lockout.
+        return _removal_form_error("v1/partials/remove_admin_modal.jinja",
+                                   "Choose whether to demote or deactivate the user.",
+                                   target = target)
+
+    own_password = request.form.get("own_password") or ""
+    if not checkpw(own_password.encode("utf-8"), current_user.password_hash.encode("utf-8")):
+        _log_removal_attempt(f"Failed removal confirmation against {target.username}: "
+                             "incorrect account password", target = target)
+        # Naming the wrong field is fine here: the actor already knows their own password,
+        # so this is no oracle for the shared secret.
+        return _removal_form_error("v1/partials/remove_admin_modal.jinja",
+                                   "Your account password was incorrect.",
+                                   target = target, selected_action = removal_action)
+
+    if not check_removal_password(request.form.get("removal_password")):
+        _log_removal_attempt(f"Failed removal confirmation against {target.username}: "
+                             "incorrect removal password", target = target)
+        return _removal_form_error("v1/partials/remove_admin_modal.jinja",
+                                   "The removal password was incorrect.",
+                                   target = target, selected_action = removal_action)
+
+    if is_last_active_site_admin(target.id):
+        return _removal_refused(f"{target.username} is the only remaining active site admin "
+                                "and cannot be removed.")
+
+    if removal_action == "demote":
+        assign_site_admin(target.id, remove = True, assigned_by = current_user.id)
+        mode_msg = "demoted to a regular user"
+    else:
+        deactivate_user(target.id, deactivated_by = current_user.id, ip_address = request.remote_addr)
+        mode_msg = "deactivated"
+
+    db.session.add(UserActivity(
+        user_id = current_user.id,
+        activity_type = "site_admin_removal",
+        activity_target_type = "user",
+        activity_target_id = target.id,
+        details = f"{target.username} was {mode_msg} by {current_user.username} ({removal_action}).",
+        ip_address = request.remote_addr))
+    db.session.commit()
+
+    # Recipients are queried post-mutation, so the removed admin is not among them.
+    if not notify_site_admins(
+            "CANASK: site admin access removed",
+            f"<p>{current_user.username} removed site admin access from {target.username} "
+            f"(the account was {mode_msg}).</p>"
+            "<p>If this was not expected, contact your administrators immediately.</p>"):
+        flash("The notification email to site admins could not be sent.", "warning")
+
+    flash(f"{target.username} was {mode_msg}.", "success")
+    memberships = get_user_memberships_in_groups(target.id, None)
+    return render_template("v1/partials/user_row.jinja",
+                        user = target, memberships = memberships,
+                        managed_group_ids = None,
+                        groups_with_required_role = "all",
+                        role_hierarchy = ROLE_HIERARCHY)
+
+
+@auth_blueprint.route("/v1/removal-password", methods = ["GET", "POST"])
+@require_auth
+def rotate_removal_password():
+    if not current_user.site_admin:
+        return _removal_refused("Only site admins can rotate the removal password.")
+
+    # Initial set is CLI-only: one break-glass path, and no first-writer-wins race in the UI.
+    if not removal_password_is_set():
+        return _removal_refused("No removal password has been set yet. Run `flask rotate-removal-password` "
+                                "on the server to set the initial one.", "warning")
+
+    if request.method == "GET":
+        return render_template("v1/partials/rotate_removal_password_modal.jinja")
+
+    if removal_locked_out(current_user):
+        _log_removal_attempt("Blocked removal password rotation: locked out")
+        return _removal_refused("Too many failed attempts. Try again later.")
+
+    if not check_removal_password(request.form.get("current_removal_password")):
+        # Shares the lockout counter with the removal endpoint -- it's the same secret.
+        _log_removal_attempt("Failed removal password rotation: incorrect current removal password")
+        return _removal_form_error("v1/partials/rotate_removal_password_modal.jinja",
+                                   "The current removal password was incorrect.")
+
+    new_password = request.form.get("new_removal_password") or ""
+    if new_password != request.form.get("confirm_removal_password"):
+        return _removal_form_error("v1/partials/rotate_removal_password_modal.jinja",
+                                   "The new removal passwords do not match.")
+
+    valid, message = validate_password(new_password)
+    if not valid:
+        return _removal_form_error("v1/partials/rotate_removal_password_modal.jinja", message)
+
+    set_removal_password(new_password, changed_by = current_user.id, ip_address = request.remote_addr)
+
+    if not notify_site_admins(
+            "CANASK: removal password rotated",
+            f"<p>The site admin removal password was rotated by {current_user.username}.</p>"
+            "<p>If this was not expected, contact your administrators immediately.</p>"):
+        flash("The notification email to site admins could not be sent.", "warning")
+
+    flash("Removal password updated.", "success")
+    return "", 200, {"HX-Reswap": "none"}
+
+
 @auth_blueprint.route("/v1/group-management", methods=["GET"])
 @require_auth
 @require_role("Data Owner", group_id_source = "all_groups", action = "manage groups")
@@ -1141,6 +1345,18 @@ def data_ownership(groups_with_required_role = None):
                         dash_template = "v1/data_ownership.jinja", ownership = ownership)
 
 
+def _ownership_bounce():
+    """Bounce to the Data Ownership page after a permission/lookup failure. The ownership routes are
+    hit by HTMX requests targeting a partial, so a plain 302 would swap the whole dashboard inside
+    the partial's target -- send HX-Redirect (a full-page navigation) instead; the flash stays queued
+    in the session and renders on the followup page load."""
+    if request.headers.get("HX-Request"):
+        response = make_response("", 204)
+        response.headers["HX-Redirect"] = url_for("auth.data_ownership")
+        return response
+    return redirect(url_for("auth.data_ownership"))
+
+
 @auth_blueprint.route("/v1/groups/<int:group_id>/sources/<int:source_id>/visuals", methods=["GET", "POST"])
 @require_auth
 def group_source_visuals(group_id, source_id):
@@ -1148,13 +1364,13 @@ def group_source_visuals(group_id, source_id):
     # target team -- so it's checked explicitly rather than via the url-scoped require_role decorator.
     if not can_manage_source(current_user, source_id):
         flash("You do not have permission to manage visuals for this data source.", "danger")
-        return redirect(url_for("auth.data_ownership"))
+        return _ownership_bounce()
 
     group = Groups.query.get(group_id)
     source = DataSources.query.get(source_id)
     if not group or not source:
         flash("Group or data source not found.", "danger")
-        return redirect(url_for("auth.data_ownership"))
+        return _ownership_bounce()
 
     source_visuals = Visuals.query.filter_by(data_source_id = source_id).all()
     source_visual_ids = {v.id for v in source_visuals}
@@ -1185,7 +1401,7 @@ def set_visibility(visual_id):
     visual = Visuals.query.get(visual_id)
     if not visual or visual.data_source_id is None or not can_manage_source(current_user, visual.data_source_id):
         flash("You do not have permission to change this visual's visibility.", "danger")
-        return redirect(url_for("auth.data_ownership"))
+        return _ownership_bounce()
     source_id = visual.data_source_id
     try:
         set_visual_visibility(visual_id, request.form.get("visibility", ""), changed_by = current_user.id)
@@ -1205,6 +1421,35 @@ def set_visibility(visual_id):
                         visibility_rows = visibility_rows_for_source(source_id))
 
 
+@auth_blueprint.route("/v1/sources/<int:source_id>/visibility", methods=["POST"])
+@require_auth
+def bulk_set_visibility(source_id):
+    # Permission is source-ownership (Data Owner of the source / site admin), like the per-visual
+    # visibility route above -- checked explicitly rather than via a role decorator.
+    if not DataSources.query.get(source_id) or not can_manage_source(current_user, source_id):
+        flash("You do not have permission to change this data source's visibility.", "danger")
+        return _ownership_bounce()
+    try:
+        changed = set_source_visibility(source_id, request.form.get("visibility", ""),
+                                        changed_by = current_user.id)
+        if changed:
+            flash(f"{changed} visual{'s' if changed != 1 else ''} set to "
+                  f"{request.form.get('visibility')}.", "success")
+    except ValueError as exc:
+        # Validation failure (bad value): set_source_visibility raises before mutating, so flash
+        # (via the HX out-of-band swap) and re-render the section unchanged.
+        flash(str(exc), "danger")
+    except Exception as exc:
+        # A DB/commit failure must not 500 the HTMX partial -- roll back the session, log it, and
+        # re-render the section so the toggles reset to their persisted state.
+        db.session.rollback()
+        current_app.logger.error(f"Error setting visibility for source {source_id}: {exc}")
+        flash("Could not update this data source's visibility. Please try again.", "danger")
+    return render_template("v1/partials/visual_visibility_section.jinja",
+                        source = DataSources.query.get(source_id),
+                        visibility_rows = visibility_rows_for_source(source_id))
+
+
 @auth_blueprint.route("/v1/visuals/<int:visual_id>/default", methods=["POST"])
 @require_auth
 def set_default_visual(visual_id):
@@ -1213,7 +1458,7 @@ def set_default_visual(visual_id):
     visual = Visuals.query.get(visual_id)
     if not visual or visual.data_source_id is None or not can_manage_source(current_user, visual.data_source_id):
         flash("You do not have permission to change this visual's default status.", "danger")
-        return redirect(url_for("auth.data_ownership"))
+        return _ownership_bounce()
     source_id = visual.data_source_id
     try:
         set_province_default_visual(visual_id, changed_by = current_user.id)

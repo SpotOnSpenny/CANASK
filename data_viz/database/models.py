@@ -265,6 +265,21 @@ class UserActivity(db.Model):
     def __repr__(self):
         return f"<UserActivity User ID: {self.user_id}, Activity Type: {self.activity_type}, Timestamp: {self.timestamp}>"
 
+class RemovalPassword(db.Model):
+    __tablename__ = "removal_password"
+
+    # Single-row table holding the bcrypt hash of the shared "removal password" required to strip a
+    # site admin's access. The row is absent until the first `flask rotate-removal-password` run --
+    # "never set" is a legal state the removal/rotation routes refuse on.
+    id = db.Column(db.Integer, primary_key = True)
+    password_hash = db.Column(db.String(255), nullable = False)
+    updated_at = db.Column(db.DateTime, nullable = False, default = db.func.current_timestamp())
+    # NULL = rotated via the break-glass CLI (no acting web user).
+    updated_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable = True)
+
+    def __repr__(self):
+        return f"<RemovalPassword updated {self.updated_at}>"
+
 # --- Drug Analysis Service (DAS) row-level tables -------------------------------------------------
 # The DAS Explorer serves raw sample rows (paginated/filtered server-side), not aggregated facts, so
 # it gets its own tables instead of the DataPoints star schema. Ingested by `flask ingest-das` from
