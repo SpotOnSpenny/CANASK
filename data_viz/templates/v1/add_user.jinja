@@ -64,6 +64,24 @@
                 </div>
             {% endfor %}
         </div>
+
+        {# Shown only while a Site Admin role is selected -- granting site admin access spends
+           the shared removal password (verified server-side; same lockout as removal). #}
+        <div id="site-admin-credentials" class="d-none">
+            <hr class="my-3">
+            <p class="form-text mb-2">Granting site admin access requires extra confirmation.</p>
+            <div class="mb-3">
+                <label class="form-label" for="au-own-password">Your account password</label>
+                <input class="form-control" type="password" name="own_password"
+                       id="au-own-password" autocomplete="current-password">
+            </div>
+            <div class="mb-3">
+                <label class="form-label" for="au-removal-password">Removal password</label>
+                <input class="form-control" type="password" name="removal_password"
+                       id="au-removal-password" autocomplete="off">
+                <div class="form-text">The shared removal password guards every site admin membership change.</div>
+            </div>
+        </div>
     </div>
     <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -128,6 +146,11 @@
             return Array.from(radios()).filter(r => r.checked).some(r => isSiteAdminRadio(r));
         }
 
+        function syncSiteAdminCredentials() {
+            const box = document.getElementById('site-admin-credentials');
+            if (box) box.classList.toggle('d-none', !anySiteAdminSelected());
+        }
+
         radios().forEach(radio => {
             radio.addEventListener('click', function() {
                 const group_role = this.name;
@@ -167,6 +190,7 @@
                         disableSiteAdminRadios();
                     }
                 }
+                syncSiteAdminCredentials();
             });
         });
 

@@ -66,6 +66,16 @@
                             Remove Site Admin
                         </button>
                     </li>
+                    {% elif current_user.site_admin and user.status == "active" %}
+                    <li>
+                        <button class="dropdown-item"
+                            hx-get="/v1/users/{{ user.id }}/make-admin"
+                            hx-target="#modal-container"
+                            hx-swap="innerHTML"
+                            hx-on::after-request="new bootstrap.Modal(document.getElementById('adjustPermissionsModal')).show()">
+                            Make Site Admin
+                        </button>
+                    </li>
                     {% endif %}
                 </ul>
             </div>
