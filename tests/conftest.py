@@ -190,7 +190,6 @@ def ses_outbox(monkeypatch):
 
     monkeypatch.setattr("data_viz.main.send_ses_email", fake_send)
     monkeypatch.setattr("data_viz.auth.auth.send_ses_email", fake_send)
-    monkeypatch.setattr("data_viz.cli.send_ses_email", fake_send)
     return sent
 
 
