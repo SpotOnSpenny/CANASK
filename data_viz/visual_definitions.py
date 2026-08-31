@@ -36,8 +36,10 @@ def derive_drill_chain(shape, dimension2_type):
         return ["geo", "time", "dimension", "dimension2"]
     if shape == "flat_series":
         return ["dimension2"] if dimension2_type else []
-    # category_treemap is self-contained: its category->leaf nesting and its geo/time/dimension
-    # filters are all client-side, so there is no inter-visual drill chain.
+    # Self-contained shapes with no inter-visual drill chain: category_treemap (its
+    # category->leaf nesting and geo/time/dimension filters are all client-side),
+    # expected_actual_bar (segments and time filter are client-side), and map_none.
+    # A NEW shape landing here should be a deliberate choice, not a fallthrough.
     return []
 
 

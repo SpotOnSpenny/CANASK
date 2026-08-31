@@ -7,22 +7,8 @@
       hx-swap="outerHTML"
       hx-on::after-request="bootstrap.Modal.getInstance(document.getElementById('adjustPermissionsModal')).hide()">
     <div class="modal-body">
-        {% if current_user.site_admin %}
-        <div class="mb-3 p-2 border rounded">
-            <div class="form-check">
-                <input class="form-check-input site-admin-check" 
-                       type="checkbox" 
-                       name="site_admin_invite"
-                       id="site_admin_check"
-                       value="true"
-                       {% if invite.site_admin_invite %}checked{% endif %}>
-                <label class="form-check-label fw-semibold" for="site_admin_check">
-                    Site Wide — Site Admin
-                </label>
-            </div>
-        </div>
-        {% endif %}
-
+        {# No site-admin checkbox here: granting site admin spends the site admin key, so the
+           upgrade lives in the Invite User form (and the route refuses the flag from this modal). #}
         {% for item in adjustable_groups %}
         <div class="mb-3 p-2 border rounded group-assignment-row" 
              id="group_row_{{ item.invite_group.id }}">

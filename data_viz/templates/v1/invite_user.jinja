@@ -67,7 +67,7 @@
                         </div>
 
                         {# Shown only while a Site Admin role is selected -- a site-admin invite
-                           spends the shared removal password (verified server-side). #}
+                           spends the shared site admin key (verified server-side). #}
                         <div id="site-admin-credentials" class="d-none">
                             <hr class="my-3">
                             <p class="form-text mb-2">Granting site admin access requires extra confirmation.</p>
@@ -77,10 +77,10 @@
                                        id="iv-own-password" autocomplete="current-password">
                             </div>
                             <div class="mb-3">
-                                <label class="form-label" for="iv-removal-password">Removal password</label>
-                                <input class="form-control" type="password" name="removal_password"
-                                       id="iv-removal-password" autocomplete="off">
-                                <div class="form-text">The shared removal password guards every site admin membership change.</div>
+                                <label class="form-label" for="iv-site-admin-key">Site admin key</label>
+                                <input class="form-control" type="password" name="site_admin_key"
+                                       id="iv-site-admin-key" autocomplete="off">
+                                <div class="form-text">The shared site admin key guards every site admin membership change.</div>
                             </div>
                         </div>
 

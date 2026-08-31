@@ -7,7 +7,7 @@ from flask import flash, has_request_context
 
 # Internal Imports
 from data_viz.database import db
-from data_viz.database.models import User, Invites, UserGroups, Groups, UserActivity, DataSources, GroupDataSources, Visuals, GroupVisuals, RemovalPassword, VISUAL_VISIBILITY
+from data_viz.database.models import User, Invites, UserGroups, Groups, UserActivity, DataSources, GroupDataSources, Visuals, GroupVisuals, SiteAdminKey, VISUAL_VISIBILITY
 from data_viz.auth.role_hierarchy import ROLE_HIERARCHY
 
 def create_user(email, username, password, invited_by = None, status = User.STATUS_ACTIVE, site_admin = False):
@@ -174,36 +174,36 @@ def is_last_active_site_admin(user_id):
         User.id != user_id
     ).count()
 
-def removal_password_is_set():
-    return RemovalPassword.query.get(1) is not None
+def site_admin_key_is_set():
+    return SiteAdminKey.query.get(1) is not None
 
-def check_removal_password(candidate):
-    row = RemovalPassword.query.get(1)
+def check_site_admin_key(candidate):
+    row = SiteAdminKey.query.get(1)
     if not row or not candidate:
         return False
     return checkpw(candidate.encode("utf-8"), row.password_hash.encode("utf-8"))
 
-def set_removal_password(new_password, changed_by = None, ip_address = None):
+def set_site_admin_key(new_password, changed_by = None, ip_address = None):
     # Single-row upsert pinned to id=1, so two concurrent initial sets collide on the PK and
     # one fails loudly instead of silently leaving two rows with divergent hashes. Strength
-    # validation is the caller's job (the rotate-removal-password CLI -- rotation is deliberately
+    # validation is the caller's job (the rotate-site-admin-key CLI -- rotation is deliberately
     # CLI-only, so a lone admin who knows the secret can't swap it in-app and lock the others out);
     # verification here is bcrypt-compare only.
-    row = RemovalPassword.query.get(1) or RemovalPassword(id = 1)
+    row = SiteAdminKey.query.get(1) or SiteAdminKey(id = 1)
     row.password_hash = hashpw(new_password.encode("utf-8"), gensalt()).decode("utf-8")
     row.updated_at = db.func.current_timestamp()
     row.updated_by = changed_by
 
     if changed_by:
         rotator = User.query.get(changed_by)
-        details = f"Removal password rotated by {rotator.username}."
+        details = f"Site admin key rotated by {rotator.username}."
     else:
-        details = "Removal password rotated by the CLI (break-glass)."
+        details = "Site admin key rotated by the CLI (break-glass)."
 
     activity = UserActivity(
         user_id = changed_by,
-        activity_type = "removal_password_rotated",
-        activity_target_type = "removal_password",
+        activity_type = "site_admin_key_rotated",
+        activity_target_type = "site_admin_key",
         details = details,
         ip_address = ip_address
     )

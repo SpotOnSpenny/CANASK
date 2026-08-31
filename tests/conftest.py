@@ -43,6 +43,10 @@ os.environ["DATABASE_URL"] = _TEST_URL
 os.environ["RECAPTCHA_ENABLED"] = "false"
 os.environ["RATELIMIT_ENABLED"] = "false"
 os.environ["COOKIE_SECURE"] = "false"  # the test client speaks plain HTTP
+# Force prod-like DEBUG=false: the local test container inherits DEBUG=true from .env.dev
+# while CI leaves it unset, and DEBUG now changes behavior (dev invite links go to the log
+# instead of SES). Tests of the DEBUG branch monkeypatch app.config["DEBUG"] themselves.
+os.environ["DEBUG"] = "false"
 os.environ.setdefault("SECRET_KEY", "test-secret-key")
 os.environ.setdefault("PUBLIC_BASE_URL", "http://localhost")
 # Celery only connects on apply_async, which route tests stub out (see celery_stub).

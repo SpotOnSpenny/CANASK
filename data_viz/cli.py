@@ -11,7 +11,7 @@ import click
 # Internal Iimports
 from data_viz.database import db
 from data_viz.database.models import User, Groups, UserGroups, DataSources, GroupDataSources, Invites, InviteGroups
-from data_viz.auth.auth_helpers import create_user, create_group, assign_group, set_removal_password, validate_password
+from data_viz.auth.auth_helpers import create_user, create_group, assign_group, set_site_admin_key, validate_password
 
 # Function to create the default admin user
 # This user needs to be created first, so that it can be used as the creator for whatever is defined in the seed data.
@@ -249,30 +249,30 @@ def register_cli(app):
             db.session.commit()
         print(f"Cleared {len(ids)} {f'invite(s) for {email}' if email else 'revoked invite(s)'}.")
 
-    @app.cli.command("rotate-removal-password",
-                     short_help="Set or rotate the shared site-admin removal password (break-glass: no current password needed).")
-    @click.option("--password", default=None,
+    @app.cli.command("rotate-site-admin-key",
+                     short_help="Set or rotate the shared site admin key (break-glass: no current key needed).")
+    @click.option("--key", default=None,
                   help="Use this value instead of generating one. WARNING: lands in shell history; "
                        "prefer the default generate mode, which prints a strong random secret once.")
-    def rotate_removal_password_cli(password):
-        generated = password is None
+    def rotate_site_admin_key_cli(key):
+        generated = key is None
         if generated:
-            password = secrets.token_urlsafe(24)
+            key = secrets.token_urlsafe(24)
         else:
-            # An empty/weak explicit value would guard site-admin removal (an empty one can
-            # never even validate -- check_removal_password rejects empty candidates -- which
-            # would brick the removal and rotation UI until the next CLI run).
-            valid, message = validate_password(password)
+            # An empty/weak explicit value would guard every site-admin membership change (an
+            # empty one can never even validate -- check_site_admin_key rejects empty
+            # candidates -- which would brick the gated flows until the next CLI run).
+            valid, message = validate_password(key)
             if not valid:
-                print(f"Refusing to set the removal password: {message}")
+                print(f"Refusing to set the site admin key: {message}")
                 raise SystemExit(1)
-        set_removal_password(password, changed_by = None)
+        set_site_admin_key(key, changed_by = None)
         if generated:
             # Printed exactly once; it is never stored in plaintext or emailed.
-            print(f"New removal password: {password}")
+            print(f"New site admin key: {key}")
             print("Share it out-of-band with the admins who should hold it. It will not be shown again.")
         else:
-            print("Removal password set from --password.")
+            print("Site admin key set from --key.")
 
     @app.cli.command("reconcile-sources", short_help="Merge legacy/seed-named data sources into their pipeline equivalents.")
     def reconcile_sources():

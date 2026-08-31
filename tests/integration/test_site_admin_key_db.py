@@ -5,67 +5,67 @@ import pytest
 from data_viz.auth.auth_helpers import (
     active_site_admins,
     assign_site_admin,
-    check_removal_password,
+    check_site_admin_key,
     deactivate_user,
     is_last_active_site_admin,
-    removal_password_is_set,
-    set_removal_password,
+    site_admin_key_is_set,
+    set_site_admin_key,
 )
-from data_viz.database.models import RemovalPassword, User, UserActivity
+from data_viz.database.models import SiteAdminKey, User, UserActivity
 
 from tests.factories import make_group, make_user
 
 
-class TestRemovalPasswordLifecycle:
+class TestSiteAdminKeyLifecycle:
     def test_unset_by_default(self, db_session):
-        assert removal_password_is_set() is False
-        assert check_removal_password("anything") is False
+        assert site_admin_key_is_set() is False
+        assert check_site_admin_key("anything") is False
 
     def test_set_and_check_round_trip(self, db_session):
-        set_removal_password("Correct-horse-battery-1!")
-        assert removal_password_is_set() is True
-        assert check_removal_password("Correct-horse-battery-1!") is True
-        assert check_removal_password("wrong-password") is False
+        set_site_admin_key("Correct-horse-battery-1!")
+        assert site_admin_key_is_set() is True
+        assert check_site_admin_key("Correct-horse-battery-1!") is True
+        assert check_site_admin_key("wrong-password") is False
 
     def test_empty_candidate_rejected(self, db_session):
-        set_removal_password("Correct-horse-battery-1!")
-        assert check_removal_password("") is False
-        assert check_removal_password(None) is False
+        set_site_admin_key("Correct-horse-battery-1!")
+        assert check_site_admin_key("") is False
+        assert check_site_admin_key(None) is False
 
     def test_rotation_upserts_single_row(self, db_session):
-        set_removal_password("First-password-value-1!")
-        set_removal_password("Second-password-value-2!")
-        assert RemovalPassword.query.count() == 1
-        assert check_removal_password("Second-password-value-2!") is True
-        assert check_removal_password("First-password-value-1!") is False
+        set_site_admin_key("First-password-value-1!")
+        set_site_admin_key("Second-password-value-2!")
+        assert SiteAdminKey.query.count() == 1
+        assert check_site_admin_key("Second-password-value-2!") is True
+        assert check_site_admin_key("First-password-value-1!") is False
 
     def test_hash_is_bcrypt_not_plaintext(self, db_session):
-        set_removal_password("Correct-horse-battery-1!")
-        row = RemovalPassword.query.one()
+        set_site_admin_key("Correct-horse-battery-1!")
+        row = SiteAdminKey.query.one()
         assert row.password_hash != "Correct-horse-battery-1!"
         assert row.password_hash.startswith("$2")
 
     def test_rotation_by_user_logs_rotator(self, db_session):
         admin = make_user(site_admin=True)
-        set_removal_password("Correct-horse-battery-1!", changed_by=admin.id)
+        set_site_admin_key("Correct-horse-battery-1!", changed_by=admin.id)
         activity = UserActivity.query.filter_by(
-            activity_type="removal_password_rotated").one()
+            activity_type="site_admin_key_rotated").one()
         assert activity.user_id == admin.id
         assert admin.username in activity.details
-        row = RemovalPassword.query.one()
+        row = SiteAdminKey.query.one()
         assert row.updated_by == admin.id
 
     def test_rotation_by_cli_logs_break_glass(self, db_session):
-        set_removal_password("Correct-horse-battery-1!", changed_by=None)
+        set_site_admin_key("Correct-horse-battery-1!", changed_by=None)
         activity = UserActivity.query.filter_by(
-            activity_type="removal_password_rotated").one()
+            activity_type="site_admin_key_rotated").one()
         assert activity.user_id is None
         assert "CLI" in activity.details
-        assert RemovalPassword.query.one().updated_by is None
+        assert SiteAdminKey.query.one().updated_by is None
 
     def test_password_never_logged(self, db_session):
         admin = make_user(site_admin=True)
-        set_removal_password("Correct-horse-battery-1!", changed_by=admin.id)
+        set_site_admin_key("Correct-horse-battery-1!", changed_by=admin.id)
         for activity in UserActivity.query.all():
             assert "Correct-horse-battery-1!" not in (activity.details or "")
 
@@ -125,31 +125,31 @@ class TestLastActiveSiteAdminGuard:
         assert all(a.site_admin and a.status == User.STATUS_ACTIVE for a in admins)
 
 
-class TestRotateRemovalPasswordCli:
+class TestRotateSiteAdminKeyCli:
     def _run(self, app, *args):
-        return app.test_cli_runner().invoke(args=["rotate-removal-password", *args])
+        return app.test_cli_runner().invoke(args=["rotate-site-admin-key", *args])
 
     def test_generate_mode_prints_working_secret(self, app, db_session, ses_outbox):
         result = self._run(app)
         assert result.exit_code == 0
         printed = [line for line in result.output.splitlines()
-                   if line.startswith("New removal password:")]
+                   if line.startswith("New site admin key:")]
         assert len(printed) == 1
-        secret = printed[0].split("New removal password:", 1)[1].strip()
-        assert check_removal_password(secret) is True
+        secret = printed[0].split("New site admin key:", 1)[1].strip()
+        assert check_site_admin_key(secret) is True
 
     def test_password_flag_sets_given_value(self, app, db_session, ses_outbox):
-        result = self._run(app, "--password", "Explicit-cli-secret-7!")
+        result = self._run(app, "--key", "Explicit-cli-secret-7!")
         assert result.exit_code == 0
-        assert check_removal_password("Explicit-cli-secret-7!") is True
+        assert check_site_admin_key("Explicit-cli-secret-7!") is True
         assert "Explicit-cli-secret-7!" not in result.output  # only echo generated ones
 
     def test_rotates_existing_password(self, app, db_session, ses_outbox):
-        set_removal_password("Old-secret-value-5!")
-        self._run(app, "--password", "Explicit-cli-secret-7!")
-        assert check_removal_password("Explicit-cli-secret-7!") is True
-        assert check_removal_password("Old-secret-value-5!") is False
-        assert RemovalPassword.query.count() == 1
+        set_site_admin_key("Old-secret-value-5!")
+        self._run(app, "--key", "Explicit-cli-secret-7!")
+        assert check_site_admin_key("Explicit-cli-secret-7!") is True
+        assert check_site_admin_key("Old-secret-value-5!") is False
+        assert SiteAdminKey.query.count() == 1
 
     def test_rotation_sends_no_email(self, app, db_session, ses_outbox):
         # Deliberate: rotation is a quiet, server-side act. No notification goes out --
@@ -162,21 +162,21 @@ class TestRotateRemovalPasswordCli:
     def test_logs_break_glass_rotation(self, app, db_session, ses_outbox):
         self._run(app)
         activity = UserActivity.query.filter_by(
-            activity_type="removal_password_rotated").one()
+            activity_type="site_admin_key_rotated").one()
         assert activity.user_id is None
         assert "CLI" in activity.details
 
     def test_empty_explicit_password_rejected(self, app, db_session, ses_outbox):
-        # An empty stored secret can never validate (check_removal_password rejects empty
+        # An empty stored secret can never validate (check_site_admin_key rejects empty
         # candidates), so accepting it would brick the removal UI.
-        result = self._run(app, "--password", "")
+        result = self._run(app, "--key", "")
         assert result.exit_code != 0
-        assert removal_password_is_set() is False
+        assert site_admin_key_is_set() is False
 
     def test_weak_explicit_password_rejected(self, app, db_session, ses_outbox):
-        result = self._run(app, "--password", "weak")
+        result = self._run(app, "--key", "weak")
         assert result.exit_code != 0
-        assert removal_password_is_set() is False
+        assert site_admin_key_is_set() is False
 
 
 class TestAssignSiteAdminDetails:

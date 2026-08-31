@@ -72,6 +72,11 @@ class TestBulkSetVisibility:
         assert response.status_code == 204
         assert response.headers["HX-Redirect"] == "/v1/data-ownership"
         assert visual.visibility == "public"
+        # The 204 body is discarded by htmx, so the flash must NOT be consumed into it -- it
+        # stays queued and renders on the follow-up full-page load the redirect triggers.
+        assert b"do not have permission" not in response.data
+        followup = client.get("/v1/data-ownership").get_data(as_text=True)
+        assert "do not have permission" in followup
 
     def test_all_bulk_levels_require_confirm(self, client, db_session, login_as):
         # Every Set-all level -- including Public, the riskiest direction -- carries hx-confirm.

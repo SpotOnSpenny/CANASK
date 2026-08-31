@@ -19,6 +19,7 @@ from data_viz.database.models import (
     GroupVisuals,
     InviteGroups,
     Invites,
+    SiteAdminKey,
     User,
     UserGroups,
     Visuals,
@@ -42,6 +43,21 @@ def unique(prefix="x"):
 # lower, digit, special) so factory users can also log in through the real form.
 TEST_PASSWORD = "Sufficiently-strong-pw1!"
 _PASSWORD_HASH = hashpw(TEST_PASSWORD.encode("utf-8"), gensalt(rounds=4)).decode("utf-8")
+
+# Same trick for the shared site admin key: dozens of gated-flow tests need one
+# set, and set_site_admin_key hashes at full cost. Its own lifecycle tests still call the
+# real helper; everything else seeds this row directly.
+SITE_ADMIN_KEY_SECRET = "Removal-secret-value-1!"
+_SITE_ADMIN_KEY_HASH = hashpw(SITE_ADMIN_KEY_SECRET.encode("utf-8"), gensalt(rounds=4)).decode("utf-8")
+
+
+def seed_site_admin_key():
+    """Insert/refresh the single site_admin_key row with a cheap hash of SITE_ADMIN_KEY_SECRET."""
+    row = db.session.get(SiteAdminKey, 1) or SiteAdminKey(id=1)
+    row.password_hash = _SITE_ADMIN_KEY_HASH
+    db.session.add(row)
+    db.session.flush()
+    return row
 
 
 def make_user(email=None, username=None, status=User.STATUS_ACTIVE, site_admin=False,

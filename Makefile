@@ -80,10 +80,10 @@ prod-build-visuals:
 prod-clear-invites:
 	$(PROD) exec web flask clear-invites $(if $(email),--email "$(email)")
 
-# Break-glass set/rotate of the site-admin removal password. Default: generates and prints a strong
-# secret once. Usage: make prod-rotate-removal-password [password=...]
-prod-rotate-removal-password:
-	$(PROD) exec web flask rotate-removal-password $(if $(password),--password "$(password)")
+# Break-glass set/rotate of the shared site admin key. Default: generates and prints a strong
+# secret once. Usage: make prod-rotate-site-admin-key [key=...]
+prod-rotate-site-admin-key:
+	$(PROD) exec web flask rotate-site-admin-key $(if $(key),--key "$(key)")
 
 clear-cache:
 	docker compose --env-file app_config/.env.dev exec web rm -rf data_viz/static/.webassets-cache
@@ -131,8 +131,8 @@ drop-db:
 clear-invites:
 	docker compose --env-file app_config/.env.dev exec web flask clear-invites $(if $(email),--email "$(email)")
 
-# Break-glass set/rotate of the site-admin removal password (dev).
-# Usage: make rotate-removal-password            -> generate + print a strong secret once
-#        make rotate-removal-password password=X -> use an explicit value (lands in shell history)
-rotate-removal-password:
-	docker compose --env-file app_config/.env.dev exec web flask rotate-removal-password $(if $(password),--password "$(password)")
+# Break-glass set/rotate of the shared site admin key (dev).
+# Usage: make rotate-site-admin-key            -> generate + print a strong secret once
+#        make rotate-site-admin-key key=X -> use an explicit value (lands in shell history)
+rotate-site-admin-key:
+	docker compose --env-file app_config/.env.dev exec web flask rotate-site-admin-key $(if $(key),--key "$(key)")

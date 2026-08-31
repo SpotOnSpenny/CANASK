@@ -149,6 +149,14 @@ _DRUGCHECK_SITE_CANON = {
     "N?wo Y?tina Friendship Centre": "Nēwo Yōtina Friendship Centre",
     "Nïwo Yëtina Friendship Centre": "Nēwo Yōtina Friendship Centre",
 }
+# Geo composites earlier runs emitted under since-retired spellings. FactWriter.finish() only
+# deletes (source, geo) pairs the current run re-emits, so a rename strands the old rows and the
+# site double-counts -- retire_geo() claims these for deletion every run (idempotent). Add the
+# old composite here whenever a _DRUGCHECK_SITE_CANON entry retires a spelling that ever shipped.
+_DRUGCHECK_RETIRED_GEOS = {
+    "Saskatchewan||Nïwo Yëtina Friendship Centre",
+    "Saskatchewan||N?wo Y?tina Friendship Centre",
+}
 
 # --- Expected-vs-actual classification (the stacked horizontal bar visual) -------------------
 #
@@ -277,7 +285,7 @@ def _drugcheck_repair_shifted(df):
 
 def classify_drugcheck_sample(row):
     """Classify one checked sample (a mapping of column -> cell) as (target, outcome), or None if
-    it's excluded (expected drug not charted, or no usable FTIR/strip result)."""
+    it's excluded (expected drug not charted, or no test capable of detecting it was run)."""
     target = _DRUGCHECK_TARGET_CANON.get(_norm_substance(row.get("Expected Drug (1)")))
     if target is None:
         return None
@@ -286,11 +294,18 @@ def classify_drugcheck_sample(row):
             for name in [_norm_substance(row.get(col))] if name}
     ftir -= _DRUGCHECK_FTIR_INCONCLUSIVE
     strips = {col: str(row.get(col)).strip() for col in _DRUGCHECK_STRIP_COLS}
-    if not ftir and not any(result in ("Positive", "Negative") for result in strips.values()):
-        return None   # nothing was actually tested -- excluded from the denominator
 
-    found = bool(ftir & _DRUGCHECK_FTIR_MATCH[target])
+    # A sample stays in the denominator only when a test capable of DETECTING the expected drug
+    # ran: any conclusive FTIR identification (FTIR sees every target), or the target's own strip.
+    # An adulterant strip alone (e.g. a benzo strip on an expected-cocaine sample) says nothing
+    # about the expected drug, so counting it as "not_expected" would inflate the red segment.
     dedicated = _DRUGCHECK_DEDICATED_STRIP.get(target)
+    tested = bool(ftir) or (dedicated is not None
+                            and strips.get(dedicated) in ("Positive", "Negative"))
+    if not tested:
+        return None   # no test could have found the expected drug -- excluded
+
+    found = bool(ftir & _DRUGCHECK_FTIR_MATCH.get(target, set()))
     if dedicated and strips.get(dedicated) == "Positive":
         found = True
     if not found:
@@ -321,9 +336,25 @@ def _drugcheck_load():
     # Province dropdown groups them as one (extend this map as new provinces appear).
     df["Province"] = df["Province"].replace({"Sask": "Saskatchewan"})
     # Month grain matches the BC treemap (client derives year/seasonal/all-time buckets).
-    df["_month"] = pandas.to_datetime(
-        df["Visit Date"], format="mixed", errors="coerce").dt.strftime("%Y-%m")
+    df["_month"] = _drugcheck_months(df["Visit Date"])
     return pulled, df
+
+
+def _drugcheck_months(visit_dates):
+    """Parse the mixed string/datetime Visit Date cells into "YYYY-MM" keys. format='mixed' infers
+    per cell, so a malformed hand-entered value can parse to a wildly wrong date instead of
+    failing -- clamp to a plausible window (program data starts 2019; nothing runs a month past
+    today) rather than charting it. Out-of-window and unparseable cells become NaN, which the
+    emitters' _month.notna() filters drop."""
+    parsed = pandas.to_datetime(visit_dates, format="mixed", errors="coerce")
+    lower = pandas.Timestamp("2019-01-01")
+    upper = pandas.Timestamp.now() + pandas.Timedelta(days=31)
+    implausible = parsed.notna() & ((parsed < lower) | (parsed > upper))
+    if implausible.any():
+        print(f"  ! {int(implausible.sum())} drugChecking row(s) dropped: Visit Date outside "
+              f"{lower.date()}..{upper.date()}")
+        parsed[implausible] = pandas.NaT
+    return parsed.dt.strftime("%Y-%m")
 
 
 def _emit_drugcheck_treemap(v, df):
@@ -387,10 +418,16 @@ To find out more about drug checking, and the CCSA's Drug Checking working group
     }
     v_treemap = writer.visual(province, "checked_samples_by_expected_drug")
     if v_treemap is not None:
-        _emit_drugcheck_treemap(v_treemap.use_source(source), df)
+        v_treemap.use_source(source)
+        for geo in _DRUGCHECK_RETIRED_GEOS:
+            v_treemap.retire_geo(geo)
+        _emit_drugcheck_treemap(v_treemap, df)
     v_expected = writer.visual(province, "expected_vs_actual_samples")
     if v_expected is not None:
-        _emit_drugcheck_expected_actual(v_expected.use_source(source), df)
+        v_expected.use_source(source)
+        for geo in _DRUGCHECK_RETIRED_GEOS:   # set-deduped with the treemap's claims
+            v_expected.retire_geo(geo)
+        _emit_drugcheck_expected_actual(v_expected, df)
 
 
 def v1_BCCSU_export_clean(writer, province):
@@ -1297,6 +1334,13 @@ class VisualWriter:
     def use_source(self, data_source):
         """Refresh this run's DataSources metadata from the freshly scraped block."""
         self.source_id = self.writer.upsert_source(data_source)
+        return self
+
+    def retire_geo(self, geo):
+        """Claim a geo this cleaner no longer emits (a renamed site, a retired spelling): its old
+        facts join the delete scope and finish() drops them with nothing inserted in their place.
+        Idempotent -- harmless once the stale rows are gone."""
+        self.writer._territory.add((self.source_id, geo))
         return self
 
     def options(self, opts):

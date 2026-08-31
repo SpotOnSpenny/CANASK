@@ -275,6 +275,53 @@ class TestClassifyDrugcheckSample:
         assert classify_drugcheck_sample(row) is None
 
     def test_negative_strip_alone_is_usable(self):
-        # A strip that actually ran (Negative) keeps the sample in the denominator.
+        # The target's own strip that actually ran (Negative) keeps the sample in the denominator.
         row = _sample("Fentanyl", **{"Fentanyl test strip": "Negative"})
         assert classify_drugcheck_sample(row) == ("Fentanyl", "not_expected")
+
+    def test_adulterant_strip_alone_cannot_conclude_not_expected(self):
+        # A benzo strip says nothing about cocaine: with no test capable of detecting the
+        # expected drug, the sample is excluded rather than counted as "not expected".
+        for result in ("Positive", "Negative"):
+            row = _sample("Cocaine", **{"Benzodiazepine test strip": result})
+            assert classify_drugcheck_sample(row) is None
+
+    def test_ftir_makes_any_target_testable(self):
+        # A conclusive FTIR identification can detect every target, so its absence of a cocaine
+        # match IS evidence -- the sample stays in the denominator.
+        row = _sample("Cocaine", **{"FTIR (1)": "Caffeine"})
+        assert classify_drugcheck_sample(row) == ("Cocaine", "not_expected")
+
+    def test_dedicated_strip_makes_its_target_testable(self):
+        # MDMA has a dedicated strip: a Negative on it alone concludes not_expected, while the
+        # same lone strip result proves nothing about a target it cannot detect (covered above).
+        row = _sample("MDMA", **{"MDMA Test strip": "Negative"})
+        assert classify_drugcheck_sample(row) == ("MDMA", "not_expected")
+
+    def test_every_canon_target_has_ftir_match_entry(self):
+        # classify's found-check indexes _DRUGCHECK_FTIR_MATCH by canon target; a new target row
+        # without a match set would silently classify everything as not_expected (.get fallback).
+        from data_viz.generate_visuals import _DRUGCHECK_FTIR_MATCH, _DRUGCHECK_TARGET_CANON
+        assert set(_DRUGCHECK_TARGET_CANON.values()) <= set(_DRUGCHECK_FTIR_MATCH)
+
+
+class TestDrugcheckMonths:
+    def test_normal_dates_parse_to_month(self):
+        import pandas
+        from data_viz.generate_visuals import _drugcheck_months
+        out = _drugcheck_months(pandas.Series(["6/25/2024", "2025-01-15"]))
+        assert list(out) == ["2024-06", "2025-01"]
+
+    def test_implausible_dates_dropped(self):
+        # format='mixed' happily parses a bare year or a fat-fingered year to a real date;
+        # the sanity window turns those into NaN instead of charting them.
+        import pandas
+        from data_viz.generate_visuals import _drugcheck_months
+        out = _drugcheck_months(pandas.Series(["1024", "6/25/2924", "6/25/2024"]))
+        assert out.isna().tolist() == [True, True, False]
+
+    def test_unparseable_dates_coerce_to_nan(self):
+        import pandas
+        from data_viz.generate_visuals import _drugcheck_months
+        out = _drugcheck_months(pandas.Series(["not a date", None]))
+        assert out.isna().all()

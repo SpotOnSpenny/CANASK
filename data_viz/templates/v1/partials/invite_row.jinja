@@ -27,6 +27,11 @@
     </td>
     <td>
     {% if invite.status == "pending" %}
+        {# Whether revoking removes the WHOLE invite (the actor manages every group on it --
+           site admins always do) or only strips their managed groups; matches revoke_invite's
+           branches and drives the revoke label + confirm text below. #}
+        {% set all_groups_managed = managed_group_ids is none
+           or invite.invite_groups | rejectattr("group_id", "in", managed_group_ids) | list | length == 0 %}
         <div class="dropdown">
             <button class="btn btn-sm invite-action-btn dropdown-toggle" 
                     type="button" 
@@ -47,7 +52,9 @@
                         {% endif %}
                     {% endfor %}
 
-                    {% if can_adjust.value or current_user.site_admin %}
+                    {# Site-admin invites are not adjustable (no groups; the flag only changes
+                       through credentialed flows), so no Adjust action for them. #}
+                    {% if (can_adjust.value or current_user.site_admin) and not invite.site_admin_invite %}
                     <li>
                         <button class="dropdown-item"
                             hx-get="/v1/invites/{{ invite.id }}/adjust-permissions"
@@ -89,12 +96,24 @@
                 </button>
                 <ul class="dropdown-menu">
                     <li>
+                        {% if invite.site_admin_invite %}
+                        {# Renewing a site-admin invite re-mints an admin credential, so it goes
+                           through the credentials modal (own password + site admin key). #}
+                        <button class="dropdown-item"
+                            hx-get="/v1/invites/{{ invite.id }}/renew"
+                            hx-target="#modal-container"
+                            hx-swap="innerHTML"
+                            hx-on::after-request="new bootstrap.Modal(document.getElementById('adjustPermissionsModal')).show()">
+                            Renew
+                        </button>
+                        {% else %}
                         <button class="dropdown-item"
                             hx-post="/v1/invites/{{ invite.id }}/renew"
                             hx-target="#invite-row-{{ invite.id }}"
                             hx-swap="outerHTML">
                             Renew
                         </button>
+                        {% endif %}
                     </li>
                 </ul>
             </div>

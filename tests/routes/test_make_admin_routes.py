@@ -1,18 +1,17 @@
 """Site-admin elevation: the protected Make Site Admin modal (own password + shared
-removal password, lockout shared with removal), the closed bare path in add-user, and
-the removal-password gate on site-admin invites."""
-from data_viz.auth.auth_helpers import set_removal_password
+site admin key, lockout shared with removal), the closed bare path in add-user, and
+the site-admin-key gate on site-admin invites."""
 from data_viz.database.models import Invites, UserActivity
 
-from tests.factories import TEST_PASSWORD, make_group, make_user, unique
+from tests.factories import (SITE_ADMIN_KEY_SECRET, TEST_PASSWORD, make_group, make_user,
+                             seed_site_admin_key, unique)
 
 HX = {"HX-Request": "true"}
-REMOVAL_SECRET = "Removal-secret-value-1!"
 
 
-def post_elevation(client, target_id, own=TEST_PASSWORD, removal=REMOVAL_SECRET):
+def post_elevation(client, target_id, own=TEST_PASSWORD, removal=SITE_ADMIN_KEY_SECRET):
     return client.post(f"/v1/users/{target_id}/make-admin",
-                       data={"own_password": own, "removal_password": removal},
+                       data={"own_password": own, "site_admin_key": removal},
                        headers=HX)
 
 
@@ -24,7 +23,7 @@ class TestElevationGuards:
         assert "/v1/login" in response.headers["Location"]
 
     def test_non_site_admin_refused(self, client, db_session, login_as):
-        set_removal_password(REMOVAL_SECRET)
+        seed_site_admin_key()
         login_as(make_user())
         target = make_user()
         response = post_elevation(client, target.id)
@@ -32,43 +31,43 @@ class TestElevationGuards:
         assert target.site_admin is False
 
     def test_self_target_refused(self, client, db_session, login_as):
-        set_removal_password(REMOVAL_SECRET)
+        seed_site_admin_key()
         actor = login_as(make_user(site_admin=True))
         response = post_elevation(client, actor.id)
         assert "your own access" in response.get_data(as_text=True)
 
     def test_already_admin_refused(self, client, db_session, login_as):
-        set_removal_password(REMOVAL_SECRET)
+        seed_site_admin_key()
         login_as(make_user(site_admin=True))
         target = make_user(site_admin=True)
         response = post_elevation(client, target.id)
         assert "already a site admin" in response.get_data(as_text=True)
 
     def test_inactive_target_refused(self, client, db_session, login_as):
-        set_removal_password(REMOVAL_SECRET)
+        seed_site_admin_key()
         login_as(make_user(site_admin=True))
         target = make_user(status="deactivated")
         response = post_elevation(client, target.id)
         assert "not active" in response.get_data(as_text=True)
         assert target.site_admin is False
 
-    def test_unset_removal_password_refuses_get_and_post(self, client, db_session,
+    def test_unset_site_admin_key_refuses_get_and_post(self, client, db_session,
                                                          login_as):
         login_as(make_user(site_admin=True))
         target = make_user()
         for response in (client.get(f"/v1/users/{target.id}/make-admin", headers=HX),
                          post_elevation(client, target.id)):
-            assert "rotate-removal-password" in response.get_data(as_text=True)
+            assert "rotate-site-admin-key" in response.get_data(as_text=True)
         assert target.site_admin is False
 
     def test_get_renders_modal(self, client, db_session, login_as):
-        set_removal_password(REMOVAL_SECRET)
+        seed_site_admin_key()
         login_as(make_user(site_admin=True))
         target = make_user()
         body = client.get(f"/v1/users/{target.id}/make-admin",
                           headers=HX).get_data(as_text=True)
         assert f"/v1/users/{target.id}/make-admin" in body
-        assert "removal_password" in body
+        assert "site_admin_key" in body
 
     def test_row_action_shown_only_for_active_non_admins(self, client, db_session,
                                                          login_as):
@@ -80,7 +79,7 @@ class TestElevationGuards:
 
 class TestElevationFailures:
     def test_wrong_own_password_logged_and_refused(self, client, db_session, login_as):
-        set_removal_password(REMOVAL_SECRET)
+        seed_site_admin_key()
         actor = login_as(make_user(site_admin=True))
         target = make_user()
         response = post_elevation(client, target.id, own="Wrong-password-1!")
@@ -88,34 +87,34 @@ class TestElevationFailures:
         assert response.headers.get("HX-Retarget") == "#modal-container"
         assert "account password was incorrect" in response.get_data(as_text=True)
         activity = UserActivity.query.filter_by(
-            activity_type="removal_password_attempt", user_id=actor.id).one()
+            activity_type="site_admin_key_failure", user_id=actor.id).one()
         assert activity.details.startswith("Failed removal")
 
-    def test_wrong_removal_password_logged_and_refused(self, client, db_session,
+    def test_wrong_site_admin_key_logged_and_refused(self, client, db_session,
                                                        login_as):
-        set_removal_password(REMOVAL_SECRET)
+        seed_site_admin_key()
         actor = login_as(make_user(site_admin=True))
         target = make_user()
         response = post_elevation(client, target.id, removal="Wrong-secret-2!")
         assert target.site_admin is False
         assert response.headers.get("HX-Retarget") == "#modal-container"
         activity = UserActivity.query.filter_by(
-            activity_type="removal_password_attempt", user_id=actor.id).one()
+            activity_type="site_admin_key_failure", user_id=actor.id).one()
         assert activity.details.startswith("Failed removal")
 
     def test_lockout_shared_with_removal_flow(self, client, db_session, login_as, app,
                                               monkeypatch):
         # Elevation failures spend the same shared secret, so they count toward -- and are
         # blocked by -- the same lockout as removal.
-        monkeypatch.setitem(app.config, "REMOVAL_LOCKOUT_THRESHOLD", 2)
-        set_removal_password(REMOVAL_SECRET)
+        monkeypatch.setitem(app.config, "SITE_ADMIN_KEY_LOCKOUT_THRESHOLD", 2)
+        seed_site_admin_key()
         login_as(make_user(site_admin=True))
         admin_target = make_user(site_admin=True)
         target = make_user()
         post_elevation(client, target.id, removal="Wrong-secret-2!")
         client.post(f"/v1/users/{admin_target.id}/remove-admin", headers=HX,
                     data={"removal_action": "demote", "own_password": TEST_PASSWORD,
-                          "removal_password": "Wrong-secret-2!"})
+                          "site_admin_key": "Wrong-secret-2!"})
         response = post_elevation(client, target.id)  # correct creds, but locked
         assert "Too many failed attempts" in response.get_data(as_text=True)
         assert target.site_admin is False
@@ -124,7 +123,7 @@ class TestElevationFailures:
 class TestElevationSuccess:
     def test_elevates_audits_and_sends_no_email(self, client, db_session, login_as,
                                                 ses_outbox):
-        set_removal_password(REMOVAL_SECRET)
+        seed_site_admin_key()
         actor = login_as(make_user(site_admin=True))
         target = make_user()
         response = post_elevation(client, target.id)
@@ -146,6 +145,18 @@ class TestElevationSuccess:
 
 
 class TestAddUserBarePathClosed:
+    def test_deactivated_user_gets_honest_message_not_dead_end(self, client, db_session,
+                                                               login_as):
+        # The "use Make Site Admin on their row" pointer would be a dead end for a
+        # deactivated account (no row action, and the route refuses non-active targets).
+        login_as(make_user(site_admin=True))
+        target = make_user(status="deactivated")
+        response = client.post("/v1/add-user", headers=HX, data={
+            "email": target.email, "group_assignment_1": "Site Wide__Site Admin"},
+            follow_redirects=True)
+        assert target.site_admin is False
+        assert "cannot be" in response.get_data(as_text=True)
+
     def test_existing_user_site_admin_selection_does_not_elevate(self, client,
                                                                  db_session, login_as):
         login_as(make_user(site_admin=True))
@@ -165,38 +176,38 @@ class TestSiteAdminInviteGate:
 
     def test_invite_refused_without_credentials(self, client, db_session, login_as,
                                                 celery_stub):
-        set_removal_password(REMOVAL_SECRET)
+        seed_site_admin_key()
         login_as(make_user(site_admin=True))
         email = f"{unique('inv')}@example.org"
         self._post_invite(client, email)
         assert Invites.query.filter_by(email=email).count() == 0
 
-    def test_invite_refused_with_wrong_removal_password(self, client, db_session,
+    def test_invite_refused_with_wrong_site_admin_key(self, client, db_session,
                                                         login_as, celery_stub):
-        set_removal_password(REMOVAL_SECRET)
+        seed_site_admin_key()
         actor = login_as(make_user(site_admin=True))
         email = f"{unique('inv')}@example.org"
         self._post_invite(client, email, own_password=TEST_PASSWORD,
-                          removal_password="Wrong-secret-2!")
+                          site_admin_key="Wrong-secret-2!")
         assert Invites.query.filter_by(email=email).count() == 0
         assert UserActivity.query.filter_by(
-            activity_type="removal_password_attempt", user_id=actor.id).count() == 1
+            activity_type="site_admin_key_failure", user_id=actor.id).count() == 1
 
     def test_invite_refused_when_secret_unset(self, client, db_session, login_as,
                                               celery_stub):
         login_as(make_user(site_admin=True))
         email = f"{unique('inv')}@example.org"
         self._post_invite(client, email, own_password=TEST_PASSWORD,
-                          removal_password="anything")
+                          site_admin_key="anything")
         assert Invites.query.filter_by(email=email).count() == 0
 
     def test_invite_created_with_correct_credentials(self, client, db_session, login_as,
                                                      celery_stub, ses_outbox):
-        set_removal_password(REMOVAL_SECRET)
+        seed_site_admin_key()
         login_as(make_user(site_admin=True))
         email = f"{unique('inv')}@example.org"
         self._post_invite(client, email, own_password=TEST_PASSWORD,
-                          removal_password=REMOVAL_SECRET)
+                          site_admin_key=SITE_ADMIN_KEY_SECRET)
         invite = Invites.query.filter_by(email=email).one()
         assert invite.site_admin_invite is True
 
@@ -204,7 +215,7 @@ class TestSiteAdminInviteGate:
                                                 celery_stub, ses_outbox):
         # Case 2 of the invite POST: upgrading a pending group invite to site admin mints
         # an admin just the same, so it spends the same secret.
-        set_removal_password(REMOVAL_SECRET)
+        seed_site_admin_key()
         login_as(make_user(site_admin=True))
         group = make_group()
         email = f"{unique('inv')}@example.org"
@@ -214,12 +225,12 @@ class TestSiteAdminInviteGate:
         self._post_invite(client, email)     # no credentials
         assert invite.site_admin_invite is False
         self._post_invite(client, email, own_password=TEST_PASSWORD,
-                          removal_password=REMOVAL_SECRET)
+                          site_admin_key=SITE_ADMIN_KEY_SECRET)
         assert invite.site_admin_invite is True
 
     def test_group_invite_needs_no_credentials(self, client, db_session, login_as,
                                                celery_stub, ses_outbox):
-        login_as(make_user(site_admin=True))     # removal password never set
+        login_as(make_user(site_admin=True))     # site admin key never set
         group = make_group()
         email = f"{unique('inv')}@example.org"
         client.post("/v1/invite-user", data={
@@ -228,7 +239,7 @@ class TestSiteAdminInviteGate:
 
     def test_add_user_new_email_site_admin_invite_gated(self, client, db_session,
                                                         login_as, celery_stub, ses_outbox):
-        set_removal_password(REMOVAL_SECRET)
+        seed_site_admin_key()
         login_as(make_user(site_admin=True))
         email = f"{unique('inv')}@example.org"
         client.post("/v1/add-user", headers=HX, data={
@@ -236,6 +247,6 @@ class TestSiteAdminInviteGate:
         assert Invites.query.filter_by(email=email).count() == 0
         client.post("/v1/add-user", headers=HX, data={
             "email": email, "group_assignment_1": "Site Wide__Site Admin",
-            "own_password": TEST_PASSWORD, "removal_password": REMOVAL_SECRET})
+            "own_password": TEST_PASSWORD, "site_admin_key": SITE_ADMIN_KEY_SECRET})
         invite = Invites.query.filter_by(email=email).one()
         assert invite.site_admin_invite is True

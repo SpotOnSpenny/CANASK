@@ -265,12 +265,13 @@ class UserActivity(db.Model):
     def __repr__(self):
         return f"<UserActivity User ID: {self.user_id}, Activity Type: {self.activity_type}, Timestamp: {self.timestamp}>"
 
-class RemovalPassword(db.Model):
-    __tablename__ = "removal_password"
+class SiteAdminKey(db.Model):
+    __tablename__ = "site_admin_key"
 
-    # Single-row table holding the bcrypt hash of the shared "removal password" required to strip a
-    # site admin's access. The row is absent until the first `flask rotate-removal-password` run --
-    # "never set" is a legal state the removal/rotation routes refuse on.
+    # Single-row table holding the bcrypt hash of the shared "site admin key" required for every
+    # site-admin membership change (elevation, removal, site-admin invites and their renewal). The
+    # row is absent until the first `flask rotate-site-admin-key` run -- "never set" is a legal
+    # state all the gated routes refuse on.
     id = db.Column(db.Integer, primary_key = True)
     password_hash = db.Column(db.String(255), nullable = False)
     updated_at = db.Column(db.DateTime, nullable = False, default = db.func.current_timestamp())
@@ -278,7 +279,7 @@ class RemovalPassword(db.Model):
     updated_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable = True)
 
     def __repr__(self):
-        return f"<RemovalPassword updated {self.updated_at}>"
+        return f"<SiteAdminKey updated {self.updated_at}>"
 
 # --- Drug Analysis Service (DAS) row-level tables -------------------------------------------------
 # The DAS Explorer serves raw sample rows (paginated/filtered server-side), not aggregated facts, so

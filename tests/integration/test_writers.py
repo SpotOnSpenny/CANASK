@@ -145,6 +145,39 @@ class TestScopedRewrite:
         assert by_geo == {"ontario": 100.0, "quebec": 2.0}
         assert [p.data_value for p in _points_for(source_b.id)] == [9.0]
 
+    def test_retire_geo_deletes_stale_rows_without_replacement(self, db_session):
+        """A renamed site's old-spelling rows are never re-emitted, so retire_geo must claim
+        them for deletion -- and leave every other geo alone. Idempotent on a second run."""
+        source = make_data_source()
+        visual = make_visual(metric="samples", geo_type="site",
+                             data_source=source, province=unique("prov"))
+        first = FactWriter(db, MODELS)
+        vw = first.visual(visual.province, visual.name)
+        vw.fact("Sask||Old Spelling", "2024-01", 5)
+        vw.fact("Sask||Other Site", "2024-01", 7)
+        first.finish()
+
+        second = FactWriter(db, MODELS)
+        vw = second.visual(visual.province, visual.name)
+        vw.use_source({"name": source.name, "link": None, "about": None,
+                       "last_updated": None, "data_until": None})
+        vw.retire_geo("Sask||Old Spelling")
+        vw.fact("Sask||New Spelling", "2024-01", 5)
+        second.finish()
+
+        by_geo = {p.geo: p.data_value for p in _points_for(source.id)}
+        assert by_geo == {"Sask||New Spelling": 5.0, "Sask||Other Site": 7.0}
+
+        third = FactWriter(db, MODELS)
+        vw = third.visual(visual.province, visual.name)
+        vw.use_source({"name": source.name, "link": None, "about": None,
+                       "last_updated": None, "data_until": None})
+        vw.retire_geo("Sask||Old Spelling")   # nothing left to delete -- harmless
+        vw.fact("Sask||New Spelling", "2024-01", 6)
+        third.finish()
+        by_geo = {p.geo: p.data_value for p in _points_for(source.id)}
+        assert by_geo == {"Sask||New Spelling": 6.0, "Sask||Other Site": 7.0}
+
     def test_finish_refreshes_touched_visuals_predicates(self, db_session):
         source = make_data_source()
         visual = make_visual(metric="deaths", geo_type="province",

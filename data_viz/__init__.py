@@ -97,10 +97,14 @@ def add_cache_control_headers(response):
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
         response.headers["Pragma"] = "no-cache"
 
-    # Inject OOB swaps for HTMX requests (flash messages + browser title)
+    # Inject OOB swaps for HTMX requests (flash messages + browser title). Skip responses whose
+    # body the client will never render -- redirects, 204/205 (No Content), and HX-Redirect
+    # full-page navigations -- otherwise get_flashed_messages() consumes the queued flash into a
+    # discarded body and the message is silently lost instead of showing on the follow-up load.
     is_htmx_html = (request.headers.get("HX-Request")
                     and response.content_type == "text/html; charset=utf-8"
-                    and response.status_code not in [301, 302, 303, 307, 308])
+                    and response.status_code not in [204, 205, 301, 302, 303, 307, 308]
+                    and "HX-Redirect" not in response.headers)
     if is_htmx_html:
         # Hand-built (non-Jinja) HTML, so Jinja autoescaping does not apply here -- escape every
         # dynamic part. Flash messages routinely interpolate user-controlled values (usernames,
