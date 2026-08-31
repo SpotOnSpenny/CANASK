@@ -17,7 +17,7 @@ from sqlalchemy import or_, func
 from data_viz.auth import login_manager
 from data_viz.database import db
 from data_viz.database.models import User, Invites, Groups, UserGroups, UserActivity, InviteGroups, DataSources, GroupDataSources, Visuals, GroupVisuals
-from data_viz.auth.auth_helpers import get_user_groups, get_assignable_roles, validate_password, create_user, create_group, assign_group, assign_site_admin, get_manageable_users, get_user_memberships_in_groups, get_manageable_groups, set_group_data_sources, owned_data_sources, can_manage_source, teams_for_source, visuals_for_source, set_group_visuals, set_visual_visibility, set_source_visibility, set_province_default_visual, visibility_rows_for_source, active_site_admins, is_last_active_site_admin, removal_password_is_set, check_removal_password, set_removal_password, deactivate_user
+from data_viz.auth.auth_helpers import get_user_groups, get_assignable_roles, validate_password, create_user, create_group, assign_group, assign_site_admin, get_manageable_users, get_user_memberships_in_groups, get_manageable_groups, set_group_data_sources, owned_data_sources, can_manage_source, teams_for_source, visuals_for_source, set_group_visuals, set_visual_visibility, set_source_visibility, set_province_default_visual, visibility_rows_for_source, active_site_admins, is_last_active_site_admin, removal_password_is_set, check_removal_password, deactivate_user
 from data_viz.auth.role_hierarchy import ROLE_HIERARCHY
 from data_viz.extensions import limiter
 from data_viz.email import send_ses_email
@@ -85,9 +85,7 @@ def _log_auth_attempt(user, identifier, details):
 def recent_removal_password_failures(user_id=None):
     """Count failed removal-password attempts inside the lockout window (see REMOVAL_LOCKOUT_*).
     With user_id, the acting admin's own failures; without, all actors' -- the secret is shared,
-    so the global count bounds a brute force spread across several compromised admin accounts.
-    Both the removal and rotation endpoints log the same activity_type, so they share this
-    counter."""
+    so the global count bounds a brute force spread across several compromised admin accounts."""
     cutoff = datetime.now(timezone.utc) - current_app.config["REMOVAL_LOCKOUT_WINDOW"]
     query = UserActivity.query.filter(
         UserActivity.activity_type == "removal_password_attempt",
@@ -1162,51 +1160,6 @@ def remove_site_admin(user_id):
                         managed_group_ids = None,
                         groups_with_required_role = "all",
                         role_hierarchy = ROLE_HIERARCHY)
-
-
-@auth_blueprint.route("/v1/removal-password", methods = ["GET", "POST"])
-@require_auth
-def rotate_removal_password():
-    if not current_user.site_admin:
-        return _removal_refused("Only site admins can rotate the removal password.")
-
-    # Initial set is CLI-only: one break-glass path, and no first-writer-wins race in the UI.
-    if not removal_password_is_set():
-        return _removal_refused("No removal password has been set yet. Run `flask rotate-removal-password` "
-                                "on the server to set the initial one.", "warning")
-
-    if request.method == "GET":
-        return render_template("v1/partials/rotate_removal_password_modal.jinja")
-
-    if removal_locked_out(current_user):
-        _log_removal_attempt("Blocked removal password rotation: locked out")
-        return _removal_refused("Too many failed attempts. Try again later.")
-
-    if not check_removal_password(request.form.get("current_removal_password")):
-        # Shares the lockout counter with the removal endpoint -- it's the same secret.
-        _log_removal_attempt("Failed removal password rotation: incorrect current removal password")
-        return _removal_form_error("v1/partials/rotate_removal_password_modal.jinja",
-                                   "The current removal password was incorrect.")
-
-    new_password = request.form.get("new_removal_password") or ""
-    if new_password != request.form.get("confirm_removal_password"):
-        return _removal_form_error("v1/partials/rotate_removal_password_modal.jinja",
-                                   "The new removal passwords do not match.")
-
-    valid, message = validate_password(new_password)
-    if not valid:
-        return _removal_form_error("v1/partials/rotate_removal_password_modal.jinja", message)
-
-    set_removal_password(new_password, changed_by = current_user.id, ip_address = request.remote_addr)
-
-    if not notify_site_admins(
-            "CANASK: removal password rotated",
-            f"<p>The site admin removal password was rotated by {current_user.username}.</p>"
-            "<p>If this was not expected, contact your administrators immediately.</p>"):
-        flash("The notification email to site admins could not be sent.", "warning")
-
-    flash("Removal password updated.", "success")
-    return "", 200, {"HX-Reswap": "none"}
 
 
 @auth_blueprint.route("/v1/group-management", methods=["GET"])

@@ -17,16 +17,6 @@
                                 hx-on::after-request="new bootstrap.Modal(document.getElementById('adjustPermissionsModal')).show()">
                             <i class="bi bi-person-plus me-1"></i>Add a user to a group
                         </button>
-                        {% if current_user.site_admin %}
-                        <button type="button"
-                                class="btn btn-sm btn-outline-secondary text-nowrap"
-                                hx-get="/v1/removal-password"
-                                hx-target="#modal-container"
-                                hx-swap="innerHTML"
-                                hx-on::after-request="new bootstrap.Modal(document.getElementById('adjustPermissionsModal')).show()">
-                            <i class="bi bi-key me-1"></i>Removal password
-                        </button>
-                        {% endif %}
                     </div>
                 </div>
                 <div class="card-body p-0">

@@ -151,13 +151,13 @@ class TestRotateRemovalPasswordCli:
         assert check_removal_password("Old-secret-value-5!") is False
         assert RemovalPassword.query.count() == 1
 
-    def test_notifies_admins_without_leaking_secret(self, app, db_session, ses_outbox):
-        admin = make_user(site_admin=True)
+    def test_rotation_sends_no_email(self, app, db_session, ses_outbox):
+        # Deliberate: rotation is a quiet, server-side act. No notification goes out --
+        # the audit row is the record -- and the secret is never emailed anywhere.
+        make_user(site_admin=True)
         result = self._run(app)
-        assert len(ses_outbox) == 1
-        assert admin.email in ses_outbox[0].to
-        secret = result.output.split("New removal password:", 1)[1].splitlines()[0].strip()
-        assert secret not in ses_outbox[0].html
+        assert result.exit_code == 0
+        assert len(ses_outbox) == 0
 
     def test_logs_break_glass_rotation(self, app, db_session, ses_outbox):
         self._run(app)
@@ -168,7 +168,7 @@ class TestRotateRemovalPasswordCli:
 
     def test_empty_explicit_password_rejected(self, app, db_session, ses_outbox):
         # An empty stored secret can never validate (check_removal_password rejects empty
-        # candidates), so accepting it would brick the removal + rotation UI.
+        # candidates), so accepting it would brick the removal UI.
         result = self._run(app, "--password", "")
         assert result.exit_code != 0
         assert removal_password_is_set() is False

@@ -1,5 +1,6 @@
-"""Site-admin removal + removal-password rotation routes: guards, the shared-secret
-lockout, and the two removal modes (demote / deactivate)."""
+"""Site-admin removal route: guards, the shared-secret lockout, and the two removal
+modes (demote / deactivate). Rotation is deliberately CLI-only (no in-app route) so a
+lone admin who knows the secret can't swap it and lock the other admins out."""
 from datetime import datetime, timedelta, timezone
 
 from data_viz.auth.auth_helpers import check_removal_password, set_removal_password
@@ -16,14 +17,6 @@ def post_removal(client, target_id, own=TEST_PASSWORD, removal=REMOVAL_SECRET,
     return client.post(f"/v1/users/{target_id}/remove-admin",
                        data={"removal_action": action, "own_password": own,
                              "removal_password": removal},
-                       headers=HX)
-
-
-def post_rotation(client, current, new, confirm=None):
-    return client.post("/v1/removal-password",
-                       data={"current_removal_password": current,
-                             "new_removal_password": new,
-                             "confirm_removal_password": confirm if confirm is not None else new},
                        headers=HX)
 
 
@@ -99,21 +92,37 @@ class TestRemovalGuards:
 
 
 class TestUserManagementEntryPoints:
-    def test_site_admin_sees_remove_action_and_rotate_button(self, client, db_session,
-                                                             login_as):
+    def test_site_admin_sees_remove_action(self, client, db_session, login_as):
         login_as(make_user(site_admin=True))
         make_user(site_admin=True)
         body = client.get("/v1/user-management", headers=HX).get_data(as_text=True)
         assert "Remove Site Admin" in body
-        assert "/v1/removal-password" in body
+        # Rotation is CLI-only: no in-app entry point for any admin.
+        assert "/v1/removal-password" not in body
 
-    def test_group_admin_sees_neither(self, client, db_session, login_as):
+    def test_group_admin_sees_no_remove_action(self, client, db_session, login_as):
         group = make_group()
         login_as(make_user(group=group, role="Group Admin"))
         make_user(group=group, role="Data Viewer")
         body = client.get("/v1/user-management", headers=HX).get_data(as_text=True)
         assert "Remove Site Admin" not in body
-        assert "/v1/removal-password" not in body
+
+    def test_rotation_route_is_gone(self, client, db_session, login_as):
+        # The in-app rotation endpoint was removed on purpose: a lone admin who knew the
+        # secret could rotate it quietly and then remove every other admin. The route 404s
+        # (the app-wide handler turns that into a redirect to /not-found) for everyone,
+        # site admins included, and the stored secret is untouched.
+        set_removal_password(REMOVAL_SECRET)
+        login_as(make_user(site_admin=True))
+        response = client.get("/v1/removal-password", headers=HX)
+        assert response.status_code == 302 and response.headers["Location"] == "/not-found"
+        response = client.post("/v1/removal-password", headers=HX,
+                               data={"current_removal_password": REMOVAL_SECRET,
+                                     "new_removal_password": "New-removal-secret-9!",
+                                     "confirm_removal_password": "New-removal-secret-9!"})
+        assert response.status_code == 302 and response.headers["Location"] == "/not-found"
+        assert check_removal_password(REMOVAL_SECRET) is True
+        assert check_removal_password("New-removal-secret-9!") is False
 
 
 class TestRemovalFailures:
@@ -266,59 +275,3 @@ class TestRemovalSuccess:
         assert target.email not in recipients
         assert REMOVAL_SECRET not in ses_outbox[0].html
         assert TEST_PASSWORD not in ses_outbox[0].html
-
-
-class TestRotation:
-    def test_non_site_admin_refused(self, client, db_session, login_as):
-        set_removal_password(REMOVAL_SECRET)
-        login_as(make_user())
-        response = post_rotation(client, REMOVAL_SECRET, "New-removal-secret-9!")
-        assert "Only site admins" in response.get_data(as_text=True)
-        assert check_removal_password(REMOVAL_SECRET) is True
-
-    def test_unset_points_at_cli(self, client, db_session, login_as):
-        login_as(make_user(site_admin=True))
-        for response in (client.get("/v1/removal-password", headers=HX),
-                         post_rotation(client, "x", "New-removal-secret-9!")):
-            assert "rotate-removal-password" in response.get_data(as_text=True)
-
-    def test_wrong_current_shares_lockout_with_removal(self, client, db_session,
-                                                       login_as, app, monkeypatch):
-        monkeypatch.setitem(app.config, "REMOVAL_LOCKOUT_THRESHOLD", 2)
-        set_removal_password(REMOVAL_SECRET)
-        login_as(make_user(site_admin=True))
-        target = make_user(site_admin=True)
-        post_rotation(client, "Wrong-secret-2!", "New-removal-secret-9!")
-        post_removal(client, target.id, removal="Wrong-secret-2!")
-        response = post_removal(client, target.id)  # correct creds, but locked
-        assert "Too many failed attempts" in response.get_data(as_text=True)
-        assert target.site_admin is True
-
-    def test_confirm_mismatch_refused_in_modal(self, client, db_session, login_as):
-        set_removal_password(REMOVAL_SECRET)
-        login_as(make_user(site_admin=True))
-        response = post_rotation(client, REMOVAL_SECRET, "New-removal-secret-9!",
-                                 confirm="Different-value-3!")
-        assert check_removal_password(REMOVAL_SECRET) is True
-        assert response.headers.get("HX-Retarget") == "#modal-container"
-        assert "do not match" in response.get_data(as_text=True)
-
-    def test_weak_new_password_refused(self, client, db_session, login_as):
-        set_removal_password(REMOVAL_SECRET)
-        login_as(make_user(site_admin=True))
-        response = post_rotation(client, REMOVAL_SECRET, "weak")
-        assert check_removal_password(REMOVAL_SECRET) is True
-        assert response.headers.get("HX-Retarget") == "#modal-container"
-
-    def test_successful_rotation(self, client, db_session, login_as, ses_outbox):
-        set_removal_password(REMOVAL_SECRET)
-        admin = login_as(make_user(site_admin=True))
-        response = post_rotation(client, REMOVAL_SECRET, "New-removal-secret-9!")
-        assert response.status_code == 200
-        assert check_removal_password("New-removal-secret-9!") is True
-        assert check_removal_password(REMOVAL_SECRET) is False
-        activity = UserActivity.query.filter_by(
-            activity_type="removal_password_rotated", user_id=admin.id).one()
-        assert "New-removal-secret-9!" not in (activity.details or "")
-        assert len(ses_outbox) == 1
-        assert "New-removal-secret-9!" not in ses_outbox[0].html

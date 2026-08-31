@@ -11,8 +11,7 @@ import click
 # Internal Iimports
 from data_viz.database import db
 from data_viz.database.models import User, Groups, UserGroups, DataSources, GroupDataSources, Invites, InviteGroups
-from data_viz.auth.auth_helpers import create_user, create_group, assign_group, set_removal_password, active_site_admins, validate_password
-from data_viz.email import send_ses_email
+from data_viz.auth.auth_helpers import create_user, create_group, assign_group, set_removal_password, validate_password
 
 # Function to create the default admin user
 # This user needs to be created first, so that it can be used as the creator for whatever is defined in the seed data.
@@ -274,15 +273,6 @@ def register_cli(app):
             print("Share it out-of-band with the admins who should hold it. It will not be shown again.")
         else:
             print("Removal password set from --password.")
-        recipients = [admin.email for admin in active_site_admins()]
-        if recipients and send_ses_email(
-                recipients,
-                "CANASK: removal password rotated",
-                "<p>The site admin removal password was rotated via the server CLI (break-glass).</p>"
-                "<p>If this was not expected, contact your administrators immediately.</p>"):
-            print(f"Notified {len(recipients)} site admin(s) of the rotation.")
-        else:
-            print("Site admins were NOT notified by email (no recipients or SES unavailable).")
 
     @app.cli.command("reconcile-sources", short_help="Merge legacy/seed-named data sources into their pipeline equivalents.")
     def reconcile_sources():

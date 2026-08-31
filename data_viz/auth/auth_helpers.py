@@ -186,7 +186,9 @@ def check_removal_password(candidate):
 def set_removal_password(new_password, changed_by = None, ip_address = None):
     # Single-row upsert pinned to id=1, so two concurrent initial sets collide on the PK and
     # one fails loudly instead of silently leaving two rows with divergent hashes. Strength
-    # validation is the callers' job (rotation route / CLI); verification here is bcrypt-compare only.
+    # validation is the caller's job (the rotate-removal-password CLI -- rotation is deliberately
+    # CLI-only, so a lone admin who knows the secret can't swap it in-app and lock the others out);
+    # verification here is bcrypt-compare only.
     row = RemovalPassword.query.get(1) or RemovalPassword(id = 1)
     row.password_hash = hashpw(new_password.encode("utf-8"), gensalt()).decode("utf-8")
     row.updated_at = db.func.current_timestamp()
