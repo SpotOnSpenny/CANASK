@@ -1,0 +1,35 @@
+<div class="modal-header">
+    <h5 class="modal-title">Make Site Admin — {{ target.username }}</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+</div>
+{# Field-level failures re-render this partial into the open modal (HX-Retarget); the hide
+   below only fires on responses without that header, so the modal survives a typo. #}
+<form hx-post="/v1/users/{{ target.id }}/make-admin"
+      hx-target="#user-row-{{ target.id }}"
+      hx-swap="outerHTML"
+      hx-on::after-request="if (!event.detail.xhr.getResponseHeader('HX-Retarget')) bootstrap.Modal.getInstance(document.getElementById('adjustPermissionsModal')).hide()">
+    <div class="modal-body">
+        {% if error %}
+            <div class="alert alert-danger">{{ error }}</div>
+        {% endif %}
+        <p>Grant site admin access to <strong>{{ target.username }}</strong> ({{ target.email }}).</p>
+        <p class="form-text">Site admins bypass all group role checks: they can see every visual,
+            manage every user and group, and grant or remove site admin access.</p>
+
+        <div class="mb-3">
+            <label class="form-label" for="elevation-own-password">Your account password</label>
+            <input class="form-control" type="password" name="own_password"
+                   id="elevation-own-password" autocomplete="current-password" required>
+        </div>
+        <div class="mb-3">
+            <label class="form-label" for="elevation-shared-password">Removal password</label>
+            <input class="form-control" type="password" name="removal_password"
+                   id="elevation-shared-password" autocomplete="off" required>
+            <div class="form-text">The shared removal password guards every site admin membership change.</div>
+        </div>
+    </div>
+    <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-primary">Grant Access</button>
+    </div>
+</form>

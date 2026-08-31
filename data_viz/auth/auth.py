@@ -17,7 +17,7 @@ from sqlalchemy import or_, func
 from data_viz.auth import login_manager
 from data_viz.database import db
 from data_viz.database.models import User, Invites, Groups, UserGroups, UserActivity, InviteGroups, DataSources, GroupDataSources, Visuals, GroupVisuals
-from data_viz.auth.auth_helpers import get_user_groups, get_assignable_roles, validate_password, create_user, create_group, assign_group, assign_site_admin, get_manageable_users, get_user_memberships_in_groups, get_manageable_groups, set_group_data_sources, owned_data_sources, can_manage_source, teams_for_source, visuals_for_source, set_group_visuals, set_visual_visibility, set_source_visibility, set_province_default_visual, visibility_rows_for_source, active_site_admins, is_last_active_site_admin, removal_password_is_set, check_removal_password, deactivate_user
+from data_viz.auth.auth_helpers import get_user_groups, get_assignable_roles, validate_password, create_user, create_group, assign_group, assign_site_admin, get_manageable_users, get_user_memberships_in_groups, get_manageable_groups, set_group_data_sources, owned_data_sources, can_manage_source, teams_for_source, visuals_for_source, set_group_visuals, set_visual_visibility, set_source_visibility, set_province_default_visual, visibility_rows_for_source, is_last_active_site_admin, removal_password_is_set, check_removal_password, deactivate_user
 from data_viz.auth.role_hierarchy import ROLE_HIERARCHY
 from data_viz.extensions import limiter
 from data_viz.email import send_ses_email
@@ -118,13 +118,37 @@ def _log_removal_attempt(details, target=None):
     db.session.commit()
 
 
-def notify_site_admins(subject, html_body):
-    """One email to every active site admin. Returns False when there are no recipients or SES
-    fails; callers surface a soft warning -- the mutation itself has already committed."""
-    recipients = [admin.email for admin in active_site_admins()]
-    if not recipients:
-        return False
-    return send_ses_email(recipients, subject, html_body)
+def _check_admin_grant_credentials(action_desc, target=None):
+    """Verify the actor's own password + the shared removal password for a protected site-admin
+    membership change (removal, elevation, site-admin invite). Returns None when both pass;
+    otherwise the error message, having logged the failure with the 'Failed removal' prefix the
+    lockout counter matches -- every path spends the same shared secret, so they all share the
+    lockout. Naming the wrong field in the message is fine: the actor already knows their own
+    password, so it is no oracle for the shared secret."""
+    own_password = request.form.get("own_password") or ""
+    if not checkpw(own_password.encode("utf-8"), current_user.password_hash.encode("utf-8")):
+        _log_removal_attempt(f"Failed removal confirmation for {action_desc}: "
+                             "incorrect account password", target=target)
+        return "Your account password was incorrect."
+    if not check_removal_password(request.form.get("removal_password")):
+        _log_removal_attempt(f"Failed removal confirmation for {action_desc}: "
+                             "incorrect removal password", target=target)
+        return "The removal password was incorrect."
+    return None
+
+
+def _site_admin_grant_gate(action_desc, target=None):
+    """The full gate for granting site admin access from a plain form flow (the invite page and
+    the add-user modal): unset-secret guard, lockout, then both password checks. Returns None on
+    success or the message to flash. The modal flows (remove/make admin) run the same pieces
+    individually because each failure kind renders differently there."""
+    if not removal_password_is_set():
+        return ("No removal password has been set. Run `flask rotate-removal-password` "
+                "on the server to set one first.")
+    if removal_locked_out(current_user):
+        _log_removal_attempt(f"Blocked {action_desc}: locked out", target=target)
+        return "Too many failed attempts. Try again later."
+    return _check_admin_grant_credentials(action_desc, target=target)
 
 
 def _render_login():
@@ -479,6 +503,14 @@ def invite_user(groups_with_required_role = None):
         if site_admin_invite and not current_user.site_admin:
             flash("Only site admins can grant site admin access.", "danger")
             return redirect(url_for("auth.invite_user"))
+        # Gate BEFORE any branch: this covers both a fresh site-admin invite and the
+        # upgrade-existing-invite path below -- both mint an admin, so both spend the shared
+        # removal password (own password + removal password, same lockout as removal).
+        if site_admin_invite:
+            gate_error = _site_admin_grant_gate(f"site admin invite for {email}")
+            if gate_error:
+                flash(gate_error, "danger")
+                return redirect(url_for("auth.invite_user"))
         ok, error = validate_group_assignments(group_assignments, groups_with_required_role)
         if not ok:
             flash(error, "danger")
@@ -908,8 +940,10 @@ def add_user(groups_with_required_role = None):
                 elif existing_user.site_admin:
                     flash(f"{existing_user.username} is already a site admin.", "info")
                 else:
-                    assign_site_admin(existing_user.id, assigned_by = current_user.id)
-                    changes += 1
+                    # Elevation of an existing account goes through the protected modal flow
+                    # (own password + removal password) -- never a bare form submit.
+                    flash(f"{existing_user.username} already has an account. Use the "
+                          "\"Make Site Admin\" action on their row instead.", "info")
             else:
                 for group_id, role in group_assignments.items():
                     group_name = Groups.query.get(group_id).name
@@ -946,6 +980,14 @@ def add_user(groups_with_required_role = None):
         if not ok:
             flash(error, "danger")
             return redirect(url_for("auth.user_management"))
+
+        # A site-admin invite mints an admin at a fresh email, so it spends the same shared
+        # secret as elevating or removing one -- otherwise the modal gate is a detour, not a wall.
+        if site_admin_assignment and current_user.site_admin:
+            gate_error = _site_admin_grant_gate(f"site admin invite for {email}")
+            if gate_error:
+                flash(gate_error, "danger")
+                return redirect(url_for("auth.user_management"))
 
         invite = create_invite(email, group_assignments, site_admin_assignment and current_user.site_admin)
         if send_invite_email(invite):
@@ -1108,21 +1150,9 @@ def remove_site_admin(user_id):
                                    "Choose whether to demote or deactivate the user.",
                                    target = target)
 
-    own_password = request.form.get("own_password") or ""
-    if not checkpw(own_password.encode("utf-8"), current_user.password_hash.encode("utf-8")):
-        _log_removal_attempt(f"Failed removal confirmation against {target.username}: "
-                             "incorrect account password", target = target)
-        # Naming the wrong field is fine here: the actor already knows their own password,
-        # so this is no oracle for the shared secret.
-        return _removal_form_error("v1/partials/remove_admin_modal.jinja",
-                                   "Your account password was incorrect.",
-                                   target = target, selected_action = removal_action)
-
-    if not check_removal_password(request.form.get("removal_password")):
-        _log_removal_attempt(f"Failed removal confirmation against {target.username}: "
-                             "incorrect removal password", target = target)
-        return _removal_form_error("v1/partials/remove_admin_modal.jinja",
-                                   "The removal password was incorrect.",
+    error = _check_admin_grant_credentials(f"removal of {target.username}", target = target)
+    if error:
+        return _removal_form_error("v1/partials/remove_admin_modal.jinja", error,
                                    target = target, selected_action = removal_action)
 
     if is_last_active_site_admin(target.id):
@@ -1145,21 +1175,73 @@ def remove_site_admin(user_id):
         ip_address = request.remote_addr))
     db.session.commit()
 
-    # Recipients are queried post-mutation, so the removed admin is not among them.
-    if not notify_site_admins(
-            "CANASK: site admin access removed",
-            f"<p>{current_user.username} removed site admin access from {target.username} "
-            f"(the account was {mode_msg}).</p>"
-            "<p>If this was not expected, contact your administrators immediately.</p>"):
-        flash("The notification email to site admins could not be sent.", "warning")
-
+    # Deliberately no email: admin-membership changes are quiet, audit-row-only events.
     flash(f"{target.username} was {mode_msg}.", "success")
+    return _render_admin_user_row(target)
+
+
+def _render_admin_user_row(target):
+    """Re-render a user's row after a site-admin membership change, with full (site-admin)
+    context -- these routes are reachable by site admins only."""
     memberships = get_user_memberships_in_groups(target.id, None)
     return render_template("v1/partials/user_row.jinja",
                         user = target, memberships = memberships,
                         managed_group_ids = None,
                         groups_with_required_role = "all",
                         role_hierarchy = ROLE_HIERARCHY)
+
+
+@auth_blueprint.route("/v1/users/<int:user_id>/make-admin", methods = ["GET", "POST"])
+@require_auth
+def make_site_admin(user_id):
+    # The elevation mirror of remove_site_admin: same actor gate, same shared secret, same
+    # lockout -- an admin who can't quietly remove admins must not be able to quietly mint one.
+    if not current_user.site_admin:
+        return _removal_refused("Only site admins can grant site admin access.")
+
+    target = User.query.get(user_id)
+    if not target:
+        return _removal_refused("User not found.")
+
+    if user_id == current_user.id:
+        return _removal_refused("You cannot change your own access.")
+
+    if target.site_admin:
+        return _removal_refused(f"{target.username} is already a site admin.", "info")
+
+    if target.status != User.STATUS_ACTIVE:
+        return _removal_refused(f"{target.username}'s account is not active, so it cannot be "
+                                "made a site admin.", "warning")
+
+    if not removal_password_is_set():
+        return _removal_refused("No removal password has been set. Run `flask rotate-removal-password` "
+                                "on the server to set one first.", "warning")
+
+    if request.method == "GET":
+        return render_template("v1/partials/make_admin_modal.jinja", target = target)
+
+    # POST -- lockout is checked before any bcrypt work or logging.
+    if removal_locked_out(current_user):
+        _log_removal_attempt(f"Blocked elevation attempt for {target.username}: locked out", target = target)
+        return _removal_refused("Too many failed attempts. Try again later.")
+
+    error = _check_admin_grant_credentials(f"elevation of {target.username}", target = target)
+    if error:
+        return _removal_form_error("v1/partials/make_admin_modal.jinja", error, target = target)
+
+    assign_site_admin(target.id, assigned_by = current_user.id)
+    db.session.add(UserActivity(
+        user_id = current_user.id,
+        activity_type = "site_admin_elevation",
+        activity_target_type = "user",
+        activity_target_id = target.id,
+        details = f"{target.username} was made a site admin by {current_user.username}.",
+        ip_address = request.remote_addr))
+    db.session.commit()
+
+    # Deliberately no email: admin-membership changes are quiet, audit-row-only events.
+    flash(f"{target.username} is now a site admin.", "success")
+    return _render_admin_user_row(target)
 
 
 @auth_blueprint.route("/v1/group-management", methods=["GET"])
