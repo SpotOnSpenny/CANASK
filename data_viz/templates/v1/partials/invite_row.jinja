@@ -52,9 +52,10 @@
                         {% endif %}
                     {% endfor %}
 
-                    {# Site-admin invites are not adjustable (no groups; the flag only changes
-                       through credentialed flows), so no Adjust action for them. #}
-                    {% if (can_adjust.value or current_user.site_admin) and not invite.site_admin_invite %}
+                    {# Site admins may adjust site-admin invites too (demote via the
+                       modal's checkbox); everyone else still only sees it for group
+                       invites they out-rank. #}
+                    {% if can_adjust.value or current_user.site_admin %}
                     <li>
                         <button class="dropdown-item"
                             hx-get="/v1/invites/{{ invite.id }}/adjust-permissions"
@@ -99,24 +100,15 @@
                 </button>
                 <ul class="dropdown-menu">
                     <li>
-                        {% if invite.site_admin_invite %}
-                        {# Renewing a site-admin invite re-mints an admin credential, so it goes
-                           through the credentials modal (own password + site admin key). #}
-                        <button class="dropdown-item"
-                            hx-get="/v1/invites/{{ invite.id }}/renew"
-                            hx-target="#modal-container"
-                            hx-swap="innerHTML"
-                            hx-on::after-request="new bootstrap.Modal(document.getElementById('adjustPermissionsModal')).show()">
-                            Renew
-                        </button>
-                        {% else %}
+                        {# One-click renew for every invite -- the site-admin credential gate
+                           on renewal was deliberately removed (the gate already approved the
+                           invite at creation; the route still refuses non-site-admins). #}
                         <button class="dropdown-item"
                             hx-post="/v1/invites/{{ invite.id }}/renew"
                             hx-target="#invite-row-{{ invite.id }}"
                             hx-swap="outerHTML">
                             Renew
                         </button>
-                        {% endif %}
                     </li>
                 </ul>
             </div>

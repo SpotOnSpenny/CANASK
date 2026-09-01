@@ -135,10 +135,14 @@ class TestRemovalFailures:
         # Field-level failures re-render the form into the open modal (retarget), so the
         # admin sees the error in place instead of the modal closing on them.
         assert response.headers.get("HX-Retarget") == "#modal-container"
-        assert "account password was incorrect" in response.get_data(as_text=True)
+        # The message doesn't say which field was wrong -- see _check_admin_grant_credentials.
+        assert "password or the site admin key was incorrect" in response.get_data(as_text=True)
         activity = UserActivity.query.filter_by(
             activity_type="site_admin_key_failure", user_id=actor.id).one()
-        assert activity.details.startswith("Failed removal")
+        assert activity.details.startswith("Failed credential")
+        # The generic user-facing message hides which field failed, but the audit trail
+        # must keep the distinction.
+        assert "incorrect account password" in activity.details
         assert activity.ip_address is not None
 
     def test_wrong_site_admin_key_logged_and_refused(self, client, db_session,
@@ -151,7 +155,8 @@ class TestRemovalFailures:
         assert response.headers.get("HX-Retarget") == "#modal-container"
         activity = UserActivity.query.filter_by(
             activity_type="site_admin_key_failure", user_id=actor.id).one()
-        assert activity.details.startswith("Failed removal")
+        assert activity.details.startswith("Failed credential")
+        assert "incorrect site admin key" in activity.details
 
     def test_failure_preserves_selected_action(self, client, db_session, login_as):
         # A failed deactivate attempt must not quietly reset the radio to demote --

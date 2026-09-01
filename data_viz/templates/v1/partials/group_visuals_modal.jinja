@@ -38,20 +38,40 @@
                 <button type="button" class="btn btn-sm btn-outline-secondary clear-all-btn"
                         data-scope="all">Clear all</button>
             </div>
+            <div class="accordion" id="visuals-accordion">
             {% for p in provinces %}
                 {% if p.trees %}
-                    <div class="d-flex align-items-center gap-2 mb-1 mt-2">
-                        <p class="fw-semibold mb-0">{{ p.province.replace("-", " ").title() }}</p>
-                        <button type="button" class="btn btn-sm btn-link p-0 select-all-btn"
-                                data-scope="{{ p.province }}">Select all</button>
-                        <button type="button" class="btn btn-sm btn-link p-0 clear-all-btn"
-                                data-scope="{{ p.province }}">Clear all</button>
+                    <div class="accordion-item">
+                        {# Select/Clear are SIBLINGS of the accordion-button (a button inside a
+                           button is invalid HTML and would toggle the collapse). #}
+                        <h2 class="accordion-header d-flex align-items-center">
+                            <button class="accordion-button collapsed flex-grow-1 py-2" type="button"
+                                    data-bs-toggle="collapse"
+                                    data-bs-target="#visuals-acc-{{ p.province }}"
+                                    aria-expanded="false"
+                                    aria-controls="visuals-acc-{{ p.province }}">
+                                <span class="fw-semibold">{{ p.province.replace("-", " ").title() }}</span>
+                                <span class="badge bg-light text-dark ms-2 province-count"
+                                      data-count-for="{{ p.province }}"></span>
+                            </button>
+                            <span class="d-flex gap-2 px-2 flex-shrink-0">
+                                <button type="button" class="btn btn-sm btn-link p-0 select-all-btn"
+                                        data-scope="{{ p.province }}">Select all</button>
+                                <button type="button" class="btn btn-sm btn-link p-0 clear-all-btn"
+                                        data-scope="{{ p.province }}">Clear all</button>
+                            </span>
+                        </h2>
+                        <div id="visuals-acc-{{ p.province }}" class="accordion-collapse collapse">
+                            <div class="accordion-body py-2">
+                                {% for node in p.trees %}
+                                    {{ render_node(node, current_ids, 0, None, p.province) }}
+                                {% endfor %}
+                            </div>
+                        </div>
                     </div>
-                    {% for node in p.trees %}
-                        {{ render_node(node, current_ids, 0, None, p.province) }}
-                    {% endfor %}
                 {% endif %}
             {% endfor %}
+            </div>
         {% endif %}
     </div>
     <div class="modal-footer">
@@ -66,6 +86,16 @@
         const byId = {};
         checks.forEach(c => { byId[c.dataset.vid] = c; });
 
+        // Collapsed provinces still show their state via a live "n / m selected" badge.
+        function updateCounts() {
+            document.querySelectorAll('.province-count').forEach(badge => {
+                const prov = badge.dataset.countFor;
+                const provChecks = checks.filter(c => c.dataset.province === prov);
+                const on = provChecks.filter(c => c.checked).length;
+                badge.textContent = on + ' / ' + provChecks.length + ' selected';
+            });
+        }
+
         // Enforce the drill hierarchy: a child level is only enabled while its parent is checked.
         // Checks render parent-before-child (DOM order), so a single top-down pass cascades correctly.
         function applyHierarchy() {
@@ -77,6 +107,7 @@
                     if (!parentOn) c.checked = false;
                 }
             });
+            updateCounts();
         }
         checks.forEach(c => c.addEventListener('change', applyHierarchy));
         applyHierarchy();
