@@ -135,7 +135,8 @@ class TestRemovalFailures:
         # Field-level failures re-render the form into the open modal (retarget), so the
         # admin sees the error in place instead of the modal closing on them.
         assert response.headers.get("HX-Retarget") == "#modal-container"
-        assert "account password was incorrect" in response.get_data(as_text=True)
+        # The message doesn't say which field was wrong -- see _check_admin_grant_credentials.
+        assert "password or the site admin key was incorrect" in response.get_data(as_text=True)
         activity = UserActivity.query.filter_by(
             activity_type="site_admin_key_failure", user_id=actor.id).one()
         assert activity.details.startswith("Failed removal")

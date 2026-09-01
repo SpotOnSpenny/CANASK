@@ -86,6 +86,9 @@ def _log_auth_attempt(user, identifier, details):
 _UNSET_KEY_MSG = ("No site admin key has been set. Run `flask rotate-site-admin-key` "
                       "on the server to set one first.")
 
+# Deliberately does not say which of the two fields was wrong -- see _check_admin_grant_credentials.
+_BAD_CREDENTIALS_MSG = "Your password or the site admin key was incorrect."
+
 
 def recent_site_admin_key_failures(user_id=None):
     """Count failed site-admin-key attempts inside the lockout window (see SITE_ADMIN_KEY_LOCKOUT_*).
@@ -136,19 +139,20 @@ def _lockout_refusal(action_desc, target=None):
 def _check_admin_grant_credentials(action_desc, target=None):
     """Verify the actor's own password + the shared site admin key for a protected site-admin
     membership change (removal, elevation, site-admin invite/renewal). Returns None when both
-    pass; otherwise the error message, having logged the failure as a counted lockout row --
-    every path spends the same shared secret, so they all share the lockout. Naming the wrong
-    field in the message is fine: the actor already knows their own password, so it is no oracle
-    for the shared secret."""
+    pass; otherwise a single generic error message, having logged which field actually failed
+    (for the audit trail only -- never in the user-facing message, since naming the bad field
+    tells anyone with the actor's session which of the two secrets to focus on next), as a
+    counted lockout row -- every path spends the same shared secret, so they all share the
+    lockout."""
     own_password = request.form.get("own_password") or ""
     if not checkpw(own_password.encode("utf-8"), current_user.password_hash.encode("utf-8")):
         _log_key_attempt(f"Failed removal confirmation for {action_desc}: "
                              "incorrect account password", target=target, failed=True)
-        return "Your account password was incorrect."
+        return _BAD_CREDENTIALS_MSG
     if not check_site_admin_key(request.form.get("site_admin_key")):
         _log_key_attempt(f"Failed removal confirmation for {action_desc}: "
                              "incorrect site admin key", target=target, failed=True)
-        return "The site admin key was incorrect."
+        return _BAD_CREDENTIALS_MSG
     return None
 
 
@@ -553,6 +557,10 @@ def invite_user(groups_with_required_role = None):
 
             # Case 2: new invite is site admin — upgrade existing invite
             if site_admin_invite:
+                # The flag is exclusive at acceptance time -- group rows on a flagged
+                # invite are silently ignored -- so remove them instead of orphaning them.
+                for ig in list(existing_invite.invite_groups):
+                    db.session.delete(ig)
                 existing_invite.site_admin_invite = True
                 activity = UserActivity(
                     user_id=current_user.id,
@@ -687,10 +695,32 @@ def revoke_invite(invite_id, groups_with_required_role=None):
 def resend_invite(invite_id, groups_with_required_role=None):
     invite = Invites.query.get(invite_id)
     managed_group_ids = None if current_user.site_admin else list(groups_with_required_role.keys())
-    # Send email here
+
+    # The decorator only checks this for non-site-admins; a site admin can reach here with a bad id.
+    if invite is None:
+        flash("Invite not found.", "danger")
+        return ("", 204)
+
+    if invite.status != "pending":
+        flash("Only pending invites can be resent.", "warning")
+    elif send_invite_email(invite):
+        # Re-sending re-issues a bearer credential over email, so it gets an activity row.
+        db.session.add(UserActivity(
+            user_id=current_user.id,
+            activity_type="invite_resent",
+            activity_target_type="invite",
+            activity_target_id=invite.id,
+            details=f"Invite for {invite.email} resent by {current_user.username}.",
+            ip_address=request.remote_addr,
+        ))
+        db.session.commit()
+        flash(f"Invite resent to {invite.email}.", "success")
+    else:
+        flash(f"The invite email to {invite.email} could not be sent.", "warning")
+
     return render_template("v1/partials/invite_row.jinja",
                         invite=invite,
-                        managed_group_ids=None if current_user.site_admin else managed_group_ids,
+                        managed_group_ids=managed_group_ids,
                         groups_with_required_role=groups_with_required_role,
                         role_hierarchy=ROLE_HIERARCHY)
 
@@ -764,6 +794,32 @@ def renew_invite(invite_id, groups_with_required_role=None):
                         role_hierarchy=ROLE_HIERARCHY)
 
 
+def _adjustable_groups_for(invite, managed_group_ids):
+    """Group rows for the adjust-permissions modal. managed_group_ids is None for site
+    admins (all groups offered, missing ones as transient unsaved InviteGroups rows);
+    otherwise only the invite's existing rows within the caller's managed groups."""
+    adjustable_groups = []
+    if managed_group_ids is None:
+        for group in Groups.query.all():
+            existing_ig = next((ig for ig in invite.invite_groups if ig.group_id == group.id), None)
+            if existing_ig is None:
+                # If the group invite does not exist, we need one so that the site admin can add groups via the template
+                existing_ig = InviteGroups(invite_id=invite.id, group_id=group.id, role=None)
+                existing_ig.group = group
+            adjustable_groups.append({
+                "invite_group": existing_ig,
+                "assignable_roles": get_assignable_roles(current_user, group.id)
+            })
+    else:
+        for ig in invite.invite_groups:
+            if ig.group_id in managed_group_ids:
+                adjustable_groups.append({
+                    "invite_group": ig,
+                    "assignable_roles": get_assignable_roles(current_user, ig.group_id)
+                })
+    return adjustable_groups
+
+
 @auth_blueprint.route("/v1/invites/<int:invite_id>/adjust-permissions", methods=["GET", "POST"])
 @require_auth
 @require_role("Group Admin", group_id_source="invite", action="adjust invite permissions")
@@ -776,11 +832,11 @@ def adjust_invite_permissions(invite_id, groups_with_required_role=None):
         flash("Invite not found.", "danger")
         return ("", 204)
 
-    # Site-admin invites are not adjustable: they carry no group rows, and the flag itself may only
-    # change through credentialed flows (grant via the invite form's site-admin-key gate; undo via
-    # revoke + re-create). Refusing outright also makes hybrid flag+groups invites unproducible and
-    # closes the ungated demote path a shared-group admin previously had over them.
-    if invite.site_admin_invite:
+    # A site-admin invite is only adjustable by a site admin (demote via the modal's
+    # checkbox; elevate of a plain invite is gated further down). For everyone else the
+    # old refusal stands -- it also covers hybrid flag+groups invites that would pass
+    # the role decorator for a shared-group admin.
+    if invite.site_admin_invite and not current_user.site_admin:
         message = "Site admin invites cannot be adjusted. Revoke the invite and send a new one instead."
         if request.method == "GET":
             return _admin_gate_refused(message, "warning")
@@ -792,68 +848,73 @@ def adjust_invite_permissions(invite_id, groups_with_required_role=None):
                             role_hierarchy=ROLE_HIERARCHY)
 
     if request.method == "GET":
-        adjustable_groups = []
-        existing_group_ids = [ig.group_id for ig in invite.invite_groups]
-        
-        # If we are a site admin, show all groups
-        if current_user.site_admin:
-            all_groups = Groups.query.all()
-            for group in all_groups:
-                existing_ig = next((ig for ig in invite.invite_groups if ig.group_id == group.id), None)
-                if existing_ig:
-                    assignable_roles = get_assignable_roles(current_user, group.id)
-                    adjustable_groups.append({
-                        "invite_group": existing_ig,
-                        "assignable_roles": assignable_roles
-                    })
-                else:
-                    # If the group invite does not exist, we need one so that the site admin can add groups via the template
-                    temp_ig = InviteGroups(invite_id=invite.id, group_id=group.id, role=None)
-                    temp_ig.group = group
-                    assignable_roles = get_assignable_roles(current_user, group.id)
-                    adjustable_groups.append({
-                        "invite_group": temp_ig,
-                        "assignable_roles": assignable_roles
-                    })
-        # If the user isn't a site admin, just render what they have access to
-        else:
-            for ig in invite.invite_groups:
-                if ig.group_id in managed_group_ids:
-                    assignable_roles = get_assignable_roles(current_user, ig.group_id)
-                    adjustable_groups.append({
-                        "invite_group": ig,
-                        "assignable_roles": assignable_roles
-                    })
-
         return render_template("v1/partials/adjust_permissions_modal.jinja",
                             invite=invite,
-                            adjustable_groups=adjustable_groups)
+                            adjustable_groups=_adjustable_groups_for(invite, managed_group_ids))
 
     # Adjust the invite permissions in the DB based on the form submission
     if request.method == "POST":
         form_data = request.form.to_dict()
         managed_group_ids = None if current_user.site_admin else list(groups_with_required_role.keys())
 
-        # Upgrading an invite to site admin spends the shared site admin key, and this modal
-        # carries no credential fields -- the gated path is the invite form (which upgrades a
-        # pending invite when the same email is re-submitted as a site-admin invite).
-        if form_data.get("site_admin_invite") == "true":
-            flash("Upgrading an invite to site admin is done from the Invite User form, which "
-                  "requires the site admin key.", "warning")
+        wants_admin = form_data.get("site_admin_invite") == "true"
+
+        # Elevating an invite to site admin spends the shared site admin key, mirroring
+        # every other grant path (invite form, make-admin, admin-invite renewal).
+        if wants_admin and not invite.site_admin_invite:
+            if not current_user.site_admin:
+                flash("Only site admins can upgrade an invite to site admin.", "danger")
+                return render_template("v1/partials/invite_row.jinja",
+                                    invite=invite,
+                                    managed_group_ids=managed_group_ids,
+                                    groups_with_required_role=groups_with_required_role,
+                                    role_hierarchy=ROLE_HIERARCHY)
+            if not site_admin_key_is_set():
+                return _admin_gate_refused(_UNSET_KEY_MSG, "warning")
+            blocked = _lockout_refusal(f"elevation of invite for {invite.email}")
+            if blocked:
+                return blocked
+            error = _check_admin_grant_credentials(f"elevation of invite for {invite.email}")
+            if error:
+                return _admin_gate_form_error("v1/partials/adjust_permissions_modal.jinja", error,
+                                              invite=invite,
+                                              adjustable_groups=_adjustable_groups_for(invite, managed_group_ids))
+            # The flag is exclusive at acceptance time (accept_invite ignores group rows on a
+            # flagged invite), so delete them rather than leaving orphans behind.
+            for ig in list(invite.invite_groups):
+                db.session.delete(ig)
+            invite.site_admin_invite = True
+            db.session.add(UserActivity(
+                user_id=current_user.id,
+                activity_type="site_admin_elevation",
+                activity_target_type="invite",
+                activity_target_id=invite.id,
+                details=f"Invite for {invite.email} upgraded to site admin by {current_user.username}.",
+                ip_address=request.remote_addr,
+            ))
+            db.session.commit()
+            flash(f"Invite for {invite.email} upgraded to site admin.", "success")
             return render_template("v1/partials/invite_row.jinja",
                                 invite=invite,
                                 managed_group_ids=managed_group_ids,
                                 groups_with_required_role=groups_with_required_role,
                                 role_hierarchy=ROLE_HIERARCHY)
 
-        # Remove the permissions that were altered
-        for ig in invite.invite_groups:
-            if managed_group_ids is None or ig.group_id in managed_group_ids:
-                db.session.delete(ig)
-        db.session.flush()
-        new_igs = []
+        # Checkbox still checked on an already-admin invite: nothing to change.
+        if wants_admin and invite.site_admin_invite:
+            return render_template("v1/partials/invite_row.jinja",
+                                invite=invite,
+                                managed_group_ids=managed_group_ids,
+                                groups_with_required_role=groups_with_required_role,
+                                role_hierarchy=ROLE_HIERARCHY)
+
+        # Demoting a site-admin invite needs no key -- any site admin can already revoke
+        # it outright -- but it must land as a real group invite, so at least one valid
+        # assignment is required. Validate the submitted roles BEFORE mutating anything so a
+        # failed demote never touches the DB (no flag flip / row deletion to undo).
+        demoting = invite.site_admin_invite and not wants_admin
+        new_assignments = []
         rejected = []
-        # Add on the new/altered permisions
         for key, value in form_data.items():
             if key.startswith("role_"):
                 suffix = key.split("_", 1)[1]
@@ -876,13 +937,34 @@ def adjust_invite_permissions(invite_id, groups_with_required_role=None):
                 if not current_user.site_admin and value not in get_assignable_roles(current_user, group_id):
                     rejected.append(f"{group_label} ({value})")
                     continue
-                new_ig = InviteGroups(
-                    invite_id=invite.id,
-                    group_id=group_id,
-                    role=value
-                )
-                new_igs.append(new_ig)
-                db.session.add(new_ig)
+                new_assignments.append((group_id, value))
+
+        if demoting and not new_assignments:
+            return _admin_gate_form_error(
+                "v1/partials/adjust_permissions_modal.jinja",
+                "Assign at least one group to demote this invite from site admin.",
+                invite=invite,
+                adjustable_groups=_adjustable_groups_for(invite, managed_group_ids))
+
+        if demoting:
+            invite.site_admin_invite = False
+
+        # Remove the permissions that were altered
+        for ig in invite.invite_groups:
+            if managed_group_ids is None or ig.group_id in managed_group_ids:
+                db.session.delete(ig)
+        db.session.flush()
+
+        # Add on the new/altered permissions
+        new_igs = []
+        for group_id, value in new_assignments:
+            new_ig = InviteGroups(
+                invite_id=invite.id,
+                group_id=group_id,
+                role=value
+            )
+            new_igs.append(new_ig)
+            db.session.add(new_ig)
         # Rejecting an out-of-scope role is the correct RBAC outcome, but doing it silently is not --
         # tell the caller which requested changes were dropped instead of rendering pure success.
         if rejected:
@@ -897,11 +979,17 @@ def adjust_invite_permissions(invite_id, groups_with_required_role=None):
             activity_type="invite_permissions_adjusted",
             activity_target_type="invite",
             activity_target_id=invite.id,
-            details=f"Permissions adjusted on invite for {invite.email} by {current_user.username}. New assignments: {group_details}",
+            details=(("Demoted from site admin invite. " if demoting else "")
+                     + f"Permissions adjusted on invite for {invite.email} by {current_user.username}. New assignments: {group_details}"),
             ip_address=request.remote_addr
         )
         db.session.add(activity)
         db.session.commit()
+        # Skip the success toast when some changes were rejected above -- that warning already
+        # covers the outcome, and stacking a "successfully" toast on top of it would be misleading.
+        if not rejected:
+            flash((f"Invite for {invite.email} demoted from site admin. " if demoting else "")
+                  + "Invite permissions adjusted successfully.", "success")
         return render_template("v1/partials/invite_row.jinja",
                             invite=invite,
                             managed_group_ids=managed_group_ids,

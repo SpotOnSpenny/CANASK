@@ -85,7 +85,8 @@ class TestElevationFailures:
         response = post_elevation(client, target.id, own="Wrong-password-1!")
         assert target.site_admin is False
         assert response.headers.get("HX-Retarget") == "#modal-container"
-        assert "account password was incorrect" in response.get_data(as_text=True)
+        # The message doesn't say which field was wrong -- see _check_admin_grant_credentials.
+        assert "password or the site admin key was incorrect" in response.get_data(as_text=True)
         activity = UserActivity.query.filter_by(
             activity_type="site_admin_key_failure", user_id=actor.id).one()
         assert activity.details.startswith("Failed removal")

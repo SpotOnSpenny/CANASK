@@ -5,18 +5,48 @@
 <form hx-post="/v1/invites/{{ invite.id }}/adjust-permissions"
       hx-target="#invite-row-{{ invite.id }}"
       hx-swap="outerHTML"
-      hx-on::after-request="bootstrap.Modal.getInstance(document.getElementById('adjustPermissionsModal')).hide()">
+      hx-on::after-request="if (!event.detail.xhr.getResponseHeader('HX-Retarget')) bootstrap.Modal.getInstance(document.getElementById('adjustPermissionsModal')).hide()">
     <div class="modal-body">
-        {# No site-admin checkbox here: granting site admin spends the site admin key, so the
-           upgrade lives in the Invite User form (and the route refuses the flag from this modal). #}
+        {% if error %}
+        <div class="alert alert-danger">{{ error }}</div>
+        {% endif %}
+        {% if current_user.site_admin %}
+        <div class="form-check form-switch mb-3">
+            <input class="form-check-input" type="checkbox" id="site_admin_check"
+                   name="site_admin_invite" value="true"
+                   {% if invite.site_admin_invite %}checked{% endif %}>
+            <label class="form-check-label fw-semibold" for="site_admin_check">
+                Site Admin invite
+            </label>
+        </div>
+        {% if not invite.site_admin_invite %}
+        {# Elevation spends the shared key; demote (unchecking on an already-admin
+           invite) needs no credentials, so the block only exists on plain invites. #}
+        <div id="adjust-admin-credentials" class="d-none border rounded p-2 mb-3">
+            <p class="small text-muted mb-2">
+                Upgrading to a site admin invite requires your password and the site admin key.
+            </p>
+            <div class="mb-2">
+                <label class="form-label" for="adjust-own-password">Your password</label>
+                <input type="password" class="form-control" id="adjust-own-password"
+                       name="own_password" autocomplete="current-password">
+            </div>
+            <div class="mb-2">
+                <label class="form-label" for="adjust-site-admin-key">Site admin key</label>
+                <input type="password" class="form-control" id="adjust-site-admin-key"
+                       name="site_admin_key" autocomplete="off">
+            </div>
+        </div>
+        {% endif %}
+        {% endif %}
         {% for item in adjustable_groups %}
-        <div class="mb-3 p-2 border rounded group-assignment-row" 
-             id="group_row_{{ item.invite_group.id }}">
+        <div class="mb-3 p-2 border rounded group-assignment-row"
+             id="group_row_{{ item.invite_group.group_id }}">
             <div class="d-flex align-items-center gap-3">
                 <div class="form-check mb-0">
-                    <input class="form-check-input group-check" 
+                    <input class="form-check-input group-check"
                            type="checkbox"
-                           id="include_{{ item.invite_group.id }}"
+                           id="include_{{ item.invite_group.group_id }}"
                            {% if item.invite_group.role %}checked{% endif %}>
                 </div>
                 <label class="form-label mb-0 fw-semibold flex-grow-1">
@@ -61,8 +91,10 @@
             initialState['site_admin'] = siteAdminCheck.checked;
         }
 
-        // Site admin state helpers 
+        // Site admin state helpers
         function setSiteAdminState(checked) {
+            const creds = document.getElementById('adjust-admin-credentials');
+            if (creds) creds.classList.toggle('d-none', !checked);
             document.querySelectorAll('.group-assignment-row').forEach(row => {
                 row.style.opacity = checked ? '0.4' : '1';
                 row.style.pointerEvents = checked ? 'none' : 'auto';

@@ -88,6 +88,19 @@ class TestCreateInvite:
             "email": email, "group_assignment_1": "Site Wide__Site Admin"})
         assert Invites.query.filter_by(email=email).count() == 0
 
+    def test_upgrade_to_site_admin_deletes_group_rows(self, client, admin, celery_stub):
+        seed_site_admin_key()
+        group = make_group()
+        invite = make_invite(groups=[(group, "Data Viewer")])
+        response = client.post("/v1/invite-user", data={
+            "email": invite.email,
+            "group_assignment_1": "Site Wide__Site Admin",
+            "own_password": TEST_PASSWORD,
+            "site_admin_key": SITE_ADMIN_KEY_SECRET})
+        assert response.status_code == 302
+        assert invite.site_admin_invite is True
+        assert len(invite.invite_groups) == 0
+
 
 class TestRevokeRenew:
     def test_site_admin_revoke(self, client, admin, celery_stub):
@@ -123,6 +136,52 @@ class TestRevokeRenew:
         assert invite.status == "pending"
         assert celery_stub.scheduled == []
         assert celery_stub.revoked == []
+
+
+class TestResendInvite:
+    def test_resend_emails_and_toasts(self, client, admin, ses_outbox, celery_stub,
+                                      app):
+        invite = make_invite()
+        invite.generate_jwt(app.config["INVITE_JWT_SECRET"])
+        response = client.post(f"/v1/invites/{invite.id}/resend",
+                               headers={"HX-Request": "true"})
+        assert response.status_code == 200
+        (mail,) = ses_outbox
+        assert mail.to == [invite.email]
+        assert invite.token in mail.html
+        assert f"Invite resent to {invite.email}" in response.get_data(as_text=True)
+        assert UserActivity.query.filter_by(activity_type="invite_resent").count() == 1
+
+    def test_resend_debug_logs_link_instead_of_emailing(self, client, admin, ses_outbox,
+                                                        celery_stub, app, monkeypatch,
+                                                        caplog):
+        # Mirrors TestCreateInvite.test_debug_logs_link_instead_of_emailing: under DEBUG
+        # the accept link goes to the server log, not SES (dev SES creds are invalid).
+        monkeypatch.setitem(app.config, "DEBUG", True)
+        invite = make_invite()
+        invite.generate_jwt(app.config["INVITE_JWT_SECRET"])
+        with caplog.at_level("INFO"):
+            client.post(f"/v1/invites/{invite.id}/resend",
+                        headers={"HX-Request": "true"})
+        assert len(ses_outbox) == 0
+        logged = [r.getMessage() for r in caplog.records
+                  if "DEV invite link" in r.getMessage()]
+        assert len(logged) == 1
+        assert invite.token in logged[0]
+
+    def test_resend_refused_for_non_pending_invite(self, client, admin, ses_outbox,
+                                                   celery_stub):
+        invite = make_invite(status="revoked")
+        response = client.post(f"/v1/invites/{invite.id}/resend",
+                               headers={"HX-Request": "true"})
+        assert len(ses_outbox) == 0
+        assert "Only pending invites" in response.get_data(as_text=True)
+
+    def test_resend_unknown_invite_is_204_for_site_admin(self, client, admin,
+                                                         celery_stub):
+        response = client.post("/v1/invites/999999/resend",
+                               headers={"HX-Request": "true"})
+        assert response.status_code == 204
 
 
 class TestAcceptInvite:
@@ -294,32 +353,8 @@ class TestSiteAdminRenewGate:
         assert invite.status == "pending"
 
 
-class TestAdjustInviteSiteAdminClosed:
-    def test_site_admin_invite_not_adjustable(self, client, admin, celery_stub):
-        invite = make_invite(site_admin_invite=True)
-        get_body = client.get(f"/v1/invites/{invite.id}/adjust-permissions",
-                              headers={"HX-Request": "true"}).get_data(as_text=True)
-        assert "cannot be adjusted" in get_body
-        response = client.post(f"/v1/invites/{invite.id}/adjust-permissions",
-                               data={"site_admin_invite": "true"},
-                               headers={"HX-Request": "true"})
-        assert response.status_code == 200
-        assert invite.site_admin_invite is True   # unchanged either way
-        assert len(invite.invite_groups) == 0
-
-    def test_group_invite_cannot_be_flipped_to_site_admin(self, client, admin,
-                                                          celery_stub):
-        # The ungated elevation path is gone: the flag only changes through the credentialed
-        # invite-form flow. The modal POST refuses and leaves the invite untouched.
-        group = make_group()
-        invite = make_invite(groups=[(group, "Data Viewer")])
-        response = client.post(f"/v1/invites/{invite.id}/adjust-permissions",
-                               data={"site_admin_invite": "true"},
-                               headers={"HX-Request": "true"})
-        assert "Invite User form" in response.get_data(as_text=True) or \
-            response.status_code == 200
-        assert invite.site_admin_invite is False
-        assert [ig.role for ig in invite.invite_groups] == ["Data Viewer"]
+class TestAdjustInvite:
+    """Baseline adjust behavior for plain group invites."""
 
     def test_unknown_invite_no_longer_errors_for_site_admin(self, client, admin,
                                                             celery_stub):
@@ -335,6 +370,207 @@ class TestAdjustInviteSiteAdminClosed:
                                headers={"HX-Request": "true"})
         assert response.status_code == 200
         assert [ig.role for ig in invite.invite_groups] == ["Group Admin"]
+        assert "Invite permissions adjusted successfully" in response.get_data(as_text=True)
+
+    def test_modal_checkbox_and_select_ids_align(self, client, admin, celery_stub):
+        # The change-detection JS derives its key from the checkbox id and looks up
+        # select_<same key>; both must therefore be keyed by group_id. (Regression:
+        # keying the checkbox by the InviteGroups row id made role-only changes
+        # undetectable, blocking the submit with a "no changes" toast.)
+        group = make_group()
+        invite = make_invite(groups=[(group, "Data Viewer")])
+        body = client.get(f"/v1/invites/{invite.id}/adjust-permissions",
+                          headers={"HX-Request": "true"}).get_data(as_text=True)
+        assert f'id="include_{group.id}"' in body
+        assert f'id="select_{group.id}"' in body
+        assert 'id="include_None"' not in body
+
+
+class TestAdjustSiteAdminTransitions:
+    """Site admins may open the adjust modal on a site-admin invite (to demote it) and
+    may elevate a group invite by spending the site admin key. Nobody else may touch
+    a site-admin invite at all."""
+
+    def _adjust(self, client, invite_id, data=None):
+        return client.post(f"/v1/invites/{invite_id}/adjust-permissions",
+                           data=data or {}, headers={"HX-Request": "true"})
+
+    def test_get_opens_modal_on_site_admin_invite_for_site_admin(self, client, admin,
+                                                                 celery_stub):
+        invite = make_invite(site_admin_invite=True)
+        body = client.get(f"/v1/invites/{invite.id}/adjust-permissions",
+                          headers={"HX-Request": "true"}).get_data(as_text=True)
+        assert "cannot be adjusted" not in body
+        assert f"/v1/invites/{invite.id}/adjust-permissions" in body
+
+    def test_get_still_refused_for_group_admin_on_hybrid_invite(self, client, db_session,
+                                                                login_as, celery_stub):
+        # A site-admin invite that also carries group rows passes the role decorator for
+        # a Group Admin sharing the group -- the explicit site-admin check must refuse.
+        group = make_group()
+        invite = make_invite(site_admin_invite=True, groups=[(group, "Data Viewer")])
+        login_as(make_user(group=group, role="Group Admin"))
+        body = client.get(f"/v1/invites/{invite.id}/adjust-permissions",
+                          headers={"HX-Request": "true"}).get_data(as_text=True)
+        assert "cannot be adjusted" in body
+
+    def test_elevate_refused_without_credentials(self, client, admin, celery_stub):
+        seed_site_admin_key()
+        group = make_group()
+        invite = make_invite(groups=[(group, "Data Viewer")])
+        response = self._adjust(client, invite.id, {"site_admin_invite": "true"})
+        assert response.headers.get("HX-Retarget") == "#modal-container"
+        assert invite.site_admin_invite is False
+        assert [ig.role for ig in invite.invite_groups] == ["Data Viewer"]
+
+    def test_elevate_wrong_key_logged_and_refused(self, client, admin, celery_stub):
+        seed_site_admin_key()
+        invite = make_invite(groups=[(make_group(), "Data Viewer")])
+        response = self._adjust(client, invite.id, {
+            "site_admin_invite": "true", "own_password": TEST_PASSWORD,
+            "site_admin_key": "Wrong-key-2!"})
+        assert response.headers.get("HX-Retarget") == "#modal-container"
+        assert invite.site_admin_invite is False
+        assert UserActivity.query.filter_by(
+            activity_type="site_admin_key_failure").count() == 1
+
+    def test_elevate_wrong_password_and_wrong_key_give_identical_message(self, client, admin,
+                                                                         celery_stub):
+        # The response text must not reveal which of the two fields was wrong -- otherwise
+        # anyone holding the actor's session (but not both secrets) could narrow down which
+        # one to keep guessing.
+        seed_site_admin_key()
+        wrong_password_invite = make_invite(groups=[(make_group(), "Data Viewer")])
+        wrong_password_body = self._adjust(client, wrong_password_invite.id, {
+            "site_admin_invite": "true", "own_password": "Wrong-password-1!",
+            "site_admin_key": SITE_ADMIN_KEY_SECRET}).get_data(as_text=True)
+        wrong_key_invite = make_invite(groups=[(make_group(), "Data Viewer")])
+        wrong_key_body = self._adjust(client, wrong_key_invite.id, {
+            "site_admin_invite": "true", "own_password": TEST_PASSWORD,
+            "site_admin_key": "Wrong-key-2!"}).get_data(as_text=True)
+        assert "password or the site admin key was incorrect" in wrong_password_body
+        assert "password or the site admin key was incorrect" in wrong_key_body
+
+    def test_elevate_unset_key_points_at_cli(self, client, admin, celery_stub):
+        invite = make_invite(groups=[(make_group(), "Data Viewer")])
+        response = self._adjust(client, invite.id, {
+            "site_admin_invite": "true", "own_password": TEST_PASSWORD,
+            "site_admin_key": "x"})
+        assert "rotate-site-admin-key" in response.get_data(as_text=True)
+        assert invite.site_admin_invite is False
+
+    def test_non_site_admin_cannot_elevate(self, client, db_session, login_as,
+                                           celery_stub):
+        seed_site_admin_key()
+        group = make_group()
+        invite = make_invite(groups=[(group, "Data Viewer")])
+        login_as(make_user(group=group, role="Group Admin"))
+        self._adjust(client, invite.id, {
+            "site_admin_invite": "true", "own_password": TEST_PASSWORD,
+            "site_admin_key": SITE_ADMIN_KEY_SECRET})
+        assert invite.site_admin_invite is False
+        assert [ig.role for ig in invite.invite_groups] == ["Data Viewer"]
+
+    def test_elevate_succeeds_and_clears_group_rows(self, client, admin, ses_outbox,
+                                                    celery_stub):
+        seed_site_admin_key()
+        invite = make_invite(groups=[(make_group(), "Data Viewer")])
+        response = self._adjust(client, invite.id, {
+            "site_admin_invite": "true", "own_password": TEST_PASSWORD,
+            "site_admin_key": SITE_ADMIN_KEY_SECRET})
+        assert response.status_code == 200
+        assert invite.site_admin_invite is True
+        assert len(invite.invite_groups) == 0          # no orphaned hybrid rows
+        assert UserActivity.query.filter_by(
+            activity_type="site_admin_elevation").count() == 1
+        assert len(ses_outbox) == 0                     # no emails for admin flows
+        assert celery_stub.scheduled == []              # expiry task untouched
+        assert f"Invite for {invite.email} upgraded to site admin" in response.get_data(as_text=True)
+
+    def test_elevate_noop_when_already_site_admin(self, client, admin, celery_stub):
+        seed_site_admin_key()
+        invite = make_invite(site_admin_invite=True)
+        response = self._adjust(client, invite.id, {"site_admin_invite": "true"})
+        assert response.status_code == 200
+        assert invite.site_admin_invite is True
+
+    def test_demote_requires_at_least_one_group(self, client, admin, celery_stub):
+        invite = make_invite(site_admin_invite=True)
+        response = self._adjust(client, invite.id, {})
+        assert response.headers.get("HX-Retarget") == "#modal-container"
+        assert invite.site_admin_invite is True
+        assert len(invite.invite_groups) == 0
+
+    def test_demote_all_roles_invalid_keeps_admin_flag(self, client, admin, celery_stub):
+        group = make_group()
+        invite = make_invite(site_admin_invite=True)
+        response = self._adjust(client, invite.id, {f"role_{group.id}": "Bogus Role"})
+        assert response.headers.get("HX-Retarget") == "#modal-container"
+        assert invite.site_admin_invite is True
+        assert len(invite.invite_groups) == 0
+
+    def test_demote_succeeds_without_credentials(self, client, admin, ses_outbox,
+                                                 celery_stub):
+        group = make_group()
+        invite = make_invite(site_admin_invite=True)
+        response = self._adjust(client, invite.id, {f"role_{group.id}": "Data Viewer"})
+        assert response.status_code == 200
+        assert invite.site_admin_invite is False
+        assert [(ig.group_id, ig.role) for ig in invite.invite_groups] == \
+            [(group.id, "Data Viewer")]
+        activity = UserActivity.query.filter_by(
+            activity_type="invite_permissions_adjusted").one()
+        assert "Demoted from site admin invite" in activity.details
+        assert len(ses_outbox) == 0
+        body = response.get_data(as_text=True)
+        assert f"Invite for {invite.email} demoted from site admin" in body
+        assert "Invite permissions adjusted successfully" in body
+
+    def test_rejected_role_change_suppresses_success_toast(self, client, admin, celery_stub):
+        # Everything requested was invalid (out of scope / bogus role): the "some changes
+        # were not applied" warning stands alone -- stacking a "successfully" toast on top
+        # would be misleading.
+        group = make_group()
+        invite = make_invite(groups=[(group, "Data Viewer")])
+        response = client.post(f"/v1/invites/{invite.id}/adjust-permissions",
+                               data={f"role_{group.id}": "Not A Real Role"},
+                               headers={"HX-Request": "true"})
+        body = response.get_data(as_text=True)
+        assert "Some changes were not applied" in body
+        assert "Invite permissions adjusted successfully" not in body
+
+    def test_modal_offers_checkbox_and_credentials_to_site_admin(self, client, admin,
+                                                                 celery_stub):
+        invite = make_invite(groups=[(make_group(), "Data Viewer")])
+        body = client.get(f"/v1/invites/{invite.id}/adjust-permissions",
+                          headers={"HX-Request": "true"}).get_data(as_text=True)
+        assert 'id="site_admin_check"' in body
+        assert 'name="own_password"' in body      # elevation credentials offered
+        assert "HX-Retarget" in body               # modal-stays-open guard wired
+
+    def test_modal_on_site_admin_invite_checked_no_credentials(self, client, admin,
+                                                               celery_stub):
+        invite = make_invite(site_admin_invite=True)
+        body = client.get(f"/v1/invites/{invite.id}/adjust-permissions",
+                          headers={"HX-Request": "true"}).get_data(as_text=True)
+        assert 'id="site_admin_check"' in body and "checked" in body
+        assert 'name="own_password"' not in body   # demote spends no credentials
+
+    def test_modal_hides_checkbox_from_group_admin(self, client, db_session, login_as,
+                                                   celery_stub):
+        group = make_group()
+        invite = make_invite(groups=[(group, "Data Viewer")])
+        login_as(make_user(group=group, role="Group Admin"))
+        body = client.get(f"/v1/invites/{invite.id}/adjust-permissions",
+                          headers={"HX-Request": "true"}).get_data(as_text=True)
+        assert 'id="site_admin_check"' not in body
+
+    def test_row_offers_adjust_on_site_admin_invite_to_site_admin(self, client, admin,
+                                                                  celery_stub):
+        invite = make_invite(site_admin_invite=True)
+        body = client.get("/v1/invite-management",
+                          headers={"HX-Request": "true"}).get_data(as_text=True)
+        assert f"/v1/invites/{invite.id}/adjust-permissions" in body
 
 
 class TestRevokeLabel:

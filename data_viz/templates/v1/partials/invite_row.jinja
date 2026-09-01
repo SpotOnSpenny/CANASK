@@ -52,9 +52,10 @@
                         {% endif %}
                     {% endfor %}
 
-                    {# Site-admin invites are not adjustable (no groups; the flag only changes
-                       through credentialed flows), so no Adjust action for them. #}
-                    {% if (can_adjust.value or current_user.site_admin) and not invite.site_admin_invite %}
+                    {# Site admins may adjust site-admin invites too (demote via the
+                       modal's checkbox); everyone else still only sees it for group
+                       invites they out-rank. #}
+                    {% if can_adjust.value or current_user.site_admin %}
                     <li>
                         <button class="dropdown-item"
                             hx-get="/v1/invites/{{ invite.id }}/adjust-permissions"

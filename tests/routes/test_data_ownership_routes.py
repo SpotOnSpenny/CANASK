@@ -103,6 +103,21 @@ class TestGroupSourceVisualsModal:
         assert f'data-scope="{province}"' in body
         assert f'data-province="{province}"' in body
 
+    def test_modal_renders_province_accordions(self, client, db_session, login_as):
+        source, group, owner = _owned_source()
+        province = unique("prov")
+        make_visual(province=province, data_source=source)
+        login_as(owner)
+        body = client.get(f"/v1/groups/{group.id}/sources/{source.id}/visuals"
+                          ).get_data(as_text=True)
+        assert f'data-bs-target="#visuals-acc-{province}"' in body
+        assert f'id="visuals-acc-{province}"' in body
+        # Collapsed by default: the collapse pane must NOT carry the "show" class.
+        assert f'id="visuals-acc-{province}" class="accordion-collapse collapse"' in body
+        assert f'data-count-for="{province}"' in body
+        # The per-province bulk buttons survive the restructure.
+        assert f'data-scope="{province}"' in body
+
 
 class TestGroupSourceVisualsBulkGrant:
     def test_full_grant_across_provinces_and_drill_levels(self, client, db_session,
