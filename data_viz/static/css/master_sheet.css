@@ -813,18 +813,16 @@ a { text-decoration: none; }
   align-items: center;
   border-radius: var(--radius);
   transition: transform 150ms ease;
-}
-.home-partner-link:hover { transform: translateY(-2px); }
-.home-partner-link:focus-visible { outline: none; box-shadow: var(--ring); }
-.home-partner-logo { height: 52px; width: auto; object-fit: contain; opacity: 0.88; transition: opacity 150ms ease; }
-.home-partner-link:hover .home-partner-logo { opacity: 1; }
-/* Partner logos are dark-on-transparent; chip them so they read on dark bg */
-[data-theme="dark"] .home-partner-logo {
   background: #fff;
   padding: 8px 12px;
+  border: 1px solid var(--c-border);
   border-radius: 8px;
   opacity: 1;
+  box-shadow: var(--shadow-sm);
 }
+.home-partner-link:hover { transform: translateY(-2px); border-color: var(--c-accent); box-shadow: var(--shadow-sm); transition: 150ms ease; box-shadow: var(--shadow); }
+.home-partner-link:focus-visible { outline: none; box-shadow: var(--ring); }
+.home-partner-logo { height: 52px; width: auto; object-fit: contain; transition: opacity 150ms ease; }
 
 /* --------------------------- Empty / error states ----------------------- */
 .no-data-card { background: var(--c-surface); }

@@ -80,7 +80,10 @@
                         hx-post="/v1/invites/{{ invite.id }}/revoke"
                         hx-target="#invite-row-{{ invite.id }}"
                         hx-swap="outerHTML"
-                        hx-confirm="{{ 'Revoke this invite to ' ~ invite.email ~ '? Their sign-up link will stop working.' if all_groups_managed else 'Remove this group from the invite for ' ~ invite.email ~ '?' }}">
+                        hx-confirm="{{ 'Revoke this invite to ' ~ invite.email ~ '? Their sign-up link will stop working.' if all_groups_managed else 'Remove this group from the invite for ' ~ invite.email ~ '?' }}"
+                        data-confirm-title="{{ 'Revoke Invite' if all_groups_managed else 'Revoke Group Permission' }}"
+                        data-confirm-button="{{ 'Revoke' if all_groups_managed else 'Remove' }}"
+                        data-confirm-class="btn-danger">
                         {{ "Revoke Invite" if all_groups_managed else "Revoke Group Permission" }}
                     </button>
                 </li>

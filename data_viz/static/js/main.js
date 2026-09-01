@@ -61,6 +61,49 @@ document.body.addEventListener("htmx:confirm", (event) => {
   });
 });
 
+// --- Bootstrap-modal replacement for hx-confirm ------------------------------------------------
+// Intercepts every hx-confirm'd request (event.detail.question is only set when hx-confirm is
+// present, so the login/reCAPTCHA gate above and plain requests pass through untouched), holds the
+// request, and shows the static #confirmActionModal from base.jinja. Confirm resumes the request
+// via issueRequest(true); Cancel/X/backdrop/Esc just hide and drop it.
+// Optional per-trigger attributes: data-confirm-title, data-confirm-button, data-confirm-class.
+(function () {
+  let pendingIssueRequest = null;
+  let modalEl = document.getElementById("confirmActionModal");
+  let okBtn = document.getElementById("confirm-action-ok");
+  if (!modalEl || !okBtn) return;
+
+  document.body.addEventListener("htmx:confirm", (event) => {
+    if (!event.detail.question) return;
+    event.preventDefault();
+
+    let elt = event.detail.elt;
+    // textContent throughout: confirm strings contain user-supplied values (invite emails)
+    document.getElementById("confirm-action-title").textContent =
+      elt.getAttribute("data-confirm-title") || "Please Confirm";
+    document.getElementById("confirm-action-message").textContent = event.detail.question;
+    okBtn.textContent = elt.getAttribute("data-confirm-button") || "Confirm";
+    okBtn.className = "btn " + (elt.getAttribute("data-confirm-class") || "btn-primary");
+
+    pendingIssueRequest = event.detail.issueRequest;
+    bootstrap.Modal.getOrCreateInstance(modalEl).show();
+  });
+
+  // Wired once; the pending request is captured-and-cleared per open, so nothing stacks.
+  okBtn.addEventListener("click", () => {
+    let issue = pendingIssueRequest;
+    pendingIssueRequest = null;
+    okBtn.blur(); // avoid Chrome's aria-hidden-on-focused-element warning on hide
+    bootstrap.Modal.getOrCreateInstance(modalEl).hide();
+    if (issue) issue(true);
+  });
+
+  // Any dismissal path (Cancel, X, backdrop, Esc) drops the held request.
+  modalEl.addEventListener("hidden.bs.modal", () => {
+    pendingIssueRequest = null;
+  });
+})();
+
 //HTMX config to exclude history cache and require server request on back/forward
 htmx.config.historyCacheSize = 0;
 htmx.config.refreshOnHistoryMiss = true;
