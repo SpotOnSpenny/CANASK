@@ -89,7 +89,10 @@ class TestElevationFailures:
         assert "password or the site admin key was incorrect" in response.get_data(as_text=True)
         activity = UserActivity.query.filter_by(
             activity_type="site_admin_key_failure", user_id=actor.id).one()
-        assert activity.details.startswith("Failed removal")
+        assert activity.details.startswith("Failed credential")
+        # The generic user-facing message hides which field failed, but the audit trail
+        # must keep the distinction.
+        assert "incorrect account password" in activity.details
 
     def test_wrong_site_admin_key_logged_and_refused(self, client, db_session,
                                                        login_as):
@@ -101,7 +104,8 @@ class TestElevationFailures:
         assert response.headers.get("HX-Retarget") == "#modal-container"
         activity = UserActivity.query.filter_by(
             activity_type="site_admin_key_failure", user_id=actor.id).one()
-        assert activity.details.startswith("Failed removal")
+        assert activity.details.startswith("Failed credential")
+        assert "incorrect site admin key" in activity.details
 
     def test_lockout_shared_with_removal_flow(self, client, db_session, login_as, app,
                                               monkeypatch):

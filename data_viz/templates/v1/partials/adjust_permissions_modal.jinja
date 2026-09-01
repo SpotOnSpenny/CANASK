@@ -5,16 +5,22 @@
 <form hx-post="/v1/invites/{{ invite.id }}/adjust-permissions"
       hx-target="#invite-row-{{ invite.id }}"
       hx-swap="outerHTML"
-      hx-on::after-request="if (!event.detail.xhr.getResponseHeader('HX-Retarget')) bootstrap.Modal.getInstance(document.getElementById('adjustPermissionsModal')).hide()">
+      {# Only hide on a successful non-retargeted response: a retarget re-renders the form in
+         place, and a 5xx/network failure must leave the modal (and the user's edits) intact. #}
+      hx-on::after-request="if (event.detail.successful && !event.detail.xhr.getResponseHeader('HX-Retarget')) bootstrap.Modal.getInstance(document.getElementById('adjustPermissionsModal')).hide()">
     <div class="modal-body">
         {% if error %}
         <div class="alert alert-danger">{{ error }}</div>
         {% endif %}
         {% if current_user.site_admin %}
         <div class="form-check form-switch mb-3">
+            {# attempted_admin: a failed elevation re-render -- keep the switch checked and the
+               credential fields visible so the admin can just retry. data-attempted tells the
+               change-detection JS the server-side state is still "not admin". #}
             <input class="form-check-input" type="checkbox" id="site_admin_check"
                    name="site_admin_invite" value="true"
-                   {% if invite.site_admin_invite %}checked{% endif %}>
+                   {% if attempted_admin %}data-attempted="true"{% endif %}
+                   {% if invite.site_admin_invite or attempted_admin %}checked{% endif %}>
             <label class="form-check-label fw-semibold" for="site_admin_check">
                 Site Admin invite
             </label>
@@ -22,19 +28,25 @@
         {% if not invite.site_admin_invite %}
         {# Elevation spends the shared key; demote (unchecking on an already-admin
            invite) needs no credentials, so the block only exists on plain invites. #}
-        <div id="adjust-admin-credentials" class="d-none border rounded p-2 mb-3">
+        {# The inputs are disabled while the block is hidden: a plain `required` on a hidden
+           field would block non-elevation saves ("not focusable"), and enabled-but-hidden
+           fields would submit empty credentials and burn counted lockout failures. The JS
+           enables them (required then applies) whenever the switch reveals the block. #}
+        <div id="adjust-admin-credentials" class="{% if not attempted_admin %}d-none {% endif %}border rounded p-2 mb-3">
             <p class="small text-muted mb-2">
                 Upgrading to a site admin invite requires your password and the site admin key.
             </p>
             <div class="mb-2">
                 <label class="form-label" for="adjust-own-password">Your password</label>
                 <input type="password" class="form-control" id="adjust-own-password"
-                       name="own_password" autocomplete="current-password">
+                       name="own_password" autocomplete="current-password"
+                       required {% if not attempted_admin %}disabled{% endif %}>
             </div>
             <div class="mb-2">
                 <label class="form-label" for="adjust-site-admin-key">Site admin key</label>
                 <input type="password" class="form-control" id="adjust-site-admin-key"
-                       name="site_admin_key" autocomplete="off">
+                       name="site_admin_key" autocomplete="off"
+                       required {% if not attempted_admin %}disabled{% endif %}>
             </div>
         </div>
         {% endif %}
@@ -88,13 +100,22 @@
             };
         });
         if (siteAdminCheck) {
-            initialState['site_admin'] = siteAdminCheck.checked;
+            // After a failed elevation (data-attempted) the box renders checked for the retry,
+            // but the server-side state is still "not admin" -- track that as the baseline so
+            // the retry submit registers as a change.
+            initialState['site_admin'] = siteAdminCheck.checked && !siteAdminCheck.dataset.attempted;
         }
 
         // Site admin state helpers
         function setSiteAdminState(checked) {
             const creds = document.getElementById('adjust-admin-credentials');
             if (creds) creds.classList.toggle('d-none', !checked);
+            // Credential inputs are required-but-disabled while hidden (see the template
+            // comment); enabling them here is what arms the required validation.
+            ['adjust-own-password', 'adjust-site-admin-key'].forEach(id => {
+                const input = document.getElementById(id);
+                if (input) input.disabled = !checked;
+            });
             document.querySelectorAll('.group-assignment-row').forEach(row => {
                 row.style.opacity = checked ? '0.4' : '1';
                 row.style.pointerEvents = checked ? 'none' : 'auto';
@@ -108,25 +129,17 @@
             });
         }
 
-        function setGroupState(anyChecked) {
-            if (siteAdminCheck) {
-                siteAdminCheck.disabled = anyChecked;
-                if (anyChecked) siteAdminCheck.checked = false;
-            }
-        }
-
-        // Group checkbox listeners 
+        // Group checkbox listeners. (The switch is deliberately NOT disabled while groups are
+        // checked -- checking it clears the group rows via setSiteAdminState, and a reverse
+        // lock would leave the elevation UI unreachable on any invite with a group row.)
         document.querySelectorAll('.group-check').forEach(checkbox => {
             checkbox.addEventListener('change', function() {
                 const select = this.closest('.group-assignment-row').querySelector('select');
                 select.disabled = !this.checked;
-                const anyChecked = Array.from(document.querySelectorAll('.group-check'))
-                    .some(cb => cb.checked);
-                setGroupState(anyChecked);
             });
         });
 
-        // Site admin checkbox listener 
+        // Site admin checkbox listener
         if (siteAdminCheck) {
             siteAdminCheck.addEventListener('change', function() {
                 setSiteAdminState(this.checked);
@@ -135,11 +148,6 @@
                 setSiteAdminState(true);
             }
         }
-
-        // Initial group state on load 
-        const anyGroupChecked = Array.from(document.querySelectorAll('.group-check'))
-            .some(cb => cb.checked);
-        setGroupState(anyGroupChecked);
 
         // HTMX submit validation 
         document.querySelector('form').addEventListener('htmx:configRequest', function(event) {
