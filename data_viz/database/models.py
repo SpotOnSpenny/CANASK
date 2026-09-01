@@ -110,6 +110,31 @@ class InviteGroups(db.Model):
     def __repr__(self):
         return f"<InviteGroup Invite ID: {self.invite_id} for Group ID {self.group_id} with Role {self.role}>"
 
+class PasswordResets(db.Model):
+    __tablename__ = "password_resets"
+
+    id = db.Column(db.Integer, primary_key = True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable = False)
+    token = db.Column(db.String(512), nullable = True)
+    created_at = db.Column(db.DateTime, nullable = False, default = db.func.current_timestamp())
+    expires_at = db.Column(db.DateTime, nullable = False)
+    used_at = db.Column(db.DateTime, nullable = True)
+    requested_ip = db.Column(db.String(255), nullable = True)
+
+    user = db.relationship("User", foreign_keys = [user_id])
+
+    def generate_jwt(self, secret_key):
+        # "purpose" + distinct claim names keep this token non-interchangeable with
+        # invite JWTs, which may share a signing key via the SECRET_KEY fallback.
+        payload = {
+            "purpose": "password_reset",
+            "user_id": self.user_id,
+            "reset_id": self.id,
+            "exp": self.expires_at.timestamp(),
+        }
+        self.token = jwt.encode(payload, secret_key, algorithm="HS256")
+        return self.token
+
 class Visuals(db.Model):
     __tablename__ = "visuals"
     # Defense-in-depth for the access-control invariant: visibility must be one of VISUAL_VISIBILITY.

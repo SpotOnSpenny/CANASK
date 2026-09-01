@@ -146,6 +146,16 @@ h1, h2, h3, h4, h5, h6 { color: var(--c-text); letter-spacing: -0.01em; }
 
 a { text-decoration: none; }
 
+/* Auth-card links ("Forgot password?", "Back to log in"): brand orange at rest
+   signals it's clickable; on hover/focus it settles to the page's own text color
+   (near-black in light, near-white in dark) instead of a second, darker orange
+   shade, which reads as more cohesive with the rest of the card than the default
+   link hover token. */
+.auth-card-link:hover,
+.auth-card-link:focus {
+  color: var(--c-text);
+}
+
 /* Custom scrollbars */
 * { scrollbar-width: thin; scrollbar-color: var(--c-border-strong) transparent; }
 *::-webkit-scrollbar { width: 10px; height: 10px; }

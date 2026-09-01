@@ -4,6 +4,7 @@ import itertools
 from datetime import datetime, timedelta, timezone
 
 from bcrypt import gensalt, hashpw
+from flask import current_app
 
 from data_viz.database import db
 from data_viz.database.models import (
@@ -19,6 +20,7 @@ from data_viz.database.models import (
     GroupVisuals,
     InviteGroups,
     Invites,
+    PasswordResets,
     SiteAdminKey,
     User,
     UserGroups,
@@ -170,6 +172,19 @@ def make_invite(email=None, sent_by=None, groups=(), site_admin_invite=False,
         db.session.add(InviteGroups(invite_id=invite.id, group_id=group.id, role=role))
     db.session.flush()
     return invite
+
+
+def make_password_reset(user, expires_delta=timedelta(hours=1), used=False):
+    reset = PasswordResets(
+        user_id=user.id,
+        expires_at=datetime.now(timezone.utc) + expires_delta,
+        used_at=db.func.current_timestamp() if used else None,
+    )
+    db.session.add(reset)
+    db.session.flush()
+    reset.generate_jwt(current_app.config["PASSWORD_RESET_JWT_SECRET"])
+    db.session.flush()
+    return reset
 
 
 # --- DAS row-level tables ------------------------------------------------------------------

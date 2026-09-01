@@ -37,6 +37,10 @@ class Config():
     # configure() logs a startup warning when the fallback engages outside DEBUG so the degraded
     # key-separation is visible to the operator.
     INVITE_JWT_SECRET = os.environ.get("INVITE_JWT_SECRET") or SECRET_KEY
+    # Separate signing key for password-reset JWTs, same rationale as INVITE_JWT_SECRET. The
+    # "purpose" claim in PasswordResets.generate_jwt keeps reset tokens non-interchangeable with
+    # invite tokens even when both fall back to SECRET_KEY.
+    PASSWORD_RESET_JWT_SECRET = os.environ.get("PASSWORD_RESET_JWT_SECRET") or SECRET_KEY
     # Public origin used to build absolute links in outbound email (e.g. the invite accept link).
     # Set to the real domain in prod, e.g. https://canask.example.ca. Validated at import.
     PUBLIC_BASE_URL = _public_base_url()
@@ -60,6 +64,7 @@ class Config():
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     WTF_CSRF_ENABLED = True
     INVITE_TOKEN_EXPIRY = timedelta(hours=int(os.environ.get("INVITE_EXPIRY_HOURS", "72")))
+    PASSWORD_RESET_EXPIRY = timedelta(minutes=int(os.environ.get("PASSWORD_RESET_EXPIRY_MINUTES", "60")))
 
     # --- Rate limiting (Flask-Limiter) ---------------------------------------------------
     # Redis-backed so limits stay correct across multiple gunicorn workers. Reuses the
@@ -83,6 +88,8 @@ class Config():
     # Per-route limits (tunable without a code change).
     RATELIMIT_FEEDBACK = os.environ.get("RATELIMIT_FEEDBACK", "5 per hour")            # per IP
     RATELIMIT_FEEDBACK_GLOBAL = os.environ.get("RATELIMIT_FEEDBACK_GLOBAL", "100 per day")  # all IPs, SES cost cap
+    RATELIMIT_PASSWORD_RESET = os.environ.get("RATELIMIT_PASSWORD_RESET", "5 per hour")            # per IP
+    RATELIMIT_PASSWORD_RESET_GLOBAL = os.environ.get("RATELIMIT_PASSWORD_RESET_GLOBAL", "100 per day")  # all IPs, SES cost cap
     RATELIMIT_API = os.environ.get("RATELIMIT_API", "60 per minute")                   # per IP
     RATELIMIT_LOGIN = os.environ.get("RATELIMIT_LOGIN", "10 per minute")               # per IP, POST only
 
@@ -163,6 +170,11 @@ def configure(app):
         app.logger.warning(
             "INVITE_JWT_SECRET is not set; invite tokens are being signed with SECRET_KEY. "
             "Set a distinct INVITE_JWT_SECRET so a leak of one key doesn't compromise the other.")
+    if not os.environ.get("PASSWORD_RESET_JWT_SECRET") and not app.config["DEBUG"]:
+        app.logger.warning(
+            "PASSWORD_RESET_JWT_SECRET is not set; password reset tokens are being signed with "
+            "SECRET_KEY. Set a distinct PASSWORD_RESET_JWT_SECRET so a leak of one key doesn't "
+            "compromise the other.")
     # reCAPTCHA disabled outside DEBUG means the login/feedback bot protection is off in prod --
     # surface it loudly (mirrors the INVITE_JWT_SECRET warning above).
     if not app.config["RECAPTCHA_ENABLED"] and not app.config["DEBUG"]:

@@ -16,8 +16,8 @@ from sqlalchemy import or_, func
 # Internal imports
 from data_viz.auth import login_manager
 from data_viz.database import db
-from data_viz.database.models import User, Invites, Groups, UserGroups, UserActivity, InviteGroups, DataSources, GroupDataSources, Visuals, GroupVisuals
-from data_viz.auth.auth_helpers import get_user_groups, get_assignable_roles, validate_password, create_user, create_group, assign_group, assign_site_admin, get_manageable_users, get_user_memberships_in_groups, get_manageable_groups, set_group_data_sources, owned_data_sources, can_manage_source, teams_for_source, visuals_for_source, set_group_visuals, set_visual_visibility, set_source_visibility, set_province_default_visual, visibility_rows_for_source, is_last_active_site_admin, site_admin_key_is_set, check_site_admin_key, deactivate_user
+from data_viz.database.models import User, Invites, Groups, UserGroups, UserActivity, InviteGroups, DataSources, GroupDataSources, Visuals, GroupVisuals, PasswordResets
+from data_viz.auth.auth_helpers import get_user_groups, get_assignable_roles, validate_password, create_user, create_group, assign_group, assign_site_admin, get_manageable_users, get_user_memberships_in_groups, get_manageable_groups, set_group_data_sources, owned_data_sources, can_manage_source, teams_for_source, visuals_for_source, set_group_visuals, set_visual_visibility, set_source_visibility, set_province_default_visual, visibility_rows_for_source, is_last_active_site_admin, site_admin_key_is_set, check_site_admin_key, deactivate_user, set_user_password
 from data_viz.auth.role_hierarchy import ROLE_HIERARCHY
 from data_viz.extensions import limiter
 from data_viz.email import send_ses_email
@@ -199,6 +199,56 @@ def send_invite_email(invite):
         <p>This link expires shortly for security. If it has expired, ask your administrator to resend the invite.</p>
         """
     return send_ses_email([invite.email], subject, html_body)
+
+def create_password_reset(user):
+    """Create a brand-new password reset row (+ JWT, activity log) for an active user, superseding
+    any prior unused request for that user, and return it."""
+    PasswordResets.query.filter_by(user_id=user.id, used_at=None).update(
+        {"used_at": db.func.current_timestamp()})
+
+    token_expiry = datetime.now(timezone.utc) + current_app.config["PASSWORD_RESET_EXPIRY"]
+    reset = PasswordResets(
+        user_id=user.id,
+        expires_at=token_expiry,
+        requested_ip=request.remote_addr
+    )
+    db.session.add(reset)
+    db.session.flush()  # need reset.id for the JWT payload
+
+    reset.generate_jwt(current_app.config["PASSWORD_RESET_JWT_SECRET"])
+
+    db.session.add(UserActivity(
+        user_id=user.id,
+        activity_type="password reset requested",
+        activity_target_type="account",
+        activity_target_id=user.id,
+        details=f"Password reset requested for {user.username}",
+        ip_address=request.remote_addr
+    ))
+    db.session.commit()
+    return reset
+
+def send_reset_email(reset, email):
+    """Email the reset link. The token is a bearer credential, so it is ONLY ever sent over this
+    email channel -- never flashed or logged, with one exception: under DEBUG (dev only; prod never
+    sets it) the link goes to the server log INSTEAD of SES, mirroring send_invite_email. Returns
+    True on success, False on failure."""
+    base = current_app.config.get("PUBLIC_BASE_URL")
+    if not base:
+        current_app.logger.error("PUBLIC_BASE_URL is not set; cannot build reset link for %s", email)
+        return False
+    reset_url = f"{base}/v1/reset-password/{reset.token}"
+    if current_app.config["DEBUG"]:
+        current_app.logger.info("DEV password reset link for %s: %s", email, reset_url)
+        return True
+    subject = "CANASK password reset"
+    html_body = f"""
+        <p>A password reset was requested for your CANASK account.</p>
+        <p><a href="{reset_url}">Reset your password</a>.</p>
+        <p>Or paste this link into your browser:<br>{reset_url}</p>
+        <p>This link expires in 60 minutes. If you didn't request this, you can ignore this email.</p>
+        """
+    return send_ses_email([email], subject, html_body)
 
 # Decorator to check if user is authenticated or not
 def require_auth(view):
@@ -1817,4 +1867,157 @@ def accept_invite(token = None):
         # Remove the token from the session and send user to login page
         session.pop("invite_token", None)
         flash("Account created successfully! Please log in to use CANASK.", "success")
+        return redirect(url_for("auth.login"))
+
+@auth_blueprint.route("/v1/forgot-password", methods=["GET", "POST"])
+# Mirrors the feedback dual-limit (main.py): per-IP throttle plus a global SES-cost ceiling that
+# only deducts on a response that actually completes the flow (200/302), so a flood of
+# reCAPTCHA-failing or malformed-email requests can't exhaust the budget. GET is unlimited.
+@limiter.limit(lambda: current_app.config["RATELIMIT_PASSWORD_RESET"],
+               exempt_when=lambda: request.method == "GET")
+@limiter.limit(lambda: current_app.config["RATELIMIT_PASSWORD_RESET_GLOBAL"],
+               key_func=lambda: "password-reset-global",
+               deduct_when=lambda r: r.status_code in (200, 302),
+               exempt_when=lambda: request.method == "GET")
+def forgot_password():
+    if current_user.is_authenticated:
+        flash("You are already logged in.", "info")
+        return redirect(url_for("main.index"))
+
+    def _render_forgot_password():
+        if request.headers.get("HX-Request"):
+            return render_template("v1/forgot_password.jinja")
+        return render_template("base.jinja", include_partials="forgot password")
+
+    if request.method == "GET":
+        return _render_forgot_password()
+
+    # POST: format validation and reCAPTCHA failures re-render the form with a specific error --
+    # neither one reveals whether the address has an account. Every other outcome below (address
+    # found/not found, active/invited/deactivated, send success/failure) MUST reach the exact same
+    # flash + redirect so existence can't be inferred from the response.
+    ok, email = validate_email(request.form.get("email"), required=True)
+    if not ok:
+        flash(email, "danger")
+        return _render_forgot_password()
+
+    recaptcha_ok, _ = verify_recaptcha(request.form.get("recaptcha-token"), "forgot_password")
+    if not recaptcha_ok:
+        flash("Could not verify you're human. Please try again.", "danger")
+        return _render_forgot_password()
+
+    user = User.query.filter(func.lower(User.email) == email.lower()).first()
+
+    if user and user.status == User.STATUS_ACTIVE:
+        reset = create_password_reset(user)
+        sent_ok = send_reset_email(reset, user.email)
+        if not sent_ok:
+            current_app.logger.error("Failed to send password reset email to %s", user.email)
+    else:
+        # No account, or one that can't use a reset link (invited/deactivated): do nothing, but
+        # still pay roughly the same JWT-signing cost as the real-send branch above so the two
+        # paths don't diverge in timing (the analogue of _DUMMY_PASSWORD_HASH's checkpw in login()).
+        jwt.encode({"purpose": "password_reset", "user_id": 0, "reset_id": 0, "exp": 0},
+                   current_app.config["PASSWORD_RESET_JWT_SECRET"], algorithm="HS256")
+
+    flash("If an account exists for that address, a password reset link has been sent.", "info")
+    return redirect(url_for("auth.login"))
+
+@auth_blueprint.route("/v1/reset-password", methods=["GET", "POST"])
+@auth_blueprint.route("/v1/reset-password/<token>", methods=["GET"])
+def reset_password(token=None):
+    if current_user.is_authenticated:
+        flash("You are already logged in.", "warning")
+        return redirect(url_for("main.index"))
+
+    # Handle token from URL
+    if token:
+        try:
+            jwt.decode(token, current_app.config["PASSWORD_RESET_JWT_SECRET"], algorithms=["HS256"])
+        except jwt.ExpiredSignatureError:
+            flash("This password reset link has expired. Please request a new one.", "danger")
+            return redirect(url_for("auth.login"))
+        except jwt.InvalidTokenError:
+            flash("This password reset link is invalid.", "danger")
+            return redirect(url_for("auth.login"))
+        # Keeps the bearer token out of the address bar/Referer for the POST.
+        session["password_reset_token"] = token
+        return redirect(url_for("auth.reset_password"))
+
+    # Get and decode token from session
+    token = session.get("password_reset_token")
+    if not token:
+        flash("No password reset token provided.", "danger")
+        return redirect(url_for("auth.login"))
+
+    try:
+        payload = jwt.decode(token, current_app.config["PASSWORD_RESET_JWT_SECRET"], algorithms=["HS256"])
+    except jwt.ExpiredSignatureError:
+        session.pop("password_reset_token", None)
+        flash("This password reset link has expired. Please request a new one.", "danger")
+        return redirect(url_for("auth.login"))
+    except jwt.InvalidTokenError:
+        session.pop("password_reset_token", None)
+        flash("This password reset link is invalid.", "danger")
+        return redirect(url_for("auth.login"))
+
+    # The "purpose" claim is what blocks an invite JWT (which lacks it) from being presented here,
+    # even when both tokens are signed with the same fallback SECRET_KEY.
+    if payload.get("purpose") != "password_reset":
+        session.pop("password_reset_token", None)
+        flash("This password reset link is invalid.", "danger")
+        return redirect(url_for("auth.login"))
+
+    reset = PasswordResets.query.get(payload.get("reset_id"))
+    # expires_at may come back naive (DB round trip) or aware (same-session, just-flushed) --
+    # normalize to aware UTC before comparing so this can't TypeError either way.
+    reset_expiry = (reset.expires_at.replace(tzinfo=timezone.utc)
+                     if reset and reset.expires_at.tzinfo is None else
+                     (reset.expires_at if reset else None))
+    if not reset or reset.used_at is not None or reset_expiry < datetime.now(timezone.utc):
+        session.pop("password_reset_token", None)
+        flash("This password reset link is no longer valid. Please request a new one.", "danger")
+        return redirect(url_for("auth.login"))
+
+    # Bind the presented token to the reset row's current token. A newer request for the same user
+    # supersedes this one (see create_password_reset), so a previously-issued (not-yet-expired)
+    # token must not remain usable once it has been superseded.
+    if token != reset.token:
+        session.pop("password_reset_token", None)
+        flash("This password reset link has been superseded. Please use the most recent email.", "danger")
+        return redirect(url_for("auth.login"))
+
+    user = User.query.get(reset.user_id)
+    if not user or user.status != User.STATUS_ACTIVE:
+        # Same generic message as the used/expired/missing-row branch above -- don't reveal that
+        # the account state changed since the link was issued.
+        session.pop("password_reset_token", None)
+        flash("This password reset link is no longer valid. Please request a new one.", "danger")
+        return redirect(url_for("auth.login"))
+
+    if request.method == "GET":
+        return render_template("base.jinja",
+                            include_partials="reset password",
+                            email=user.email)
+
+    if request.method == "POST":
+        password = request.form.get("password")
+        confirm_password = request.form.get("confirm_password")
+
+        if password != confirm_password:
+            flash("Passwords do not match.", "danger")
+            return redirect(url_for("auth.reset_password"))
+        valid, message = validate_password(password)
+        if not valid:
+            flash(message, "danger")
+            return redirect(url_for("auth.reset_password"))
+
+        # Deliberately no comparison against the current password hash: checking (or messaging on)
+        # whether the new password matches the old one would leak information about the old
+        # password to whoever holds this token.
+        reset.used_at = db.func.current_timestamp()
+        set_user_password(user, password, ip_address=request.remote_addr)
+
+        session.pop("password_reset_token", None)
+        flash("Your password has been reset. Please log in.", "success")
         return redirect(url_for("auth.login"))

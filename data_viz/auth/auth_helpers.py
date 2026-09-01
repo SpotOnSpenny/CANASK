@@ -213,6 +213,24 @@ def set_site_admin_key(new_password, changed_by = None, ip_address = None):
     db.session.commit()
     return row
 
+def set_user_password(user, new_password, ip_address = None):
+    # Strength validation is the caller's job (same convention as set_site_admin_key).
+    user.password_hash = hashpw(new_password.encode("utf-8"), gensalt()).decode("utf-8")
+
+    activity = UserActivity(
+        user_id = user.id,
+        activity_type = "password reset",
+        activity_target_type = "account",
+        activity_target_id = user.id,
+        details = f"Password reset completed for {user.username}",
+        ip_address = ip_address
+    )
+
+    db.session.add(user)
+    db.session.add(activity)
+    db.session.commit()
+    return user
+
 def deactivate_user(user_id, deactivated_by = None, ip_address = None):
     user = User.query.get(user_id)
     if not user:
