@@ -24,6 +24,10 @@ PIVOT_MAX_COLS = 15
 # top-N bar race). The clip bounds payload size, not query cost -- the GROUP BY runs
 # identically either way -- so a larger cap is safe on this rate-limited, RBAC-gated API.
 PIVOT_MAX_ROWS_GEO = 1000
+# Ceiling for the opt-up `cols_limit` param: a map's Columns dimension is always a month/year
+# slider, not a bar-chart series count, so the default PIVOT_MAX_COLS (tuned for a readable
+# legend) would silently drop the oldest frames once the data outgrows it.
+PIVOT_MAX_COLS_GEO = 500
 
 
 def das_access_allowed(user):
@@ -252,13 +256,16 @@ def query_rows(dataset_key, page, size, sort, filters):
     }
 
 
-def query_pivot(dataset_key, rows_field, cols_field, filters, measure_key, rows_cap=PIVOT_MAX_ROWS):
+def query_pivot(dataset_key, rows_field, cols_field, filters, measure_key,
+                 rows_cap=PIVOT_MAX_ROWS, cols_cap=PIVOT_MAX_COLS):
     """Pivot aggregation: GROUP BY the chosen dimension(s), aggregate the chosen measure.
 
     Returns {"rows": [...], "cols": [...], "cells": [[value|None per col] per row], "measure":
     label, "truncated": bool}. Categories beyond the top PIVOT_MAX_* by measure total are clipped
     (flagged) so a city- or drug-grained pivot can't ship thousands of traces. `rows_cap` lets the
-    map charts opt up to PIVOT_MAX_ROWS_GEO (a map plots every place, not a top-N)."""
+    map charts opt up to PIVOT_MAX_ROWS_GEO (a map plots every place, not a top-N); `cols_cap`
+    similarly lets a map's date-dimension Columns (its time-slider frames) opt up to
+    PIVOT_MAX_COLS_GEO instead of the bar-chart-tuned default."""
     dataset = DATASETS[dataset_key]
     dims = dataset["pivot_dims"]
     row_spec = dims[rows_field]
@@ -300,7 +307,7 @@ def query_pivot(dataset_key, rows_field, cols_field, filters, measure_key, rows_
 
     row_keys, rows_truncated = ordered(row_totals, row_spec, rows_cap)
     if col_spec is not None:
-        col_keys, cols_truncated = ordered(col_totals, col_spec, PIVOT_MAX_COLS)
+        col_keys, cols_truncated = ordered(col_totals, col_spec, cols_cap)
     else:
         col_keys, cols_truncated = [None], False
 

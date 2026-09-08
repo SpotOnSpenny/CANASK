@@ -237,8 +237,8 @@ def das_rows(dataset):
 @limiter.limit(lambda: current_app.config["RATELIMIT_API"])
 def das_pivot(dataset):
     from flask_login import current_user
-    from .das_explorer import (DATASETS, PIVOT_MAX_ROWS, PIVOT_MAX_ROWS_GEO,
-                               das_access_allowed, parse_filters, query_pivot)
+    from .das_explorer import (DATASETS, PIVOT_MAX_COLS, PIVOT_MAX_COLS_GEO, PIVOT_MAX_ROWS,
+                               PIVOT_MAX_ROWS_GEO, das_access_allowed, parse_filters, query_pivot)
     if dataset not in DATASETS:
         return jsonify({"error": "unknown dataset"}), 404
     if not das_access_allowed(current_user):
@@ -251,18 +251,21 @@ def das_pivot(dataset):
             or (cols_field is not None and cols_field not in spec["pivot_dims"])
             or measure not in spec["measures"]):
         return jsonify({"error": "bad pivot params"}), 400
-    # Optional opt-up for the map charts, which plot every place rather than a top-N;
-    # clamped so the param can't be abused into an unbounded payload.
+    # Optional opt-up for the map charts, which plot every place rather than a top-N, and whose
+    # Columns is a month/year time slider rather than a bar-chart series count; both are clamped
+    # so the params can't be abused into an unbounded payload.
     try:
         rows_limit = request.args.get("rows_limit")
         rows_cap = max(1, min(int(rows_limit), PIVOT_MAX_ROWS_GEO)) if rows_limit else PIVOT_MAX_ROWS
+        cols_limit = request.args.get("cols_limit")
+        cols_cap = max(1, min(int(cols_limit), PIVOT_MAX_COLS_GEO)) if cols_limit else PIVOT_MAX_COLS
     except ValueError:
         return jsonify({"error": "bad pivot params"}), 400
     from .das_filter_expr import FilterSyntaxError
     try:
         return jsonify(query_pivot(dataset, rows_field, cols_field,
                                    parse_filters(request.args, dataset), measure,
-                                   rows_cap=rows_cap))
+                                   rows_cap=rows_cap, cols_cap=cols_cap))
     except FilterSyntaxError as err:
         return jsonify({"error": f"Invalid filter: {err}"}), 400
 

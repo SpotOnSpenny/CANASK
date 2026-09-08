@@ -34,13 +34,16 @@ DAS_ABOUT = (
 _FILENAME_RE = re.compile(r"(\d{8})_(\d{8})_nationalDAS\.xlsx")
 
 # Canonical field -> the English prefix of the (bilingual, whitespace-mangled) source header.
-# Matching is prefix-based on whitespace-collapsed headers; anything required that doesn't match
-# raises, so upstream format drift fails loudly instead of ingesting garbage.
+# Matching is prefix-based on whitespace-collapsed headers, case-insensitively (pre-July-2025
+# exports shout entire header rows in caps). A field may list multiple candidate prefixes to also
+# tolerate that same era's renamed/abbreviated headers (e.g. QUANT's drug column was "Entered
+# Result" before it became "Drug Code"); the first match wins. Anything still unmatched raises, so
+# genuine upstream format drift fails loudly instead of ingesting garbage.
 _ID_ALL_FIELDS = {
     "sample_number": "Sample #",
     "public_health": "Public Health Sample",
     "contains_nps": "Contains NPS",
-    "date_returned": "Date Returned to Client",
+    "date_returned": ("Date Returned to Client", "Returned to client Date"),
     "date_received": "Received Date",
     "city": "Customer City",
     "province": "Prov/Terr",
@@ -49,19 +52,19 @@ _ID_ALL_FIELDS = {
 _QUANT_FIELDS = {
     "sample_number": "Sample #",
     "public_health": "Public Health Sample",
-    "date_returned": "Date Returned to Client",
+    "date_returned": ("Date Returned to Client", "Returned to client Date"),
     "date_received": "Received Date",
     "city": "Customer City",
     "province": "Prov/Terr",
     "description": "Description",
-    "drug_code": "Drug Code",
-    "quantity": "Numeric Quantity",
+    "drug_code": ("Drug Code", "Entered Result"),
+    "quantity": "Numeric Quant",   # covers both "Numeric Quantity" and the older "Numeric Quant"
     "units": "Units",
 }
 _NPS_FIELDS = {
     "sample_number": "Sample #",
     "drug_code": "Drug Code",
-    "substance_name": "Substance name",
+    "substance_name": "Substance",   # covers both "Substance name" and the older bare "Substance"
     "other_name": "Other name",
     "province": "Prov/Terr",
     "finding_date": "Finding Date",
@@ -117,10 +120,11 @@ def _norm(header):
 
 def _promote_header(grid, first_cell_prefix, sheet):
     """The sheets carry bilingual banner rows above the real header; find the header row by its
-    first cell's English prefix and return a DataFrame of the rows below it, with normalized
-    column names."""
+    first cell's English prefix (case-insensitive) and return a DataFrame of the rows below it,
+    with normalized column names."""
+    prefix = first_cell_prefix.lower()
     for i in range(min(len(grid), 15)):
-        if _norm(grid.iat[i, 0]).startswith(first_cell_prefix):
+        if _norm(grid.iat[i, 0]).lower().startswith(prefix):
             frame = grid.iloc[i + 1:].copy()
             frame.columns = [_norm(c) for c in grid.iloc[i]]
             return frame.reset_index(drop=True)
@@ -129,14 +133,17 @@ def _promote_header(grid, first_cell_prefix, sheet):
 
 
 def _resolve_columns(frame, fields, sheet):
-    """Map canonical field names to actual column labels by English prefix; raise on any miss."""
+    """Map canonical field names to actual column labels by English prefix (case-insensitive);
+    a field's prefix may be a tuple of candidates, tried in order. Raise on any miss."""
     resolved = {}
-    for field, prefix in fields.items():
-        matches = [c for c in frame.columns if str(c).startswith(prefix)]
-        if not matches:
-            raise ValueError(f"Sheet '{sheet}' is missing a column starting '{prefix}' "
+    for field, prefixes in fields.items():
+        candidates = (prefixes,) if isinstance(prefixes, str) else prefixes
+        match = next((c for prefix in candidates for c in frame.columns
+                     if str(c).lower().startswith(prefix.lower())), None)
+        if match is None:
+            raise ValueError(f"Sheet '{sheet}' is missing a column starting '{candidates[0]}' "
                              f"(for field '{field}') -- has the workbook format changed?")
-        resolved[field] = matches[0]
+        resolved[field] = match
     return resolved
 
 

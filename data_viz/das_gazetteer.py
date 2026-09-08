@@ -35,15 +35,40 @@ GEONAMES_ADMIN1 = {
 # Stragglers the GeoNames match can't resolve. Keys are the verbatim DB "City, PR"
 # form; values are (lat, lon). Add entries here when the build prints unmatched names.
 MANUAL_COORDS = {
+    "Akwesasne, ON": (45.033, -74.567),                        # Akwesasne 59, the ON portion
+    "Courcelette, QC": (46.8844, -71.4792),                    # hamlet in Saint-Gabriel-de-Valcartier
+    "Curve Lake First Nation, ON": (44.483, -78.367),          # Curve Lake First Nation 35
+    "Easterville, MB": (53.1075, -99.8128),                    # south shore of Cedar Lake
+    "Enoch Cree Nation 135, AB": (53.4831, -113.7517),         # west of Edmonton
+    "Falcon Beach, MB": (49.6848, -95.3223),                   # Whiteshell area, near Falcon Lake
+    "Fort William First Nation, ON": (48.3048, -89.2597),      # south of Thunder Bay
+    "Kangiqsualjjuaq, QC": (58.6833, -65.95),                  # Nunavik, Ungava Bay
     "Kebaowek, QC": (46.7834, -78.9829),               # Eagle Village First Nation, at Kipawa
+    "Kettle Point First Nation, ON": (43.2, -82.0),            # Kettle and Stony Point, Lake Huron
+    "Koostatak, MB": (51.4389, -97.3667),                      # Fisher River Cree Nation
+    "Little Grand Rapids, MB": (52.0361, -95.4611),            # Family Lake, near ON border
+    "Lundar, MB": (50.6956, -98.0308),                         # Interlake region
+    "Marius, MB": (50.55, -98.6480),                           # near Sandy Bay, west of Lake Manitoba
     "M'chigeeng First Nation, ON": (45.83, -82.16),    # Manitoulin Island (formerly West Bay)
+    "Nelson House, MB": (55.7874, -98.8953),                   # Nisichawayasihk Cree Nation
     "North Bay Po Main, ON": (46.3168, -79.4663),      # postal-outlet form of North Bay
+    "Odanak, QC": (46.067, -72.833),                           # Abenaki community, Centre-du-Québec
+    "Opaskwayak, MB": (53.845, -101.245),                      # Opaskwayak Cree Nation 21E, at The Pas
     "Pessamit, QC": (48.9413, -68.646),                # Innu name; GeoNames has Betsiamites
+    "Poplar River, MB": (52.9961, -97.2831),                   # First Nation, east shore Lake Winnipeg
+    "Red Earth Creek, AB": (56.5406, -115.2853),               # MD of Opportunity No. 17
     "Rosslyn, ON": (48.37, -89.42),                    # rural community in Oliver Paipoonge
     "Sackville, NS": (44.776, -63.6787),               # Lower Sackville (plain Sackville is NB)
+    "Sagamok First Nation, ON": (46.1575, -82.1102),           # north shore of Lake Huron
+    "Saint-Pierre-Île-D'orléans, QC": (46.883, -71.067),       # Île d'Orléans, near Quebec City
+    "Salt Spring Island, BC": (48.8066, -123.492),             # Gulf Islands
     "Scanterbury, MB": (50.42, -96.46),                # Brokenhead Ojibway Nation area
+    "Stevenson Island, MB": (53.8656, -94.6517),               # approximated to Island Lake settlement
+    "Tsuu T'ina, AB": (50.967, -114.35),                       # Tsuut'ina Nation, west of Calgary
     "Uashat, QC": (50.2167, -66.4333),                 # Innu community within Sept-Îles
+    "Umiujag, QC": (56.533, -76.55),                           # Nunavik, Hudson Bay (Umiujaq)
     "Waywayseecappo, MB": (50.72, -100.85),            # First Nation north of Rossburn
+    "Wha Ti, NT": (63.1444, -117.2728),                        # Tłı̨chǫ community, Lac La Martre
 }
 
 

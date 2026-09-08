@@ -114,6 +114,11 @@ _DRUGCHECK_CATEGORY_CANON = {
     "Dissociative": "Dissociatives",
     "Sedatives/hypnotics": "Sedatives/Hypnotics",
     "substance inconnue": "Unknown drug",
+    "opioïdes": "Opioids",
+    "sédatifs/hypnotiques": "Sedatives/Hypnotics",
+    "cannabinoïdes": "Cannabinoids",
+    "hallucinogènes": "Hallucinogens",
+    "autres substances": "Other substances",
 }
 # Categories carrying no substance signal ("sans objet" == not applicable) -- drop these rows.
 _DRUGCHECK_DROP_CATEGORIES = {"sans objet"}
@@ -140,8 +145,15 @@ _DRUGCHECK_DRUG_CANON = {
     "MDA - (3,4-Methylenedioxyamphetamine)": "MDA",
     "Probiotique": "Probiotic",
     "Substance inconnue": "Unknown substance",
+    "substance inconnue": "Unknown substance",
     "Unknown Stimulant": "Unknown stimulant",
     "speed": "Speed",
+    "Cocaine freebase": "Crack",
+    "Cocaïne freebase": "Crack",
+    "Methamphetemine": "Methamphetamine",
+    "amphétamine": "Amphetamine",
+    "Inconnu": "Unknown",
+    "Inconnue": "Unknown",
 }
 _DRUGCHECK_SITE_CANON = {
     # The workbook's macron spelling is the organization's actual name; fold the CSV mojibake and
@@ -329,7 +341,27 @@ def _drugcheck_load():
     # The raw headers carry stray leading/trailing and double spaces (e.g. "Visit Date ",
     # "Drug Category  (1)"); normalize whitespace so the column refs below are clean.
     df.columns = df.columns.str.strip().str.replace(r"\s+", " ", regex=True)
-    df = df.rename(columns={"Drug Category (1)": "Expected Drug Category (1)"})
+    # Every export cycle so far has shipped its own header spelling for the same fields (Cycle 2
+    # used "Drug Category (1)"; the Cycle 1-5 cumulative re-export dropped the parens entirely --
+    # "Expected Drug 1", "FTIR 1" -- and title-cased the strip columns). Fold each generation's
+    # spelling onto the internal names the rest of this module speaks, rather than chasing column
+    # names through every constant below. Renaming a column that isn't present is a no-op, so old
+    # and new spellings can coexist here indefinitely.
+    df = df.rename(columns={
+        "Drug Category (1)": "Expected Drug Category (1)",
+        "Expected Drug 1": "Expected Drug (1)",
+        "Drug Category 1": "Expected Drug Category (1)",
+        "Expected Drug 2": "Expected Drug (2)",
+        "Drug Category 2": "Expected Drug Category (2)",
+        "FTIR 1": "FTIR (1)", "FTIR 2": "FTIR (2)", "FTIR 3": "FTIR (3)",
+        "FTIR 4": "FTIR (4)", "FTIR 5": "FTIR (5)",
+        "Fentanyl Test Strip": "Fentanyl test strip",
+        "Benzodiazepine Test Strip": "Benzodiazepine test strip",
+        "Nitazene Test Strip": "Nitazene test strip",
+        "Xylazine Test Strip": "Xylazine test strip",
+        "MDMA Test Strip": "MDMA Test strip",
+        "Medetomidine Test Strip": "Medetomidine test strip",
+    })
     df = df.map(lambda cell: cell.strip() if isinstance(cell, str) else cell)
     df = _drugcheck_repair_shifted(df)
     # Province arrives both abbreviated and spelled out; canonicalize known abbreviations so the

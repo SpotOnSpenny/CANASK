@@ -1,5 +1,7 @@
 """DAS Explorer APIs: the 404/403/400/200 ladder. Access rides the standard visual
 model - a metric-less Visuals row under the canada-das scope."""
+from datetime import date
+
 import pytest
 
 from tests.factories import (
@@ -100,6 +102,33 @@ class TestPivotApi:
     def test_bad_rows_limit_400(self, client, das_data):
         assert client.get(
             "/api/v1/das/id_all/pivot?rows=province&rows_limit=abc").status_code == 400
+
+    def test_bad_cols_limit_400(self, client, das_data):
+        assert client.get(
+            "/api/v1/das/id_all/pivot?rows=province&cols_limit=abc").status_code == 400
+
+    def test_cols_limit_opts_up_past_default_month_clip(self, client, db_session):
+        # A map's Columns dimension is a month/year time slider: with more than
+        # PIVOT_MAX_COLS (15) distinct months in the data, the default clip drops the
+        # oldest ones, but a map opts up with cols_limit so its slider covers the full
+        # history (see PIVOT_MAX_COLS_GEO in das_explorer.py).
+        das_gate()
+        for offset in range(18):
+            year, month = divmod(offset, 12)
+            make_das_sample(province="ON", date_returned=date(2025 + year, month + 1, 15))
+        default_payload = client.get(
+            "/api/v1/das/id_all/pivot?rows=province&cols=month_returned"
+            "&measure=samples").get_json()
+        assert len(default_payload["cols"]) == 15
+        assert default_payload["cols"][0] == "2025-04"  # oldest 3 months dropped
+        assert default_payload["truncated"] is True
+
+        opted_up_payload = client.get(
+            "/api/v1/das/id_all/pivot?rows=province&cols=month_returned"
+            "&measure=samples&cols_limit=500").get_json()
+        assert len(opted_up_payload["cols"]) == 18
+        assert opted_up_payload["cols"][0] == "2025-01"
+        assert opted_up_payload["truncated"] is False
 
 
 class TestExplorerPageAboutCard:

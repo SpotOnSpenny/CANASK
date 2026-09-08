@@ -567,6 +567,97 @@ function masterLoop(location = null, year = null, category = null) {
   syncUrl(location, year, category);
 }
 
+// A cell counts as numeric only if the WHOLE trimmed cell matches one of these shapes -- a bare
+// number/percent, or the "82 (96.5%)" composite the expected-vs-actual table uses. Anchored so a
+// label that merely starts with a digit (e.g. the drug name "4-MMC") is never misread as numeric.
+const CANASK_NUMERIC_CELL_RE = /^-?[\d,]+(\.\d+)?%?( \(-?[\d,]+(\.\d+)?%\))?$/;
+function canaskCellNumericValue(text) {
+  const t = (text || "").trim();
+  if (t === "" || !CANASK_NUMERIC_CELL_RE.test(t)) return null;
+  const n = parseFloat(t.replace(/,/g, ""));
+  return isNaN(n) ? null : n;
+}
+
+// Wires click-to-sort onto every #data-table built by the createVisual* renderers below, mirroring
+// the .sortable/.sort-icon convention already used on the User/Group management tables (see
+// master_sheet.css "Invite management sortable headers"). Most of these tables build their header
+// as a plain first row (no <thead>) via `table.insertRow(-1)`, so promote it into a real <thead>
+// first -- that's what keeps the header out of the sort and (for tables with a <tfoot> Total row,
+// e.g. the drug-checking visuals) keeps the total pinned at the bottom regardless of sort order.
+// Call this once, after every row has been inserted, right before the table replaces #data-table.
+function makeSortableTable(table) {
+  if (!table.tHead) {
+    const firstRow = table.rows[0];
+    if (!firstRow) return;
+    table.createTHead().appendChild(firstRow);
+  }
+  const headerRow = table.tHead.rows[0];
+  const body = table.tBodies[0];
+  if (!body || !body.rows.length) return;
+
+  // Snapshot the as-rendered order (whatever the renderer's own logic produced -- chart-matching,
+  // largest-first, whatever) so "Reset sort" can put rows back exactly where they started, not just
+  // re-sort by some default column. Lives in the table's own <caption> so every renderer gets the
+  // control for free without threading tableDiv through this function or touching #data-table markup.
+  const originalOrder = Array.from(body.rows);
+  const caption = table.createCaption();
+  caption.style.captionSide = "top";
+  caption.style.textAlign = "right";
+  const resetBtn = document.createElement("button");
+  resetBtn.type = "button";
+  resetBtn.className = "btn btn-link btn-sm p-0 text-decoration-none";
+  resetBtn.innerHTML = '<i class="bi bi-arrow-counterclockwise"></i> Reset sort';
+  resetBtn.disabled = true;
+  caption.appendChild(resetBtn);
+
+  const clearIcons = () => Array.from(headerRow.cells).forEach(h => {
+    h._ascending = true;
+    const i = h.querySelector(".sort-icon");
+    if (i) i.textContent = "↕";
+  });
+  resetBtn.addEventListener("click", () => {
+    originalOrder.forEach(row => body.appendChild(row));
+    clearIcons();
+    resetBtn.disabled = true;
+  });
+
+  Array.from(headerRow.cells).forEach((th, colIndex) => {
+    if (!th.textContent.trim()) return;   // a blank header cell has nothing meaningful to sort by
+    th.classList.add("sortable");
+    th.style.cursor = "pointer";
+    th.appendChild(document.createTextNode(" "));
+    const icon = document.createElement("span");
+    icon.className = "sort-icon";
+    icon.textContent = "↕";
+    th.appendChild(icon);
+
+    const sort = () => {
+      const ascending = th._ascending !== false;
+      Array.from(headerRow.cells).forEach(h => {
+        if (h !== th) { h._ascending = true; const i = h.querySelector(".sort-icon"); if (i) i.textContent = "↕"; }
+      });
+      const numeric = Array.from(body.rows).some(r => canaskCellNumericValue(r.cells[colIndex].innerText) !== null);
+      const rows = Array.from(body.rows);
+      rows.sort((a, b) => {
+        const aCell = a.cells[colIndex].innerText, bCell = b.cells[colIndex].innerText;
+        let cmp;
+        if (numeric) {
+          const an = canaskCellNumericValue(aCell), bn = canaskCellNumericValue(bCell);
+          cmp = an === null ? (bn === null ? 0 : 1) : (bn === null ? -1 : an - bn);   // blanks/text sort last
+        } else {
+          cmp = aCell.trim().toLowerCase().localeCompare(bCell.trim().toLowerCase());
+        }
+        return ascending ? cmp : -cmp;
+      });
+      th._ascending = !ascending;
+      icon.textContent = ascending ? "↓" : "↑";
+      rows.forEach(row => body.appendChild(row));
+      resetBtn.disabled = false;
+    };
+    th.addEventListener("click", sort);
+  });
+}
+
 // Function to generate heatmaps
 async function createVisualHeatMap(province, visualToGen, geojson, mapData, mapSource, mapOptions){
   // Setup the map container and other elements
@@ -713,6 +804,7 @@ async function createVisualHeatMap(province, visualToGen, geojson, mapData, mapS
       });
     }
   }
+  makeSortableTable(table);
 }
 
 // Function to generate interactive maps
@@ -985,6 +1077,7 @@ async function createVisualLine(province, lineData, currentVisual, dataType, lin
       });
     }
   }
+  makeSortableTable(table);
 
   // Toggle only between the data types that actually have data (computed above).
   buildDataTypeToggles(dataTypeToggle, available, dataType, (type) =>
@@ -1129,6 +1222,7 @@ async function createVisualBar(province, barData, currentVisual, dataType, barSo
       });
     }
   }
+  makeSortableTable(table);
 
   // Toggle only between the data types that actually have data (computed above).
   buildDataTypeToggles(dataTypeToggle, available, dataType, (data) =>
@@ -1309,6 +1403,7 @@ async function createVisualPie(province, pieData, pieSource, visualOptions, tabu
       tabCell.innerText = element;
     });
   }
+  makeSortableTable(table);
 }
 
 // Generic config-driven treemap renderer. Reads block.visual_options for its geo levels,
@@ -1603,6 +1698,17 @@ async function createVisualTreemap(province, block, currentVisual, source) {
       tr.insertCell(-1).innerText = row.value;
       tr.insertCell(-1).innerText = data.total ? ((row.value / data.total) * 100).toFixed(1) + "%" : "0%";
     });
+    // Total row so the sample count backing the current (filtered) view is visible at a glance,
+    // without having to sum the Count column by hand.
+    const foot = table.createTFoot();
+    const totalRow = foot.insertRow(-1);
+    totalRow.className = "fw-bold table-group-divider";
+    const totalLabel = totalRow.insertCell(-1);
+    totalLabel.innerText = "Total";
+    totalLabel.colSpan = hierarchy.length;
+    totalRow.insertCell(-1).innerText = data.total;
+    totalRow.insertCell(-1).innerText = "100%";
+    makeSortableTable(table);
     tableDiv.innerHTML = "";
     tableDiv.appendChild(table);
   }
@@ -1781,6 +1887,7 @@ async function createVisualStratifiedBar(province, block, currentVisual, source,
       tr.insertCell(-1).innerText = sex;
       ages.forEach(a => { const v = lookup[sex] && lookup[sex][a]; tr.insertCell(-1).innerText = formatTableValue(typeof v === "number" ? v : null); });
     });
+    makeSortableTable(table);
     tableDiv.innerHTML = ""; tableDiv.appendChild(table);
     aboutDataDiv.innerHTML = buildAboutDataHTML(source);
   }
@@ -1910,10 +2017,19 @@ async function createVisualExpectedActual(province, block, currentVisual, source
       xaxis: { range: [0, 100], ticksuffix: "%", title: { text: cfg.x_axis_title || "% of drug samples checked", standoff: 5 }, fixedrange: true },
       // Reversed so row_order[0] renders at the top (Plotly stacks category axes bottom-up).
       yaxis: { title: { text: cfg.y_axis_title || "Expected drug", standoff: 10 }, autorange: "reversed", automargin: true, fixedrange: true },
-      // traceorder "normal" keeps the legend reading green -> yellow -> red (Plotly reverses it
-      // for stacked bars by default).
-      legend: Object.assign(responsiveLegend(), { traceorder: "normal" }),
-      margin: responsiveMargin(),
+      // On wide screens, run the legend below the plot (not the default right-hand column) so the
+      // bars get the full card width -- these segment labels are long, and a side legend was eating
+      // a third of the chart's width that the bars (and their inside percentage labels) could
+      // otherwise use. The chart's height budget on narrow screens is already tight (title/subtitle
+      // and the date-control footer both wrap to several lines there, leaving little of the card's
+      // height for the plot itself), with no room to spare for a legend below the axis without
+      // overlapping it -- so mobile keeps the original side/wrapped legend behavior unchanged.
+      // traceorder "normal" keeps it reading green -> yellow -> red (Plotly reverses it for
+      // stacked bars by default).
+      legend: window.innerWidth > 768
+        ? { orientation: "h", traceorder: "normal", x: 0.5, xanchor: "center", y: -0.3, yanchor: "top" }
+        : Object.assign(responsiveLegend(), { traceorder: "normal" }),
+      margin: window.innerWidth > 768 ? Object.assign({ b: 110 }, responsiveMargin()) : responsiveMargin(),
     }), { displaylogo: false, responsive: false });
 
     // Table: one row per expected drug -- sample count plus each segment as "count (share%)".
@@ -1932,6 +2048,21 @@ async function createVisualExpectedActual(province, block, currentVisual, source
         tr.insertCell(-1).innerText = `${segCount(seg, drug)} (${segPct(seg, drug).toFixed(1)}%)`;
       });
     });
+    // Total row: the grand sample count (each row's expected drug is mutually exclusive, so the
+    // rows sum cleanly) plus each segment's combined count and share, so the total backing the
+    // whole chart is visible without adding up rows by hand.
+    const grandTotal = rows.reduce((sum, drug) => sum + totals[drug], 0);
+    const foot = table.createTFoot();
+    const totalRow = foot.insertRow(-1);
+    totalRow.className = "fw-bold table-group-divider";
+    totalRow.insertCell(-1).innerText = "Total";
+    totalRow.insertCell(-1).innerText = grandTotal;
+    segments.forEach(seg => {
+      const segTotal = rows.reduce((sum, drug) => sum + segCount(seg, drug), 0);
+      const segPctTotal = grandTotal ? (100 * segTotal) / grandTotal : 0;
+      totalRow.insertCell(-1).innerText = `${segTotal} (${segPctTotal.toFixed(1)}%)`;
+    });
+    makeSortableTable(table);
     tableDiv.innerHTML = ""; tableDiv.appendChild(table);
     aboutDataDiv.innerHTML = buildAboutDataHTML(source);
   }

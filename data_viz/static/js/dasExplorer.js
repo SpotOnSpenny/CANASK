@@ -340,6 +340,9 @@ async function dasApplyPivot() {
     if (cols && chartType !== "pie") query.append("cols", cols);
     // A map plots every place, not a top-N: opt up from the default 40-row clip.
     if (chartType === "map_city") query.append("rows_limit", "1000");
+    // A map's Columns is always its time slider (enforced above), not a bar-chart series count:
+    // opt up from the default 15-period clip so the slider covers the dataset's full history.
+    if (mapRowsDim && cols) query.append("cols_limit", "500");
     // The chart respects whatever the user has narrowed the table to -- but not while a text
     // filter holds an invalid expression (its input is already ringed red).
     const headerFilters = dasState.table ? dasState.table.getHeaderFilters() : [];
@@ -431,7 +434,11 @@ function dasMapLayout(layout, frames, t) {
     layout.geo = {
         scope: "north america",
         projection: { type: "conic conformal", rotation: { lon: -96 } },
-        lataxis: { range: [40, 84] },
+        // Capped well short of the pole: the conic-conformal fit is aspect-locked, so the huge
+        // empty high Arctic above ~70N was forcing an unreasonably tall figure just to fill a
+        // card's width. Only 2 of 732 gazetteer cities (Pond Inlet, Clyde River -- both NU) sit
+        // above this, so the crop costs almost nothing in practice.
+        lataxis: { range: [40, 70] },
         lonaxis: { range: [-142, -50] },
         showcoastlines: false,
         showlakes: false,
@@ -603,8 +610,43 @@ function dasRenderPivot() {
     }
 
     document.getElementById("das-pivot-truncated").classList.toggle("d-none", !p.truncated);
-    Plotly.react(chart, traces, themeChartLayout(layout), { displaylogo: false, responsive: true });
+    const isMap = chartType === "map_province" || chartType === "map_city";
+    const plotted = Plotly.react(chart, traces, themeChartLayout(layout), { displaylogo: false, responsive: true });
+    if (isMap) plotted.then(() => dasFitMapHeight(chart));
 }
+
+// Geo subplots keep the map's true geographic aspect ratio, so the flat height used for every
+// other chart type leaves wide blank margins around a small map on a full-width card. Measure
+// the drawn map's actual aspect ratio and relayout to the height that lets it fill the card's
+// width -- clamped so it never shrinks below the flat default or grows past a sane cap on very
+// wide screens.
+function dasFitMapHeight(chart) {
+    const bg = chart.querySelector("g.geo .bg");
+    const rect = bg && bg.getBoundingClientRect();
+    if (!rect || !rect.width || !rect.height) return;
+    const aspect = rect.width / rect.height;
+    const margin = chart.layout.margin;
+    const marginX = (margin.l || 0) + (margin.r || 0);
+    const marginY = (margin.t || 0) + (margin.b || 0);
+    const availWidth = chart.clientWidth - marginX;
+    const targetHeight = Math.min(700, Math.max(420, availWidth / aspect + marginY));
+    if (Math.abs(targetHeight - chart.layout.height) > 5) {
+        Plotly.relayout(chart, { height: targetHeight });
+    }
+}
+
+// Keep the map's height matched to its width as the window resizes -- Plotly's own
+// responsive:true already handles width, but the custom height above needs its own nudge.
+let dasMapResizeTimer = null;
+window.addEventListener("resize", () => {
+    if (!dasState || !dasState.pivot) return;
+    if (dasState.pivot.chartType !== "map_province" && dasState.pivot.chartType !== "map_city") return;
+    clearTimeout(dasMapResizeTimer);
+    dasMapResizeTimer = setTimeout(() => {
+        const chart = document.getElementById("das-pivot-chart");
+        if (chart) dasFitMapHeight(chart);
+    }, 200);
+});
 
 // Theme toggle hook: canaskRedrawCharts() calls this so the pivot chart's trace colors follow the
 // palette (relayout alone re-chromes but can't recolor traces). Re-renders from the cached response.
