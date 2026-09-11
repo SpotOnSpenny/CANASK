@@ -111,6 +111,8 @@ STATIC_PAGE_TITLES = {
     "auth.group_management": "Group Management",
     "auth.data_ownership": "Data Ownership",
     "auth.accept_invite": "Accept Invite",
+    "auth.forgot_password": "Forgot Password",
+    "auth.reset_password": "Reset Password",
 }
 
 def resolve_page_title():

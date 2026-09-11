@@ -299,15 +299,17 @@ function setHiddenField(form, name, value) {
   input.value = value;
 }
 
-// Login is an HTMX form, so gate its request through htmx:confirm: hold the request, fetch a token,
-// inject it as recaptcha-token, then resume via issueRequest (which re-serializes the form, picking
-// up the injected field). When reCAPTCHA is disabled we don't intercept and the form posts as-is.
+// reCAPTCHA-gated HTMX forms opt in via data-recaptcha-action="<action>" (login, forgot_password, ...):
+// hold the request through htmx:confirm, fetch a token for that action, inject it as recaptcha-token,
+// then resume via issueRequest (which re-serializes the form, picking up the injected field). When
+// reCAPTCHA is disabled we don't intercept and the form posts as-is.
 document.body.addEventListener("htmx:confirm", (event) => {
   let elt = event.detail.elt;
-  if (!elt || elt.id !== "login-form") return;
+  let action = elt && elt.getAttribute && elt.getAttribute("data-recaptcha-action");
+  if (!action) return;
   if (!recaptchaSiteKey()) return;            // disabled -> let HTMX proceed normally
   event.preventDefault();
-  recaptchaToken("login").then((token) => {
+  recaptchaToken(action).then((token) => {
     setHiddenField(elt, "recaptcha-token", token);
     event.detail.issueRequest(true);          // resume; true skips re-firing this confirm
   });

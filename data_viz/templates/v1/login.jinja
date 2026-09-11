@@ -11,6 +11,7 @@
                 hx-target="#page-container"
                 hx-swap="innerHTML swap:1s settle:1s"
                 hx-disabled-elt="find button[type='submit']"
+                data-recaptcha-action="login"
                 class="needs-validation"
                 novalidate
             >
@@ -50,6 +51,12 @@
                 <!-- This will show an error banner if login fails -->
                 <div id="error-container" class="mt-3"></div>
             </form>
+
+            <div class="text-center mt-2">
+                <a href="/v1/forgot-password" hx-get="/v1/forgot-password"
+                   hx-target="#partial-inclusions" hx-swap="innerHTML swap:1s settle:1s"
+                   hx-push-url="/v1/forgot-password" class="small auth-card-link">Forgot password?</a>
+            </div>
             </div>
         </div>
     </div>

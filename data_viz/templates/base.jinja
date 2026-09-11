@@ -124,6 +124,10 @@
         {% include 'v1/login.jinja' %}
         {% elif include_partials == "accept invite" %}
         {% include 'v1/accept_invite.jinja' %}
+        {% elif include_partials == "forgot password" %}
+        {% include 'v1/forgot_password.jinja' %}
+        {% elif include_partials == "reset password" %}
+        {% include 'v1/reset_password.jinja' %}
         {% elif include_partials == "429" %}
         {% include '429.jinja' %}
         {% endif %}
