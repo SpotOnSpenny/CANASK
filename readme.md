@@ -71,7 +71,8 @@ docker compose --env-file app_config/.env.dev exec web flask <command>
 For a full step-by-step server deploy (provisioning, DNS/firewall, certificates, first launch,
 backups, updates, rollback) see **[DEPLOY_LIGHTSAIL.md](DEPLOY_LIGHTSAIL.md)** (current path) or
 **[DEPLOY_EC2.md](DEPLOY_EC2.md)** (EC2 + IAM instance role + a secrets manager, no static AWS keys).
-The summary below is the compose/`make` reference.
+For day-to-day code and data updates to an already-running prod, see
+**[UPDATE_PROD.md](UPDATE_PROD.md)**. The summary below is the compose/`make` reference.
 
 Production uses `app_config/.env.prod` and layers `docker-compose.prod.yml`, which adds:
 

@@ -77,6 +77,19 @@ prod-build-visuals:
 	$(PROD) exec web flask define-visuals
 	$(PROD) exec web flask gen-visuals
 
+# Ingest a newly-transferred DAS workbook into prod's das_* tables (mirrors dev's `ingest-das`).
+# Usage: make prod-ingest-das [file=20260908_20260731_nationalDAS.xlsx]
+prod-ingest-das:
+	$(PROD) exec web flask ingest-das $(if $(file),--file "$(file)")
+
+# Copy a source file already scp'd into this host's ~/CANASK/output/ into the running web
+# container's output/ dir. Prod has no bind mount and .dockerignore excludes output/ from the
+# image, so new scraped/ingested files never arrive automatically -- see UPDATE_PROD.md.
+# Usage: make prod-copy-output file=20260908_20260731_nationalDAS.xlsx
+prod-copy-output:
+	$(PROD) exec web mkdir -p output
+	$(PROD) cp output/$(file) web:/canask_webapp/output/$(file)
+
 prod-clear-invites:
 	$(PROD) exec web flask clear-invites $(if $(email),--email "$(email)")
 
