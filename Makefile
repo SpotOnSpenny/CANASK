@@ -82,13 +82,16 @@ prod-build-visuals:
 prod-ingest-das:
 	$(PROD) exec web flask ingest-das $(if $(file),--file "$(file)")
 
-# Copy a source file already scp'd into this host's ~/CANASK/output/ into the running web
+# Copy source file(s) already scp'd into this host's ~/CANASK/output/ into the running web
 # container's output/ dir. Prod has no bind mount and .dockerignore excludes output/ from the
 # image, so new scraped/ingested files never arrive automatically -- see UPDATE_PROD.md.
-# Usage: make prod-copy-output file=20260908_20260731_nationalDAS.xlsx
+# With no file= given, copies everything in output/ -- note the trailing "/." on the source:
+# docker cp's trailing "/" (unlike scp/rsync) still copies the directory itself, nesting the
+# files one level too deep; "/." is what makes it copy the directory's *contents*.
+# Usage: make prod-copy-output [file=20260908_20260731_nationalDAS.xlsx]
 prod-copy-output:
 	$(PROD) exec web mkdir -p output
-	$(PROD) cp output/$(file) web:/canask_webapp/output/$(file)
+	$(PROD) cp output/$(if $(file),$(file),.) web:/canask_webapp/output/
 
 prod-clear-invites:
 	$(PROD) exec web flask clear-invites $(if $(email),--email "$(email)")
