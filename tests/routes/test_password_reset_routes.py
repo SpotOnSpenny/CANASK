@@ -5,6 +5,7 @@ from datetime import timedelta
 import bcrypt
 import pytest
 
+from data_viz.auth.auth_helpers import set_user_password
 from data_viz.database.models import PasswordResets, User, UserActivity
 
 from tests.factories import (
@@ -14,6 +15,7 @@ from tests.factories import (
     make_user,
     unique,
 )
+from tests.routes.test_auth_routes import login
 
 IDENTICAL_MESSAGE = "If an account exists for that address, a password reset link has been sent."
 
@@ -22,12 +24,16 @@ class TestForgotPassword:
     def test_get_returns_form_cold(self, client, db_session):
         response = client.get("/v1/forgot-password")
         assert response.status_code == 200
-        assert "forgot-password-form" in response.get_data(as_text=True)
+        body = response.get_data(as_text=True)
+        assert "<html" in body
+        assert "forgot-password-form" in body
 
     def test_get_returns_form_htmx(self, client, db_session):
         response = client.get("/v1/forgot-password", headers={"HX-Request": "true"})
         assert response.status_code == 200
-        assert "forgot-password-form" in response.get_data(as_text=True)
+        body = response.get_data(as_text=True)
+        assert "<html" not in body
+        assert "forgot-password-form" in body
 
     def test_post_active_user_sends_email_and_creates_row(self, client, db_session, ses_outbox):
         user = make_user()
@@ -48,6 +54,41 @@ class TestForgotPassword:
         assert response.status_code == 302
         assert ses_outbox == []
         assert PasswordResets.query.count() == 0
+        assert UserActivity.query.filter(
+            UserActivity.activity_type.like("password reset%")).count() == 0
+
+    def test_post_email_case_insensitive(self, client, db_session, ses_outbox):
+        user = make_user()
+        response = client.post("/v1/forgot-password", data={"email": user.email.upper()})
+        assert response.status_code == 302
+        assert len(ses_outbox) == 1
+        assert PasswordResets.query.filter_by(user_id=user.id).count() == 1
+
+    def test_debug_logs_link_instead_of_emailing(self, client, db_session, ses_outbox, app,
+                                                 monkeypatch, caplog):
+        # Dev-only escape hatch, mirroring the invite flow's identical test: under DEBUG the
+        # reset link goes to the server log, not SES (dev SES creds are deliberately invalid).
+        monkeypatch.setitem(app.config, "DEBUG", True)
+        user = make_user()
+        with caplog.at_level("INFO"):
+            client.post("/v1/forgot-password", data={"email": user.email})
+        reset = PasswordResets.query.filter_by(user_id=user.id).one()
+        assert len(ses_outbox) == 0
+        logged = [r.getMessage() for r in caplog.records
+                  if "DEV password reset link" in r.getMessage()]
+        assert len(logged) == 1
+        assert reset.token in logged[0]
+
+    def test_public_base_url_unset_identical_response_and_logged(self, client, db_session,
+                                                                   app, monkeypatch, ses_outbox):
+        monkeypatch.setitem(app.config, "PUBLIC_BASE_URL", None)
+        user = make_user()
+        response = client.post("/v1/forgot-password", data={"email": user.email},
+                               follow_redirects=True)
+        assert IDENTICAL_MESSAGE in response.get_data(as_text=True)
+        assert ses_outbox == []
+        assert UserActivity.query.filter_by(
+            user_id=user.id, activity_type="password reset email failed").count() == 1
 
     def test_anti_enumeration_identical_response(self, client, db_session, ses_outbox):
         user = make_user()
@@ -70,6 +111,7 @@ class TestForgotPassword:
         assert IDENTICAL_MESSAGE in response.get_data(as_text=True)
         assert ses_outbox == []
         assert PasswordResets.query.filter_by(user_id=user.id).count() == 0
+        assert UserActivity.query.filter_by(user_id=user.id).count() == 0
 
     def test_malformed_email_surfaces_error_without_sending(self, client, db_session, ses_outbox):
         response = client.post("/v1/forgot-password", data={"email": "not-an-email"})
@@ -129,6 +171,30 @@ class TestResetPassword:
         assert follow.status_code == 200
         assert user.email in follow.get_data(as_text=True)
         assert "reset-password-form" in follow.get_data(as_text=True)
+        assert "<html" in follow.get_data(as_text=True)
+
+    def test_get_htmx_returns_partial_only(self, client, db_session):
+        # See the blocker this pairs with: the GET branch must check HX-Request the same way
+        # forgot_password's _render_forgot_password does, or an htmx swap gets a full document.
+        user = make_user()
+        reset = make_password_reset(user)
+        location = self._consume_token(client, reset.token)
+        response = client.get(location, headers={"HX-Request": "true"})
+        assert response.status_code == 200
+        body = response.get_data(as_text=True)
+        assert "<html" not in body
+        assert "reset-password-form" in body
+
+    def test_signed_token_with_deleted_reset_row_rejected(self, client, db_session):
+        user = make_user()
+        reset = make_password_reset(user)
+        token = reset.token
+        db_session.delete(reset)
+        db_session.flush()
+        response = client.get(f"/v1/reset-password/{token}")
+        assert response.status_code == 302
+        follow = client.get(response.headers["Location"], follow_redirects=True)
+        assert "no longer valid" in follow.get_data(as_text=True)
 
     def test_expired_token_rejected(self, client, db_session):
         user = make_user()
@@ -254,3 +320,45 @@ class TestResetPassword:
         response = client.get(f"/v1/reset-password/{reset.token}")
         assert response.status_code == 302
         assert response.headers["Location"] in ("/", "http://localhost/")
+
+    def test_claim_only_succeeds_once(self, client, db_session):
+        """Two concurrent submissions of the same token both pass an is_valid check taken
+        before either commits; claim() is the atomic UPDATE ... WHERE used_at IS NULL that
+        makes only one of them actually win the race."""
+        user = make_user()
+        reset = make_password_reset(user)
+        assert reset.claim() is True
+        assert reset.claim() is False
+
+    def test_successful_reset_clears_login_lockout(self, client, db_session, app, monkeypatch):
+        monkeypatch.setitem(app.config, "LOGIN_LOCKOUT_THRESHOLD", 2)
+        user = make_user()
+        for _ in range(2):
+            login(client, user.username, password="Wrong-password-1!")
+        # Locked out on the account+IP dimension now, even with the right password.
+        assert "Too many failed login attempts" in login(client, user.username).get_data(as_text=True)
+
+        reset = make_password_reset(user)
+        self._consume_token(client, reset.token)
+        new_password = "Brand-New-pw1!"
+        client.post("/v1/reset-password", data={
+            "password": new_password, "confirm_password": new_password})
+
+        # The successful reset is itself a "clear the failure count" boundary (see
+        # recent_login_failures), so the correct new password works immediately.
+        response = login(client, user.username, password=new_password)
+        assert "HX-Push-Url" in response.headers
+
+    def test_password_change_invalidates_other_sessions(self, client, db_session, login_as):
+        """set_user_password bumps User.session_version; a session issued before the bump (this
+        one, from login_as) must die on its very next request -- see User.get_id()/load_user."""
+        user = make_user()
+        login_as(user)
+        assert client.post("/v1/logout", headers={"HX-Request": "true"}).status_code == 204
+
+        login_as(user)
+        set_user_password(user, "Brand-New-pw1!")
+
+        response = client.post("/v1/logout")
+        assert response.status_code == 302
+        assert "/v1/login" in response.headers["Location"]

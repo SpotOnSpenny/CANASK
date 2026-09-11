@@ -3,7 +3,7 @@ import re
 
 # External Imports
 from bcrypt import hashpw, gensalt, checkpw
-from flask import flash, has_request_context
+from flask import flash, has_request_context, current_app
 
 # Internal Imports
 from data_viz.database import db
@@ -216,6 +216,9 @@ def set_site_admin_key(new_password, changed_by = None, ip_address = None):
 def set_user_password(user, new_password, ip_address = None):
     # Strength validation is the caller's job (same convention as set_site_admin_key).
     user.password_hash = hashpw(new_password.encode("utf-8"), gensalt()).decode("utf-8")
+    # Bump so every OTHER session for this account fails load_user's version check on its next
+    # request -- the standard "reset my password to kick out whoever's in my account" expectation.
+    user.session_version = (user.session_version or 0) + 1
 
     activity = UserActivity(
         user_id = user.id,
@@ -228,7 +231,12 @@ def set_user_password(user, new_password, ip_address = None):
 
     db.session.add(user)
     db.session.add(activity)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error committing password reset for user {user.id}: {str(e)}")
+        raise
     return user
 
 def deactivate_user(user_id, deactivated_by = None, ip_address = None):

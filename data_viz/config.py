@@ -90,6 +90,7 @@ class Config():
     RATELIMIT_FEEDBACK_GLOBAL = os.environ.get("RATELIMIT_FEEDBACK_GLOBAL", "100 per day")  # all IPs, SES cost cap
     RATELIMIT_PASSWORD_RESET = os.environ.get("RATELIMIT_PASSWORD_RESET", "5 per hour")            # per IP
     RATELIMIT_PASSWORD_RESET_GLOBAL = os.environ.get("RATELIMIT_PASSWORD_RESET_GLOBAL", "100 per day")  # all IPs, SES cost cap
+    RATELIMIT_PASSWORD_RESET_SUBMIT = os.environ.get("RATELIMIT_PASSWORD_RESET_SUBMIT", "10 per minute")  # per IP, POST only
     RATELIMIT_API = os.environ.get("RATELIMIT_API", "60 per minute")                   # per IP
     RATELIMIT_LOGIN = os.environ.get("RATELIMIT_LOGIN", "10 per minute")               # per IP, POST only
 

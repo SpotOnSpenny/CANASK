@@ -1,4 +1,5 @@
 # External Imports
+from datetime import datetime, timezone
 from flask_login import UserMixin
 import jwt
 
@@ -25,6 +26,15 @@ class User(UserMixin, db.Model):
     status = db.Column(db.String(50), default = STATUS_INVITED)
     site_admin = db.Column(db.Boolean, default = False)
     invited_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable = True)
+    # Bumped whenever this account's password changes (see set_user_password). get_id() folds
+    # it into Flask-Login's session identifier, so every OTHER session holding the old value
+    # fails load_user's version check on its next request -- a lightweight "log out everywhere"
+    # that needs no extra package (Flask-Login's own alternative_token would work too, but this
+    # keeps the invalidation logic in one place we already own).
+    session_version = db.Column(db.Integer, nullable = False, default = 1)
+
+    def get_id(self):
+        return f"{self.id}:{self.session_version}"
 
     @property
     def is_active(self):
@@ -95,6 +105,18 @@ class Invites(db.Model):
         self.token = jwt.encode(payload, secret_key, algorithm="HS256")
         return self.token
 
+    @classmethod
+    def create(cls, secret_key, **fields):
+        """Add + flush (so the JWT payload can carry the row's id) + generate_jwt, as one
+        step -- `token` is nullable only to make this two-phase dance possible, and a call site
+        that constructed an Invites row directly and skipped generate_jwt would silently commit
+        a permanently-dead, tokenless row. Routing every creation through here closes that gap."""
+        invite = cls(**fields)
+        db.session.add(invite)
+        db.session.flush()
+        invite.generate_jwt(secret_key)
+        return invite
+
 class InviteGroups(db.Model):
     __tablename__ = "invite_groups"
     __tableargs__ = (db.UniqueConstraint("invite_id", "group_id", name = "uq_invite_group"))
@@ -123,6 +145,9 @@ class PasswordResets(db.Model):
 
     user = db.relationship("User", foreign_keys = [user_id])
 
+    def __repr__(self):
+        return f"<PasswordReset User ID: {self.user_id}, Used: {self.used_at is not None}>"
+
     def generate_jwt(self, secret_key):
         # "purpose" + distinct claim names keep this token non-interchangeable with
         # invite JWTs, which may share a signing key via the SECRET_KEY fallback.
@@ -134,6 +159,40 @@ class PasswordResets(db.Model):
         }
         self.token = jwt.encode(payload, secret_key, algorithm="HS256")
         return self.token
+
+    @classmethod
+    def create(cls, secret_key, **fields):
+        """Add + flush (so the JWT payload can carry the row's id) + generate_jwt, as one
+        step -- see Invites.create, which this mirrors for the same reason."""
+        reset = cls(**fields)
+        db.session.add(reset)
+        db.session.flush()
+        reset.generate_jwt(secret_key)
+        return reset
+
+    @property
+    def is_expired(self):
+        # expires_at may come back naive (DB round trip) or aware (same-session, just-flushed) --
+        # normalize to aware UTC before comparing so this can't TypeError either way. Owned here
+        # rather than ad hoc at each call site, so a second caller can't reintroduce the bug.
+        expiry = self.expires_at
+        if expiry.tzinfo is None:
+            expiry = expiry.replace(tzinfo=timezone.utc)
+        return expiry < datetime.now(timezone.utc)
+
+    @property
+    def is_valid(self):
+        return self.used_at is None and not self.is_expired
+
+    def claim(self):
+        """Atomically mark this reset used and return True only if THIS call is the one that
+        claimed it. A plain `self.used_at = ...` assignment lets two concurrent submissions of
+        the same still-valid token both pass an earlier `is_valid` check before either commits,
+        redeeming a token meant to be single-use twice; the UPDATE ... WHERE used_at IS NULL
+        here is a compare-and-swap at the database row level that only one of them can win."""
+        claimed = PasswordResets.query.filter_by(id=self.id, used_at=None).update(
+            {"used_at": db.func.current_timestamp()})
+        return claimed == 1
 
 class Visuals(db.Model):
     __tablename__ = "visuals"

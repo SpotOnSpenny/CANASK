@@ -15,7 +15,7 @@ def login_as(client, db_session):
     (recaptcha, bcrypt, lockout) has its own explicit tests in test_auth_routes.py."""
     def _login(user):
         with client.session_transaction() as sess:
-            sess["_user_id"] = str(user.id)
+            sess["_user_id"] = user.get_id()
             sess["_fresh"] = True
         return user
     return _login

@@ -10,7 +10,7 @@ import jwt
 from flask_login import login_user, current_user, logout_user
 from flask_wtf.csrf import generate_csrf
 from celery.result import AsyncResult
-from sqlalchemy import or_, func
+from sqlalchemy import or_, and_, func
 
 
 # Internal imports
@@ -37,7 +37,9 @@ def recent_login_failures(user_id, ip_address=None):
     """Count this account's failed login attempts inside the lockout window (see LOGIN_LOCKOUT_*),
     optionally restricted to one source IP. Failures before the account's most recent successful
     login don't count -- a legitimate user who mistyped near the threshold must not be locked out
-    right after authenticating."""
+    right after authenticating. A successful password reset counts as the same kind of boundary:
+    without it, a user who trips the lockout and then uses "Forgot password?" would reset
+    successfully but stay locked out immediately after."""
     cutoff = datetime.now(timezone.utc) - current_app.config["LOGIN_LOCKOUT_WINDOW"]
     query = UserActivity.query.filter(
         UserActivity.user_id == user_id,
@@ -47,9 +49,12 @@ def recent_login_failures(user_id, ip_address=None):
     )
     last_success = (UserActivity.query.filter(
         UserActivity.user_id == user_id,
-        UserActivity.activity_type == "authentication attempt",
-        UserActivity.details == "Successful login",
         UserActivity.timestamp >= cutoff,
+        or_(
+            and_(UserActivity.activity_type == "authentication attempt",
+                 UserActivity.details == "Successful login"),
+            UserActivity.activity_type == "password reset",
+        ),
     ).order_by(UserActivity.timestamp.desc()).first())
     if last_success:
         query = query.filter(UserActivity.timestamp > last_success.timestamp)
@@ -200,22 +205,36 @@ def send_invite_email(invite):
         """
     return send_ses_email([invite.email], subject, html_body)
 
+def _format_duration(delta):
+    """Humanize a timedelta for the reset email, picking the coarsest unit that divides it
+    evenly (60 -> "60 minutes", 120 -> "2 hours", 1440 -> "1 day") so PASSWORD_RESET_EXPIRY_MINUTES
+    reads naturally regardless of how an operator sets it."""
+    total_minutes = int(delta.total_seconds() // 60)
+    if total_minutes and total_minutes % 1440 == 0:
+        value, unit = total_minutes // 1440, "day"
+    elif total_minutes and total_minutes % 60 == 0:
+        value, unit = total_minutes // 60, "hour"
+    else:
+        value, unit = total_minutes, "minute"
+    return f"{value} {unit}{'s' if value != 1 else ''}"
+
+
 def create_password_reset(user):
     """Create a brand-new password reset row (+ JWT, activity log) for an active user, superseding
-    any prior unused request for that user, and return it."""
+    any prior unused request for that user, and return it. This is only reached on the "user found
+    and active" branch of forgot_password, so an unhandled exception here would produce a 500
+    distinguishable from the identical "if an account exists..." response the rest of that route
+    works hard to guarantee -- undermining its anti-enumeration design. Caller must catch."""
     PasswordResets.query.filter_by(user_id=user.id, used_at=None).update(
         {"used_at": db.func.current_timestamp()})
 
     token_expiry = datetime.now(timezone.utc) + current_app.config["PASSWORD_RESET_EXPIRY"]
-    reset = PasswordResets(
+    reset = PasswordResets.create(
+        current_app.config["PASSWORD_RESET_JWT_SECRET"],
         user_id=user.id,
         expires_at=token_expiry,
         requested_ip=request.remote_addr
     )
-    db.session.add(reset)
-    db.session.flush()  # need reset.id for the JWT payload
-
-    reset.generate_jwt(current_app.config["PASSWORD_RESET_JWT_SECRET"])
 
     db.session.add(UserActivity(
         user_id=user.id,
@@ -246,9 +265,25 @@ def send_reset_email(reset, email):
         <p>A password reset was requested for your CANASK account.</p>
         <p><a href="{reset_url}">Reset your password</a>.</p>
         <p>Or paste this link into your browser:<br>{reset_url}</p>
-        <p>This link expires in 60 minutes. If you didn't request this, you can ignore this email.</p>
+        <p>This link expires in {_format_duration(current_app.config["PASSWORD_RESET_EXPIRY"])}. If you didn't request this, you can ignore this email.</p>
         """
     return send_ses_email([email], subject, html_body)
+
+
+def _log_token_attempt(flow, reason, user_id=None):
+    """Append a logger warning + UserActivity row for a rejected invite/reset token (invalid,
+    expired, tampered, or superseded). Without this, a burst of token-guessing/probing traffic
+    against either flow leaves zero trail."""
+    current_app.logger.warning("%s token rejected (%s) from %s", flow, reason, request.remote_addr)
+    db.session.add(UserActivity(
+        user_id=user_id,
+        activity_type=f"{flow}_token_rejected",
+        activity_target_type="account",
+        activity_target_id=user_id,
+        details=reason,
+        ip_address=request.remote_addr,
+    ))
+    db.session.commit()
 
 # Decorator to check if user is authenticated or not
 def require_auth(view):
@@ -264,7 +299,16 @@ def require_auth(view):
 
 @login_manager.user_loader
 def load_user(user_id):
-    user = User.query.get(int(user_id))
+    # user_id is User.get_id()'s "<id>:<session_version>" composite. A version mismatch means
+    # the account's password changed since this session was issued (see set_user_password) --
+    # treat it exactly like a deactivated account below: dead on this very next request.
+    raw_id, _, version = user_id.partition(":")
+    try:
+        user = User.query.get(int(raw_id))
+    except ValueError:
+        return None
+    if user and str(user.session_version) != version:
+        return None
     # A deactivated account's existing session dies here: returning None makes Flask-Login treat the
     # request as anonymous on its very next request, regardless of the session cookie's lifetime.
     if user and not user.is_active:
@@ -402,15 +446,14 @@ def validate_group_assignments(group_assignments, groups_with_required_role):
 def create_invite(email, group_assignments, site_admin_invite):
     """Create a brand-new pending invite (+ JWT, expiry task, activity log) and return it."""
     token_expiry = datetime.now(timezone.utc) + current_app.config["INVITE_TOKEN_EXPIRY"]
-    invite = Invites(
+    invite = Invites.create(
+        current_app.config["INVITE_JWT_SECRET"],
         email = email,
         status = "pending",
         expires_at = token_expiry,
         sent_by = current_user.id,
         site_admin_invite = site_admin_invite
     )
-    db.session.add(invite)
-    db.session.flush()
 
     if not site_admin_invite:
         for group_id, role in group_assignments.items():
@@ -429,7 +472,6 @@ def create_invite(email, group_assignments, site_admin_invite):
         ip_address = request.remote_addr
     ))
 
-    invite.token = invite.generate_jwt(current_app.config["INVITE_JWT_SECRET"])
     task = expire_invite.apply_async(args = [invite.id], eta = token_expiry)
     invite.expiry_task_id = task.id
     db.session.commit()
@@ -1749,9 +1791,11 @@ def accept_invite(token = None):
         try:
             jwt.decode(token, current_app.config["INVITE_JWT_SECRET"], algorithms=["HS256"])
         except jwt.ExpiredSignatureError:
+            _log_token_attempt("invite", "expired")
             flash("This invite link has expired.", "danger")
             return redirect(url_for("auth.login"))
         except jwt.InvalidTokenError:
+            _log_token_attempt("invite", "invalid or tampered")
             flash("The invite link is invalid.", "danger")
             return redirect(url_for("auth.login"))
         session["invite_token"] = token
@@ -1767,16 +1811,19 @@ def accept_invite(token = None):
         payload = jwt.decode(token, current_app.config["INVITE_JWT_SECRET"], algorithms=["HS256"])
     except jwt.ExpiredSignatureError:
         session.pop("invite_token", None)
+        _log_token_attempt("invite", "expired")
         flash("This invite link has expired.", "danger")
         return redirect(url_for("auth.login"))
     except jwt.InvalidTokenError:
         session.pop("invite_token", None)
+        _log_token_attempt("invite", "invalid or tampered")
         flash("The invite link is invalid.", "danger")
         return redirect(url_for("auth.login"))
 
     invite = Invites.query.get(payload.get("invite_id"))
     if not invite or invite.status != "pending":
         session.pop("invite_token", None)
+        _log_token_attempt("invite", "no longer pending", user_id=invite.sent_by if invite else None)
         flash("This invite is no longer valid.", "danger")
         return redirect(url_for("auth.login"))
 
@@ -1784,6 +1831,7 @@ def accept_invite(token = None):
     # a previously-issued (not-yet-expired) token must not remain usable while status is still "pending".
     if token != invite.token:
         session.pop("invite_token", None)
+        _log_token_attempt("invite", "superseded", user_id=invite.sent_by)
         flash("This invite link has been superseded. Please use the most recent invite email.", "danger")
         return redirect(url_for("auth.login"))
 
@@ -1871,13 +1919,16 @@ def accept_invite(token = None):
 
 @auth_blueprint.route("/v1/forgot-password", methods=["GET", "POST"])
 # Mirrors the feedback dual-limit (main.py): per-IP throttle plus a global SES-cost ceiling that
-# only deducts on a response that actually completes the flow (200/302), so a flood of
-# reCAPTCHA-failing or malformed-email requests can't exhaust the budget. GET is unlimited.
+# only deducts on a response that actually completes the flow, so a flood of reCAPTCHA-failing
+# or malformed-email requests can't exhaust the budget. GET is unlimited. Unlike /feedback (whose
+# success path IS the 200), this route's success path is the 302 to login -- the malformed-email
+# and reCAPTCHA-failure branches both re-render the form with a 200, so gating on 200 would still
+# let those exhaust the budget.
 @limiter.limit(lambda: current_app.config["RATELIMIT_PASSWORD_RESET"],
                exempt_when=lambda: request.method == "GET")
 @limiter.limit(lambda: current_app.config["RATELIMIT_PASSWORD_RESET_GLOBAL"],
                key_func=lambda: "password-reset-global",
-               deduct_when=lambda r: r.status_code in (200, 302),
+               deduct_when=lambda r: r.status_code == 302,
                exempt_when=lambda: request.method == "GET")
 def forgot_password():
     if current_user.is_authenticated:
@@ -1909,35 +1960,70 @@ def forgot_password():
     user = User.query.filter(func.lower(User.email) == email.lower()).first()
 
     if user and user.status == User.STATUS_ACTIVE:
-        reset = create_password_reset(user)
-        sent_ok = send_reset_email(reset, user.email)
-        if not sent_ok:
-            current_app.logger.error("Failed to send password reset email to %s", user.email)
+        try:
+            reset = create_password_reset(user)
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error(f"Error creating password reset for {user.email}: {str(e)}")
+            reset = None
+        if reset:
+            sent_ok = send_reset_email(reset, user.email)
+            if not sent_ok:
+                current_app.logger.error("Failed to send password reset email to %s", user.email)
+                db.session.add(UserActivity(
+                    user_id=user.id,
+                    activity_type="password reset email failed",
+                    activity_target_type="account",
+                    activity_target_id=user.id,
+                    details=f"Password reset email failed to send for {user.username}",
+                    ip_address=request.remote_addr
+                ))
+                db.session.commit()
     else:
         # No account, or one that can't use a reset link (invited/deactivated): do nothing, but
-        # still pay roughly the same JWT-signing cost as the real-send branch above so the two
-        # paths don't diverge in timing (the analogue of _DUMMY_PASSWORD_HASH's checkpw in login()).
+        # still pay roughly the same JWT-signing cost as the real-send branch above -- not a claim
+        # that this fully closes the timing gap (the real branch also pays 2-3 DB round trips plus,
+        # outside DEBUG, a synchronous SES call), just a cheap step in that direction (the analogue
+        # of _DUMMY_PASSWORD_HASH's checkpw in login()).
         jwt.encode({"purpose": "password_reset", "user_id": 0, "reset_id": 0, "exp": 0},
                    current_app.config["PASSWORD_RESET_JWT_SECRET"], algorithm="HS256")
 
-    flash("If an account exists for that address, a password reset link has been sent.", "info")
+    # Identical regardless of found/not-found, active/invited/deactivated, or send success/failure
+    # (see the docstring above) -- a conditional "we couldn't send it" message here would itself be
+    # an enumeration oracle (only a real active account ever reaches the send step), so any
+    # send/DB failure is surfaced to the user in this SAME generic copy, never a distinct one.
+    flash("If an account exists for that address, a password reset link has been sent. If you "
+          "don't receive it shortly, please try again, and contact an administrator if the "
+          "issue persists.", "info")
     return redirect(url_for("auth.login"))
 
 @auth_blueprint.route("/v1/reset-password", methods=["GET", "POST"])
 @auth_blueprint.route("/v1/reset-password/<token>", methods=["GET"])
+# The route that actually writes the new password; consistent with login/feedback/forgot-password,
+# all of which throttle their write step. The POST requires a valid session-held token, so this is
+# defense in depth rather than the primary control.
+@limiter.limit(lambda: current_app.config["RATELIMIT_PASSWORD_RESET_SUBMIT"],
+               exempt_when=lambda: request.method == "GET")
 def reset_password(token=None):
     if current_user.is_authenticated:
         flash("You are already logged in.", "warning")
         return redirect(url_for("main.index"))
+
+    def _render_reset_password(email):
+        if request.headers.get("HX-Request"):
+            return render_template("v1/reset_password.jinja", email=email)
+        return render_template("base.jinja", include_partials="reset password", email=email)
 
     # Handle token from URL
     if token:
         try:
             jwt.decode(token, current_app.config["PASSWORD_RESET_JWT_SECRET"], algorithms=["HS256"])
         except jwt.ExpiredSignatureError:
+            _log_token_attempt("password_reset", "expired")
             flash("This password reset link has expired. Please request a new one.", "danger")
             return redirect(url_for("auth.login"))
         except jwt.InvalidTokenError:
+            _log_token_attempt("password_reset", "invalid or tampered")
             flash("This password reset link is invalid.", "danger")
             return redirect(url_for("auth.login"))
         # Keeps the bearer token out of the address bar/Referer for the POST.
@@ -1954,10 +2040,12 @@ def reset_password(token=None):
         payload = jwt.decode(token, current_app.config["PASSWORD_RESET_JWT_SECRET"], algorithms=["HS256"])
     except jwt.ExpiredSignatureError:
         session.pop("password_reset_token", None)
+        _log_token_attempt("password_reset", "expired")
         flash("This password reset link has expired. Please request a new one.", "danger")
         return redirect(url_for("auth.login"))
     except jwt.InvalidTokenError:
         session.pop("password_reset_token", None)
+        _log_token_attempt("password_reset", "invalid or tampered")
         flash("This password reset link is invalid.", "danger")
         return redirect(url_for("auth.login"))
 
@@ -1965,17 +2053,15 @@ def reset_password(token=None):
     # even when both tokens are signed with the same fallback SECRET_KEY.
     if payload.get("purpose") != "password_reset":
         session.pop("password_reset_token", None)
+        _log_token_attempt("password_reset", "wrong token purpose")
         flash("This password reset link is invalid.", "danger")
         return redirect(url_for("auth.login"))
 
     reset = PasswordResets.query.get(payload.get("reset_id"))
-    # expires_at may come back naive (DB round trip) or aware (same-session, just-flushed) --
-    # normalize to aware UTC before comparing so this can't TypeError either way.
-    reset_expiry = (reset.expires_at.replace(tzinfo=timezone.utc)
-                     if reset and reset.expires_at.tzinfo is None else
-                     (reset.expires_at if reset else None))
-    if not reset or reset.used_at is not None or reset_expiry < datetime.now(timezone.utc):
+    if not reset or not reset.is_valid:
         session.pop("password_reset_token", None)
+        _log_token_attempt("password_reset", "used, expired, or missing row",
+                            user_id=reset.user_id if reset else payload.get("user_id"))
         flash("This password reset link is no longer valid. Please request a new one.", "danger")
         return redirect(url_for("auth.login"))
 
@@ -1984,6 +2070,7 @@ def reset_password(token=None):
     # token must not remain usable once it has been superseded.
     if token != reset.token:
         session.pop("password_reset_token", None)
+        _log_token_attempt("password_reset", "superseded", user_id=reset.user_id)
         flash("This password reset link has been superseded. Please use the most recent email.", "danger")
         return redirect(url_for("auth.login"))
 
@@ -1996,9 +2083,7 @@ def reset_password(token=None):
         return redirect(url_for("auth.login"))
 
     if request.method == "GET":
-        return render_template("base.jinja",
-                            include_partials="reset password",
-                            email=user.email)
+        return _render_reset_password(user.email)
 
     if request.method == "POST":
         password = request.form.get("password")
@@ -2015,8 +2100,19 @@ def reset_password(token=None):
         # Deliberately no comparison against the current password hash: checking (or messaging on)
         # whether the new password matches the old one would leak information about the old
         # password to whoever holds this token.
-        reset.used_at = db.func.current_timestamp()
-        set_user_password(user, password, ip_address=request.remote_addr)
+        if not reset.claim():
+            # Lost the race to a concurrent submission of the same token -- see PasswordResets.claim.
+            session.pop("password_reset_token", None)
+            flash("This password reset link is no longer valid. Please request a new one.", "danger")
+            return redirect(url_for("auth.login"))
+        try:
+            set_user_password(user, password, ip_address=request.remote_addr)
+        except Exception:
+            # set_user_password already rolled back and logged -- that also un-claims the token
+            # above (same transaction), so keep the session token and let the user retry.
+            flash("We couldn't reset your password just now. Please try again. If it keeps "
+                  "happening, email spencer.fietz@ucalgary.ca.", "danger")
+            return redirect(url_for("auth.reset_password"))
 
         session.pop("password_reset_token", None)
         flash("Your password has been reset. Please log in.", "success")
