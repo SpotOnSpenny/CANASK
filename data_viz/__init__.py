@@ -1,5 +1,7 @@
 # Python Standard Library Dependencies
 import os
+from datetime import timezone
+from zoneinfo import ZoneInfo
 
 # External Dependency Imports
 from flask import Flask, redirect, current_app, request, render_template, flash, get_flashed_messages, jsonify, make_response
@@ -13,8 +15,10 @@ from data_viz.main import main_blueprint
 from data_viz.database import db, migrate
 from data_viz.auth import login_manager
 from data_viz.auth.auth import auth_blueprint
+from data_viz.data_updates import data_updates_blueprint, handle_upload_too_large
 from data_viz.cli import register_cli
 from celery_worker.celery import init_celery
+from werkzeug.exceptions import RequestEntityTooLarge
 
 #######################################################################################
 #                                        Notes:                                       #
@@ -79,6 +83,12 @@ def visual_label(visual):
     if getattr(visual, "menu_name", None):
         return visual.menu_name
     return (visual.name or "").replace("_", " ").capitalize()
+
+@app.template_filter("mt")
+def mt(value):
+    """Render a naive UTC datetime (all ScrapeRun timestamps + _now()) in Mountain time, for the
+    nightly report email and the Data Updates page (Task 11)."""
+    return value.replace(tzinfo=timezone.utc).astimezone(ZoneInfo("America/Edmonton")).strftime("%b %d %H:%M")
 
 @app.after_request
 def add_cache_control_headers(response):
@@ -145,8 +155,10 @@ def inject_nav_permissions():
     from flask_login import current_user
     from data_viz.auth.auth_helpers import nav_permissions
     from data_viz.visual_query import accessible_provinces
+    from data_viz.data_updates import data_updates_visible
     return {"nav_perms": nav_permissions(current_user),
-            "accessible_provinces": accessible_provinces(current_user)}
+            "accessible_provinces": accessible_provinces(current_user),
+            "data_updates_visible": data_updates_visible(current_user)}
 
 # Expose the current page's title to every template so base.jinja can set the <title> on full page
 # loads. Distinct from the `page_title` kwarg some routes pass for the breadcrumb heading.
@@ -161,9 +173,37 @@ app_folder = os.path.dirname(os.path.abspath(__file__))
 migrations_folder = os.path.join(app_folder, "database", "migrations")
 migrate.init_app(app, db, directory=migrations_folder)
 
+# Raise the per-request body-size cap for the Data Updates upload endpoint BEFORE CSRF gets a
+# chance to parse the request body. CSRFProtect's own before_request reads request.form (to look
+# for the csrf_token field, even when the token actually arrives via header) on every state-changing
+# request, which forces werkzeug to parse the whole multipart body against whatever
+# max_content_length is in effect at that moment. Flask runs before_request functions in
+# registration order (app-level functions all run before any blueprint-level ones, in the order they
+# were added to app.before_request_funcs), and by the time ANY before_request function runs, request
+# routing has already completed (RequestContext.push() calls match_request() before
+# preprocess_request()), so request.endpoint/view_args are available here. Registering this ahead of
+# csrf.init_app(app) below is what makes it run first, ahead of CSRFProtect's own hook -- setting
+# request.max_content_length from inside the upload view itself (as before) is too late, since CSRF
+# already parsed (and 413'd) the body under the app-wide MAX_CONTENT_LENGTH (2 MB) by then.
+# Site admins only: this runs before the view's own @require_auth / site-admin check, so without the
+# gate any client (anonymous included) could make the app parse bodies up to the raised cap.
+@app.before_request
+def _raise_upload_content_length():
+    from flask_login import current_user
+    if (request.method == "POST" and request.endpoint == "data_updates.upload"
+            and getattr(current_user, "site_admin", False)):
+        request.max_content_length = app.config["SCRAPE_UPLOAD_MAX_BYTES"]
+
 # Initialize CSRF protection for the application
 csrf = CSRFProtect()
 csrf.init_app(app)
+
+# A too-large upload (past SCRAPE_UPLOAD_MAX_BYTES, raised above) surfaces as a werkzeug
+# RequestEntityTooLarge -- possibly raised inside CSRFProtect's own before_request, before the
+# upload view ever runs, so this can't be caught with a plain try/except in the view. Handled here,
+# app-wide, and delegated to the Data Updates blueprint so the error lands inside the upload modal
+# instead of a bare 413 page; every other route just gets werkzeug's default 413 back unchanged.
+app.register_error_handler(RequestEntityTooLarge, handle_upload_too_large)
 
 # Initialize rate limiting (Redis-backed, keyed on the real client IP). Config comes from the
 # RATELIMIT_* keys set in data_viz/config.py. Static assets are exempt so page loads with many
@@ -190,6 +230,7 @@ login_manager.init_app(app)
 # Register the blueprints for the application
 app.register_blueprint(main_blueprint)
 app.register_blueprint(auth_blueprint)
+app.register_blueprint(data_updates_blueprint)
 
 # Error handling for 404 errors
 @app.errorhandler(404)

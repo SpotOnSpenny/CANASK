@@ -1,0 +1,38 @@
+<div class="container-fluid py-3" id="data-updates">
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h2 class="h4 mb-0">Data Updates</h2>
+    {% if is_admin %}
+    <div class="form-check form-switch mb-0">
+      <input class="form-check-input" type="checkbox" role="switch" id="report-sub" name="subscribed" value="1"
+             {% if current_user.data_report_subscribed %}checked{% endif %}
+             hx-post="/v1/admin/data-updates/subscription" hx-trigger="change"
+             hx-vals='js:{subscribed: event.target.checked ? "1" : "0"}' hx-swap="none">
+      <label class="form-check-label" for="report-sub">Email me the nightly report</label>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="table-responsive mb-4">
+    <table class="table table-sm align-middle">
+      <thead><tr><th>Source</th><th>Data until</th><th>Last run</th><th>Status</th>{% if is_admin %}<th>Scheduled</th><th>Auto-publish</th><th></th>{% endif %}</tr></thead>
+      <tbody>
+        {% for row in rows %}{% include "v1/partials/data_updates_source_row.jinja" %}{% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="d-flex gap-2 mb-2">
+    <select class="form-select form-select-sm w-auto" name="source" hx-get="/v1/admin/data-updates/runs"
+            hx-target="#run-log" hx-include="[name='status']">
+      <option value="">All sources</option>
+      {% for row in rows %}<option value="{{ row.spec.key }}">{{ row.spec.label }}</option>{% endfor %}
+    </select>
+    <select class="form-select form-select-sm w-auto" name="status" hx-get="/v1/admin/data-updates/runs"
+            hx-target="#run-log" hx-include="[name='source']">
+      <option value="">All statuses</option>
+      {% for s in statuses %}<option value="{{ s }}">{{ s.replace("_", " ") }}</option>{% endfor %}
+    </select>
+  </div>
+  <div id="run-log">{% include "v1/partials/data_updates_runs.jinja" %}</div>
+</div>
+<div class="modal fade" id="dataUpdatesModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content" id="data-updates-modal-content"></div></div></div>

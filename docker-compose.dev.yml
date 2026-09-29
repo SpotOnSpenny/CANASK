@@ -17,6 +17,10 @@ services:
     volumes:
       - .:/canask_webapp
 
+  scrape-worker:
+    volumes:
+      - .:/canask_webapp
+
   db:
     ports:
       - "5432:5432"

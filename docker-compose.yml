@@ -65,6 +65,7 @@ services:
       context: .
       args:
         REQUIREMENTS_FILE: app_requirements/requirements.scraper.txt
+        INSTALL_CHROMIUM: "1"
     command: celery -A data_viz:celery worker --loglevel=info
     logging: *default-logging
     env_file:
@@ -80,6 +81,7 @@ services:
       context: .
       args:
         REQUIREMENTS_FILE: app_requirements/requirements.scraper.txt
+        INSTALL_CHROMIUM: "1"
     command: celery -A data_viz:celery beat --loglevel=info
     logging: *default-logging
     env_file:
@@ -89,5 +91,24 @@ services:
           condition: service_healthy
         redis:
           condition: service_healthy
+
+  # Single-lane scrape worker: one Chrome at a time, a fresh process per task (no leaked browsers or
+  # pandas memory across scrapes). Runs the "scrape" queue only; invite expiry stays on `worker`.
+  scrape-worker:
+    build:
+      context: .
+      args:
+        REQUIREMENTS_FILE: app_requirements/requirements.scraper.txt
+        INSTALL_CHROMIUM: "1"
+    command: celery -A data_viz:celery worker -Q scrape --concurrency=1 --max-tasks-per-child=1 --loglevel=info -n scrape@%h
+    shm_size: 1gb
+    logging: *default-logging
+    env_file:
+      - ${APP_ENV_FILE:-app_config/.env.dev}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 volumes:
   postgres_data:

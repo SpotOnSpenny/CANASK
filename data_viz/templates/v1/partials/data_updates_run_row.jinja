@@ -1,0 +1,26 @@
+{% set in_flight = run.status in ("validating", "running") %}
+<tr id="run-{{ run.id }}" {% if in_flight %}hx-get="/v1/admin/data-updates/runs/{{ run.id }}" hx-trigger="every 5s" hx-swap="outerHTML"{% endif %}>
+  <td>{{ run.started_at|mt }}</td>
+  <td>{{ run.source_key }}</td>
+  <td>{{ run.trigger }}{% if run.triggered_by %} ({{ run.triggered_by.username }}){% endif %}</td>
+  <td>{% if in_flight %}<span class="spinner-border spinner-border-sm"></span> {{ "Validating…" if run.status == "validating" else "Running…" }}
+      {% else %}{{ run.status.replace("_", " ") }}{% endif %}</td>
+  <td>{{ run.data_until or "—" }}{% if run.previous_data_until %} <small class="text-muted">(was {{ run.previous_data_until }})</small>{% endif %}</td>
+  <td class="text-nowrap">
+    <details><summary class="small">Details</summary>
+      {% for c in run.check_results or [] %}<div class="small">[{{ c.level }}] {{ c.message }}</div>{% endfor %}
+      {% for n in run.notices or [] %}<div class="small text-primary">[new data] {{ n.message }}</div>{% endfor %}
+      {% if run.decided_by %}<div class="small text-muted">Decided by {{ run.decided_by.username }} · {{ run.decided_at|mt }}</div>{% endif %}
+      {% if is_admin and run.error %}<pre class="small mb-0">{{ run.error }}</pre>{% endif %}
+    </details>
+    {% if is_admin %}
+      {% if run.status == "held" %}
+        <button class="btn btn-sm btn-success" hx-get="/v1/admin/data-updates/runs/{{ run.id }}/confirm/publish" hx-target="#data-updates-modal-content" data-bs-toggle="modal" data-bs-target="#dataUpdatesModal">Publish</button>
+        <button class="btn btn-sm btn-outline-danger" hx-get="/v1/admin/data-updates/runs/{{ run.id }}/confirm/discard" hx-target="#data-updates-modal-content" data-bs-toggle="modal" data-bs-target="#dataUpdatesModal">Discard</button>
+      {% elif run.id in rollback_ids %}
+        <button class="btn btn-sm btn-outline-warning" hx-get="/v1/admin/data-updates/runs/{{ run.id }}/confirm/rollback" hx-target="#data-updates-modal-content" data-bs-toggle="modal" data-bs-target="#dataUpdatesModal">
+          {{ "Replay to here" if run.source_key == "nationalDAS" else "Roll back to this" }}</button>
+      {% endif %}
+    {% endif %}
+  </td>
+</tr>

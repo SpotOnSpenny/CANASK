@@ -11,6 +11,9 @@ web-logs:
 worker-logs:
 	docker compose --env-file app_config/.env.dev -f docker-compose.yml -f docker-compose.dev.yml logs -f worker
 
+scrape-logs:
+	docker compose --env-file app_config/.env.dev -f docker-compose.yml -f docker-compose.dev.yml logs -f scrape-worker
+
 # Tests. The `test` service image layers pytest onto the webapp requirements
 # (docker-compose.test.yml); tests/conftest.py rewrites the database name in
 # DATABASE_URL to <name>_test before the app imports, so the dev DB is never touched.
@@ -82,6 +85,10 @@ prod-build-visuals:
 prod-ingest-das:
 	$(PROD) exec web flask ingest-das $(if $(file),--file "$(file)")
 
+# One-time: archive output/ files to the scrape store (S3) as each source's initial active version.
+prod-bootstrap-sources:
+	$(PROD) exec web flask bootstrap-sources
+
 # Copy source file(s) already scp'd into this host's ~/CANASK/output/ into the running web
 # container's output/ dir. Prod has no bind mount and .dockerignore excludes output/ from the
 # image, so new scraped/ingested files never arrive automatically -- see UPDATE_PROD.md.
@@ -129,6 +136,10 @@ build-visuals: define-visuals gen-visuals
 # Ingest the monthly Drug Analysis Service workbook into the das_* row-level tables.
 ingest-das:
 	docker compose --env-file app_config/.env.dev exec web flask ingest-das
+
+# One-time: archive output/ files to the scrape store (S3) as each source's initial active version.
+bootstrap-sources:
+	docker compose --env-file app_config/.env.dev exec web flask bootstrap-sources
 
 # Rebuild the DAS city gazetteer (static/assets/das_city_coords.json) after an ingest
 # introduces new cities. Needs output/geonames_CA.zip (GeoNames CA dump).

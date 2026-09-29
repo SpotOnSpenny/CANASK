@@ -65,6 +65,7 @@ pydantic==2.13.4
 pydantic_core==2.46.4
 PyJWT==2.13.0
 pyogrio==0.13.0
+pypdf==6.19.0
 pyproj==3.7.2
 PySocks==1.7.1
 python-calamine==0.7.0

@@ -3,6 +3,7 @@ import os
 
 # External Imports
 from celery import Celery
+from celery.schedules import crontab
 from flask import Flask
 
 
@@ -16,7 +17,20 @@ def init_celery(app: Flask) -> Celery:
         broker_url = os.environ.get("CELERY_BROKER_URL"),
         result_backend = os.environ.get("CELERY_RESULT_BACKEND"),
         broker_transport_options = {"visibility_timeout": invite_expiry_seconds + 3600},
-        imports=["celery_worker.tasks.invite_jwt_expiry"]
+        imports=["celery_worker.tasks.invite_jwt_expiry", "celery_worker.tasks.data_collection"],
+        timezone="America/Edmonton",
+        # Scrapes run one at a time on their own worker (scrape-worker: -Q scrape --concurrency=1) so a
+        # 20-minute PowerBI scrape never delays invite expiry on the default queue.
+        task_routes={f"celery_worker.tasks.data_collection.{name}": {"queue": "scrape"}
+                     for name in ("run_source_task", "process_upload_task", "publish_run_task", "rollback_task")},
+        beat_schedule={
+            "nightly-refresh": {"task": "celery_worker.tasks.data_collection.nightly_refresh",
+                                "schedule": crontab(hour=1, minute=0)},
+            "nightly-report": {"task": "celery_worker.tasks.data_collection.nightly_report",
+                               "schedule": crontab(hour=6, minute=0)},
+            "sweep-stuck-runs": {"task": "celery_worker.tasks.data_collection.sweep_stuck_runs_task",
+                                 "schedule": crontab(minute=30)},
+        },
     )
 
     class ContextTask(celery.Task):

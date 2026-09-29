@@ -16,13 +16,15 @@ Topology: **client → Cloudflare (HTTPS) → nginx container (TLS, mTLS) → gu
 ## Before you start
 
 - A Cloudflare zone for your domain.
-- The current populated database as a dump from wherever the data lives (prod does not run scrapers).
-  `make prod-backup > canask.sql` works on a machine that has `app_config/.env.prod`; on the dev box,
-  dump directly instead:
+- The current populated database as a dump from wherever the data lives — prod now runs its own nightly
+  scrapes (see **§12 Scrape archive (S3)** below), but you still want a starting point rather than blank
+  charts on first launch. `make prod-backup > canask.sql` works on a machine that has
+  `app_config/.env.prod`; on the dev box, dump directly instead:
   `docker compose --env-file app_config/.env.dev exec -T db sh -c 'pg_dump --no-owner --no-privileges -U $POSTGRES_USER $POSTGRES_DB' > canask.sql`
   (`--no-owner --no-privileges` matters when the dev and prod `DB_USER` differ — without it the
   restore's `ON_ERROR_STOP=1` aborts on the first `ALTER ... OWNER TO <dev-role>`.)
-- Values for every key in `app_config/.env.example` (rotated secrets — see `LAUNCH_TODO.md §0`).
+- Values for every key in `app_config/.env.example` (rotated secrets — see `LAUNCH_TODO.md §0`),
+  including the `SCRAPE_*` bucket/IAM values from §12.
 
 ---
 
@@ -175,3 +177,58 @@ make prod-up            # rebuilds images and recreates only changed containers
 
 > After `make drop-db` you must `flask db stamp base` before `db upgrade`, or Alembic stays stamped at
 > head and rebuilds nothing.
+
+## 12. Scrape archive (S3)
+
+Prod now runs the scrape pipeline itself: `beat` schedules nightly scrapes, a dedicated `scrape-worker`
+service runs them one at a time (headless Chromium), and every scraped/uploaded file is archived to S3
+forever — the DB (`ScrapeRun.is_active`) says which archived object the site is built from. See
+`CLAUDE.md`'s "Scrape pipeline" section for the full architecture; this section is just the AWS setup.
+
+1. **Create the bucket** (e.g. `canask-scrapes`): default settings, **Block all public access ON**,
+   **versioning OFF** (the app itself never overwrites or deletes an object — versioning would only add
+   cost, not safety).
+2. **Create the IAM user** `canask-scrape` (separate from the SES sender key and the backup-script key —
+   least privilege per credential) with this inline policy:
+   ```json
+   {"Version": "2012-10-17", "Statement": [
+     {"Effect": "Allow", "Action": ["s3:ListBucket"], "Resource": "arn:aws:s3:::<bucket>"},
+     {"Effect": "Allow", "Action": ["s3:GetObject", "s3:PutObject"], "Resource": "arn:aws:s3:::<bucket>/*"}]}
+   ```
+   Deliberately **no `s3:DeleteObject`** — a compromised app key (or a bug) can never delete an archived
+   scrape. Create an access key for this user.
+3. **Add a lifecycle rule** scoped to prefixes `prod/incoming/` and `dev/incoming/` (if you also point a
+   dev stack at the same bucket): **expire current versions after 7 days**. `incoming/` holds uploads
+   awaiting tier-1 validation; this is the only prefix ever cleared, and only by this rule — the app key
+   has no delete permission to do it itself. `scrapes/` (published/held archive) and `rejected/`
+   (diagnostics) are never touched by lifecycle rules.
+4. **Set `.env.prod`**:
+   ```
+   SCRAPE_STORAGE=s3
+   SCRAPE_S3_BUCKET=<bucket>
+   SCRAPE_S3_PREFIX=prod/
+   SCRAPE_AWS_ACCESS_KEY_ID=<canask-scrape access key>
+   SCRAPE_AWS_SECRET_ACCESS_KEY=<canask-scrape secret key>
+   SCRAPE_AWS_REGION=<bucket's region>
+   SCRAPE_UPLOAD_MAX_BYTES=26214400   # tune to the largest real workbook + headroom
+   ```
+   If you raise `SCRAPE_UPLOAD_MAX_BYTES`, also raise `client_max_body_size` in the
+   `/v1/admin/data-updates/sources/` location of `deploy/nginx/canask.conf` (currently 30m) so it stays
+   above the app cap. Otherwise nginx rejects over-cap uploads with its own 413, which the page can't display.
+5. **Bring up the stack** (`make prod-up` — the base compose already builds `scrape-worker` with
+   Chromium and the prod override adds `depends_on: init` + `restart: unless-stopped`, same as
+   `worker`/`beat`).
+6. **Bootstrap the archive from the SAME source files the restored dump was built from** (one-time,
+   idempotent by content hash). A Postgres dump has no files in it — `output/` on this box is empty
+   after a fresh `prod-up` (no shared volume, `.dockerignore` excludes it from the image) — so scp the
+   files first: copy every `<scraped>_<until>_<source>.<ext>` that produced the restored DB's visuals
+   (V1 sources plus every DAS workbook, oldest first) to this host's `~/CANASK/output/`, then
+   `make prod-copy-output` (copies them into the running `web` container) and immediately
+   `make prod-bootstrap-sources`. This archives them as each source's initial published+active version —
+   nothing is rebuilt, since the DB already reflects those files. Note: a V1 publish needs an active
+   version of **every** source its targets read (population estimates included, even though no
+   `DataSources` row names it) — `bootstrap-sources` prints a `WARNING:` line for any source still
+   missing one afterwards; scp in the missing file(s) and re-run (idempotent) before the next publish.
+7. From here on, new data arrives via the Data Updates page (`/v1/admin/data-updates`) — nightly
+   scrapes, manual **Run now**, or **Upload** — not by scp'ing files into `output/`. See `UPDATE_PROD.md`
+   procedure B for the day-to-day flow and its scp/`prod-copy-output` fallback.

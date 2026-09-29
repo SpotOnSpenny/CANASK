@@ -110,6 +110,7 @@ STATIC_PAGE_TITLES = {
     "auth.user_management": "User Management",
     "auth.group_management": "Group Management",
     "auth.data_ownership": "Data Ownership",
+    "data_updates.page": "Data Updates",
     "auth.accept_invite": "Accept Invite",
     "auth.forgot_password": "Forgot Password",
     "auth.reset_password": "Reset Password",

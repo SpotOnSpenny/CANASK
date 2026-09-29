@@ -1,105 +1,78 @@
-# Python Standard Library Dependencies
-import sys
+# Python Standard Library Imports
+import datetime
+import io
 import os
-import urllib3
-import shutil
 import zipfile
-import pandas
 
 # External Dependency Imports
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support import expected_conditions
-from selenium.webdriver.support.ui import WebDriverWait
+import pandas
+import urllib3
 
 # Internal Dependency Imports
-sys.dont_write_bytecode = True
-sys.path.append("data_scraping/scraping_utilities")
-from driver import start_driver
-from checkUps import checkup_output
+from data_scraping.context import ScrapeResult
 
 #######################################################################################
 #                                        Notes:                                       #
 #######################################################################################
+# Selenium is imported lazily inside _download_link() -- this module must stay importable
+# on the web image, which has no Selenium installed (see requirements.webapp.txt).
 
-def scrape_national_dashboard(driver):
-    # Instantiate things we need and check to see if there's already a file in the output directory
-    dataframes = []
-    http = urllib3.PoolManager()
-    file_updated = False
-    output_dir, needed_files, existing_files = checkup_output(["nationalHealthInfobase"])
-    if existing_files != []:
-        existing_file_updated = int(existing_files[0].split("_")[0])
-    
+PAGE_URL = "https://health-infobase.canada.ca/substance-related-harms/opioids-stimulants/"
+KEY = "nationalHealthInfobase"
 
-    # Load the Coroners Report page and get to data, also check the date of the report against existing scrapes to see if we need to run 
+# The label's quarter -> the first month AFTER it (data runs "until" that date).
+_QUARTER_NEXT_MONTH = {"Q1": 4, "Q2": 7, "Q3": 10, "Q4": 1}
+
+
+def data_until_from_quarter(label):
+    year, quarter = str(label).replace("\xa0", " ").split()[:2]
+    month = _QUARTER_NEXT_MONTH[quarter]
+    return datetime.date(int(year) + (1 if quarter == "Q4" else 0), month, 1)
+
+
+def _download_link(driver):
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support import expected_conditions
+    from selenium.webdriver.support.ui import WebDriverWait
+
+    driver.get(PAGE_URL)
+    return WebDriverWait(driver, 30).until(expected_conditions.presence_of_element_located(
+        (By.XPATH, '//a[contains(@class, "dataDownload")]'))).get_attribute("href")
+
+
+def _fetch(url):
+    http = urllib3.PoolManager(retries=urllib3.Retry(total=1, backoff_factor=5))
+    response = http.request("GET", url, timeout=urllib3.Timeout(connect=30, read=300))
+    if response.status != 200:
+        raise RuntimeError(f"download failed: HTTP {response.status}")
+    return response.data
+
+
+def scrape(ctx):
+    link = _download_link(ctx.driver)
+    archive = zipfile.ZipFile(io.BytesIO(_fetch(link)))
+    member = next((m for m in archive.infolist() if m.filename.endswith(".csv")), None)
+    if member is None:
+        raise RuntimeError("no CSV inside the Health Infobase download")
+    scraped_on = datetime.date(*member.date_time[:3])
+    if ctx.active and ctx.active.scraped_on and scraped_on <= ctx.active.scraped_on:
+        return ScrapeResult.no_new_data(f"download dated {scraped_on}, active version {ctx.active.scraped_on}")
+    data = archive.read(member)
+    frame = pandas.read_csv(io.BytesIO(data))
+    last = frame[(frame["PRUID"] == 1) & (frame["Time_Period"] == "By quarter")
+                 & (frame["Source"] == "Deaths")]["Year_Quarter"].iloc[-1]
+    data_until = data_until_from_quarter(last)
+    path = os.path.join(ctx.work_dir, f"{scraped_on:%Y%m%d}_{data_until:%Y%m%d}_{KEY}.csv")
+    with open(path, "wb") as handle:
+        handle.write(data)
+    return ScrapeResult.new_data(path, data_until, scraped_on)
+
+
+# Manual run: python -m data_scraping.sources.nationalHealthInfobase  (writes into ./output)
+if __name__ == "__main__":
+    from data_scraping.context import ScrapeContext
+    ctx = ScrapeContext(os.path.join(os.getcwd(), "output"), None, None)
     try:
-        driver.get("https://health-infobase.canada.ca/substance-related-harms/opioids-stimulants/")
-        download_link = WebDriverWait(driver, 10).until(expected_conditions.presence_of_element_located((By.XPATH, '//a[contains(@class, "dataDownload")]'))).get_attribute("href")
-    except:
-        print("Couldn't locate the download button")
-        return
-    
-    raw_data_zip = os.path.join(output_dir, "zipped_data.zip")
-    with http.request('GET', download_link, preload_content=False) as data_response, open(raw_data_zip, 'wb') as out_file:       
-        print("Downloading the PDF report...")
-        shutil.copyfileobj(data_response, out_file)
-        print("Download complete")
-    data_response.release_conn()
-
-
-    # check the contents of the zip file
-    print("Checking the contents of the zip file...")
-    with zipfile.ZipFile(raw_data_zip, 'r') as zip_ref:
-        for file in zip_ref.namelist():
-            if ".csv" in file:
-                year, month, day, hour, minute, second = zip_ref.getinfo(file).date_time
-                if len(str(month)) == 1:
-                    month = f"0{month}"
-                if len(str(day)) == 1:
-                    day = f"0{day}"
-                new_last_updated = int(f"{year}{month}{day}")
-
-                # Look at the data and see when the data goes up to
-                data = pandas.read_csv(zip_ref.open(file))
-                last_quarter = data[(data["PRUID"] == 1) & (data["Time_Period"] == "By quarter") & (data["Source"] ==  "Deaths")].tail(1)["Year_Quarter"].to_string(index=False)
-                data_to_year = int(last_quarter.split(" ")[0])
-                data_to_quarter = last_quarter.split(" ")[1]
-                match data_to_quarter:
-                    case "Q1":
-                        data_to_month = "04"
-                    case "Q2":
-                        data_to_month = "07"
-                    case "Q3":
-                        data_to_month = "09"
-                    case "Q4":
-                        data_to_month = "01"
-                        data_to_year += 1
-                data_until = int(f"{data_to_year}{data_to_month}01")
-
-                if existing_files == []:
-                    print(f"Extracting {file}...")
-                    with zip_ref.open(file) as data_file, open(os.path.join(output_dir, f"{new_last_updated}_{data_until}_nationalHealthInfobase.csv"), 'wb') as out_file:
-                        shutil.copyfileobj(data_file, out_file)
-                    print(f"Extraction of {file} complete")
-                elif new_last_updated > existing_file_updated:
-                    print(f"Extracting {file}...")
-                    with zip_ref.open(file) as data_file, open(os.path.join(output_dir, f"{new_last_updated}_{data_until}_nationalHealthInfobase.csv"), 'wb') as out_file:
-                        shutil.copyfileobj(data_file, out_file)
-                    print(f"Extraction of {file} complete")
-                    file_updated = True
-                else:
-                    print(f"{file} is already up to date")
-            
-    # Clean up the zip and old files that have been updated
-    os.remove(raw_data_zip)
-    print("Existing files updated: ", file_updated)    
-    if existing_files != [] and file_updated:
-        print("removing old files")
-        os.remove(os.path.join(output_dir, existing_files[0]))
-    return
-
-# Test code below
-if __name__ == '__main__':
-    driver = start_driver(headless=True, download_dir=True)
-    scrape_national_dashboard(driver)
-    driver.quit()
+        print(scrape(ctx))
+    finally:
+        ctx.close()

@@ -1,6 +1,8 @@
 # Python Standard Library Dependencies
 import os
 import json
+import contextlib
+import contextvars
 import datetime
 import logging
 import re
@@ -19,14 +21,34 @@ logger = logging.getLogger(__name__)
 # scraping, or directly in the scraping scripts themselves.                           #
 #######################################################################################
 
+# Where pull_data() and the BC Coroners reader look for source files. Defaults to the repo's output/
+# (CLI/manual use); the scrape pipeline points it at a temp dir holding just the active versions of
+# the sources a rebuild needs (data_scraping/orchestrator.py).
+_DEFAULT_OUTPUT_DIR = os.path.join(os.path.abspath(os.path.dirname(os.path.dirname(__file__))), "output")
+_OUTPUT_DIR = contextvars.ContextVar("generate_visuals_output_dir", default=_DEFAULT_OUTPUT_DIR)
+
+
+def output_dir():
+    return _OUTPUT_DIR.get()
+
+
+@contextlib.contextmanager
+def use_output_dir(path):
+    token = _OUTPUT_DIR.set(path)
+    try:
+        yield path
+    finally:
+        _OUTPUT_DIR.reset(token)
+
+
 # Helper function to pull data from the specified excel/csv file
 def pull_data(data_source: list):
     sheets = {}
     for source in data_source:
-        output_dir = os.path.join(os.path.abspath(os.path.dirname(os.path.dirname(__file__))), "output")
+        folder = output_dir()
         # Windows/WSL copies leave "<name>:Zone.Identifier" ADS artifacts beside the real file; they
         # match the same substring but ".xlsx:Zone" hits no extension case, so filter them out here.
-        candidates = [f for f in os.listdir(output_dir) if not f.endswith("Zone.Identifier")]
+        candidates = [f for f in os.listdir(folder) if not f.endswith("Zone.Identifier")]
         if any(source in file for file in candidates):
             file = [file for file in candidates if source in file][0]
             match file.split(".")[-1]:
@@ -34,7 +56,7 @@ def pull_data(data_source: list):
                     sheets[source] = {
                         "date_updated": datetime.datetime.strptime(file.split("_")[0], "%Y%m%d").strftime("%B %d, %Y"),
                         "data_until": datetime.datetime.strptime(file.split("_")[1], "%Y%m%d").strftime("%B %d, %Y") if len(file.split("_")) > 1 else None,
-                        "dataframe": pandas.read_csv(os.path.join(output_dir, file))
+                        "dataframe": pandas.read_csv(os.path.join(folder, file))
                         }
                 case "xlsx":
                     # Specific handling for ontario data (match the source name anywhere in the
@@ -48,10 +70,10 @@ def pull_data(data_source: list):
                         sheets["drugChecking"] = {
                             "date_updated": datetime.datetime.strptime(file.split("_")[0], "%Y%m%d").strftime("%B %d, %Y"),
                             "data_until": datetime.datetime.strptime(file.split("_")[1], "%Y%m%d").strftime("%B %d, %Y"),
-                            "dataframe": pandas.read_excel(os.path.join(output_dir, file), engine="calamine", sheet_name=0),
+                            "dataframe": pandas.read_excel(os.path.join(folder, file), engine="calamine", sheet_name=0),
                             }
                     elif "onODPRN" in file:
-                        dataframes = pandas.read_excel(os.path.join(output_dir, file), engine="calamine", sheet_name=None)
+                        dataframes = pandas.read_excel(os.path.join(folder, file), engine="calamine", sheet_name=None)
                         for name, dataframe in dataframes.items():
                             dataframe.set_flags(allows_duplicate_labels=False)
                             dataframe.dropna(axis=0, inplace=True)
@@ -61,7 +83,7 @@ def pull_data(data_source: list):
                                 }
                     # Handling for other xlsx files
                     else:
-                        dataframes = pandas.read_excel(os.path.join(output_dir, file), engine='calamine', sheet_name=None).values()
+                        dataframes = pandas.read_excel(os.path.join(folder, file), engine='calamine', sheet_name=None).values()
                         for dataframe in dataframes:
                             name = list(filter(lambda value: True if "Unnamed" not in value and value != "NaN" else False, dataframe.columns))[0]
                             dataframe.set_flags(allows_duplicate_labels=False)
@@ -330,6 +352,36 @@ def classify_drugcheck_sample(row):
     return target, ("expected_plus" if others else "expected_only")
 
 
+# Every export cycle so far has shipped its own header spelling for the same fields (Cycle 2 used
+# "Drug Category (1)"; the Cycle 1-5 cumulative re-export dropped the parens entirely -- "Expected
+# Drug 1", "FTIR 1" -- and title-cased the strip columns). Fold each generation's spelling onto the
+# internal names the rest of this module speaks, rather than chasing column names through every
+# constant below. Renaming a column that isn't present is a no-op, so old and new spellings can
+# coexist here indefinitely. Also read by the drugChecking file contract (data_scraping/registry.py)
+# so upload validation checks the names the cleaner actually needs.
+DRUGCHECK_COLUMN_RENAMES = {
+    "Drug Category (1)": "Expected Drug Category (1)",
+    "Expected Drug 1": "Expected Drug (1)",
+    "Drug Category 1": "Expected Drug Category (1)",
+    "Expected Drug 2": "Expected Drug (2)",
+    "Drug Category 2": "Expected Drug Category (2)",
+    "FTIR 1": "FTIR (1)", "FTIR 2": "FTIR (2)", "FTIR 3": "FTIR (3)",
+    "FTIR 4": "FTIR (4)", "FTIR 5": "FTIR (5)",
+    "Fentanyl Test Strip": "Fentanyl test strip",
+    "Benzodiazepine Test Strip": "Benzodiazepine test strip",
+    "Nitazene Test Strip": "Nitazene test strip",
+    "Xylazine Test Strip": "Xylazine test strip",
+    "MDMA Test Strip": "MDMA Test strip",
+    "Medetomidine Test Strip": "Medetomidine test strip",
+}
+
+
+def normalize_drugcheck_headers(df):
+    df = df.copy()
+    df.columns = df.columns.str.strip().str.replace(r"\s+", " ", regex=True)
+    return df.rename(columns=DRUGCHECK_COLUMN_RENAMES)
+
+
 def _drugcheck_load():
     """Pull the harmonized drug-checking workbook and return (pulled, df) with every fix both
     drug-checking visuals depend on already applied: normalized headers (with the Cycle-2
@@ -337,31 +389,10 @@ def _drugcheck_load():
     string cell trimmed, the shifted Cycle-1 rows repaired, provinces canonicalized, and a
     "YYYY-MM" `_month` key parsed from the mixed string/datetime "Visit Date" cells."""
     pulled = pull_data(["drugChecking"])["drugChecking"]
-    df = pulled["dataframe"].copy()
     # The raw headers carry stray leading/trailing and double spaces (e.g. "Visit Date ",
-    # "Drug Category  (1)"); normalize whitespace so the column refs below are clean.
-    df.columns = df.columns.str.strip().str.replace(r"\s+", " ", regex=True)
-    # Every export cycle so far has shipped its own header spelling for the same fields (Cycle 2
-    # used "Drug Category (1)"; the Cycle 1-5 cumulative re-export dropped the parens entirely --
-    # "Expected Drug 1", "FTIR 1" -- and title-cased the strip columns). Fold each generation's
-    # spelling onto the internal names the rest of this module speaks, rather than chasing column
-    # names through every constant below. Renaming a column that isn't present is a no-op, so old
-    # and new spellings can coexist here indefinitely.
-    df = df.rename(columns={
-        "Drug Category (1)": "Expected Drug Category (1)",
-        "Expected Drug 1": "Expected Drug (1)",
-        "Drug Category 1": "Expected Drug Category (1)",
-        "Expected Drug 2": "Expected Drug (2)",
-        "Drug Category 2": "Expected Drug Category (2)",
-        "FTIR 1": "FTIR (1)", "FTIR 2": "FTIR (2)", "FTIR 3": "FTIR (3)",
-        "FTIR 4": "FTIR (4)", "FTIR 5": "FTIR (5)",
-        "Fentanyl Test Strip": "Fentanyl test strip",
-        "Benzodiazepine Test Strip": "Benzodiazepine test strip",
-        "Nitazene Test Strip": "Nitazene test strip",
-        "Xylazine Test Strip": "Xylazine test strip",
-        "MDMA Test Strip": "MDMA Test strip",
-        "Medetomidine Test Strip": "Medetomidine test strip",
-    })
+    # "Drug Category  (1)"); normalize_drugcheck_headers() cleans whitespace and folds each export
+    # cycle's spelling onto the internal names the rest of this module speaks.
+    df = normalize_drugcheck_headers(pulled["dataframe"])
     df = df.map(lambda cell: cell.strip() if isinstance(cell, str) else cell)
     df = _drugcheck_repair_shifted(df)
     # Province arrives both abbreviated and spelled out; canonicalize known abbreviations so the
@@ -589,13 +620,13 @@ def _read_coroners_workbook():
     (the file ships both a yearly and a last-13-months version of the heatmap / age tables under one
     title; pull_data keys by title so only the last survives). Returns {date_updated, data_until,
     frames} where frames maps each title -> [{grain: 'year'|'month', periods: [...], rows: {label: [values]}}]."""
-    output_dir = os.path.join(os.path.abspath(os.path.dirname(os.path.dirname(__file__))), "output")
-    match = next((f for f in os.listdir(output_dir) if "bcCoronersReport" in f), None)
+    folder = output_dir()
+    match = next((f for f in os.listdir(folder) if "bcCoronersReport" in f), None)
     if match is None:
         raise FileNotFoundError("Data source bcCoronersReport not found in the output directory!")
     date_updated = datetime.datetime.strptime(match.split("_")[0], "%Y%m%d").strftime("%B %d, %Y")
     data_until = datetime.datetime.strptime(match.split("_")[1], "%Y%m%d").strftime("%B %d, %Y")
-    sheets = pandas.read_excel(os.path.join(output_dir, match), engine="calamine", sheet_name=None)
+    sheets = pandas.read_excel(os.path.join(folder, match), engine="calamine", sheet_name=None)
     frames = {}
     for sheet in sheets.values():
         titled = [c for c in sheet.columns if "Unnamed" not in str(c) and str(c) != "NaN"]
@@ -1565,13 +1596,41 @@ for _national_province in NATIONAL_PROVINCES:
     V1_DIRECT.setdefault(_national_province, v1_national_export_clean)
 
 
-def export_data_to_db(only=None):
+# Which source files each target's cleaner reads (the filename tokens pull_data() matches). The scrape
+# pipeline materializes exactly the union of these for the targets it rebuilds, so a cleaner that reads
+# an undeclared source fails loudly in tests/unit/test_scrape_registry.py::TestTargetSourcesCoverage.
+_NATIONAL_SOURCES = ("nationalHealthInfobase", "nationalPopulationData")
+TARGET_SOURCES = {
+    "canada": ("drugChecking",),
+    # v1_british_columbia_export_clean composes BCCSU (bcDrugSense) + BC Coroners (bcCoronersReport,
+    # which also pulls nationalPopulationData for drug-type death rates) + the national infobase
+    # cleaner (nationalHealthInfobase, nationalPopulationData) for the infobase-only visuals.
+    "british-columbia": ("bcCoronersReport", "bcDrugSense", "nationalHealthInfobase", "nationalPopulationData"),
+    "ontario": _NATIONAL_SOURCES + ("onODPRN",),
+    "nova-scotia": _NATIONAL_SOURCES + ("nsRatesFatalities",),
+    "saskatchewan": _NATIONAL_SOURCES + ("skPubCentre",),
+}
+for _national_province in NATIONAL_PROVINCES:
+    TARGET_SOURCES.setdefault(_national_province, _NATIONAL_SOURCES)
+
+
+def targets_for_source(source_key):
+    return sorted(t for t, sources in TARGET_SOURCES.items() if source_key in sources)
+
+
+def sources_for_targets(targets):
+    return {s for t in targets for s in TARGET_SOURCES[t]}
+
+
+def export_data_to_db(only=None, strict=False):
     """Regenerate V1 facts into DataPoints + VisualQuery.
 
     `only`: iterable of target/province keys (e.g. ["canada"]) to regenerate; None = all targets.
     Only the rows the selected run reproduces -- its (data_source_id, geo) territory + the touched
     visuals' predicates -- are dropped and rewritten, in one transaction, so untouched sources keep
     their rows and a target whose scrape is missing is simply skipped.
+    `strict`: re-raise a missing source file instead of skipping (the scrape pipeline materializes
+    every declared source, so a missing one is a bug).
 
     Visual *definitions* (the Visuals rows) are authored separately by `flask define-visuals`; this
     layer reads each row to learn how to map cleaned data into facts.
@@ -1589,6 +1648,8 @@ def export_data_to_db(only=None):
         try:
             builder(writer, province)
         except FileNotFoundError as exc:
+            if strict:
+                raise
             # Only a *missing scrape* is skipped (the province keeps its existing rows). Any other
             # error (e.g. a cleaner referencing a column the source dropped) is a real defect and is
             # left to propagate rather than silently dropping the province's data.

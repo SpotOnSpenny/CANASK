@@ -1,0 +1,17 @@
+<div class="modal-header"><h5 class="modal-title">Upload — {{ spec.label }}</h5>
+  <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+<form hx-post="/v1/admin/data-updates/sources/{{ spec.key }}/upload" hx-encoding="multipart/form-data"
+      hx-target="#run-log-body" hx-swap="afterbegin"
+      hx-on::after-request="if (event.detail.successful && !event.detail.xhr.getResponseHeader('HX-Retarget')) bootstrap.Modal.getInstance(document.getElementById('dataUpdatesModal')).hide()">
+  <div class="modal-body">
+    {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+    <div class="mb-3"><label class="form-label" for="upload-file">File (.{{ spec.contract.ext }})</label>
+      <input class="form-control" type="file" id="upload-file" name="file" accept=".{{ spec.contract.ext }}" required></div>
+    <div class="mb-3"><label class="form-label" for="upload-until">Data until</label>
+      <input class="form-control" type="date" id="upload-until" name="data_until" required></div>
+    <p class="form-text mb-0">The file is checked on the server; the run appears in the log as “Validating…” and
+      then publishes or is held for review.{% if spec.kind == "das" %} DAS is cumulative: this workbook is added to the existing history.{% endif %}</p>
+  </div>
+  <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+    <button class="btn btn-primary">Upload</button></div>
+</form>

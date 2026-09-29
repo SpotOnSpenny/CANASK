@@ -3,8 +3,10 @@ load-bearing invariant: reported float (incl. genuine 0) / SUPPRESSED sentinel /
 None (not reported -> no fact row). Collapsing any of these into 0 corrupts charts."""
 import math
 
+import pandas
 import pytest
 
+from data_viz import generate_visuals as gv
 from data_viz.generate_visuals import (
     SUPPRESSED,
     _coroners_clean_cell,
@@ -325,3 +327,43 @@ class TestDrugcheckMonths:
         from data_viz.generate_visuals import _drugcheck_months
         out = _drugcheck_months(pandas.Series(["not a date", None]))
         assert out.isna().all()
+
+
+class TestOutputDir:
+    def test_pull_data_reads_from_active_dir(self, tmp_path):
+        (tmp_path / "20260101_20251231_fakeSrc.csv").write_text("a,b\n1,2\n")
+        with gv.use_output_dir(str(tmp_path)):
+            got = gv.pull_data(["fakeSrc"])["fakeSrc"]
+        assert list(got["dataframe"].columns) == ["a", "b"]
+        assert got["data_until"] == "December 31, 2025"
+
+    def test_default_dir_restored(self, tmp_path):
+        before = gv.output_dir()
+        with gv.use_output_dir(str(tmp_path)):
+            assert gv.output_dir() == str(tmp_path)
+        assert gv.output_dir() == before
+
+    def test_strict_export_raises_on_missing_file(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(gv, "V1_DIRECT", {"canada": lambda w, p: gv.pull_data(["nope"])})
+        monkeypatch.setattr(gv, "FactWriter", lambda *a, **k: type("W", (), {"finish": lambda s: None})())
+        with gv.use_output_dir(str(tmp_path)), pytest.raises(FileNotFoundError):
+            gv.export_data_to_db(only=["canada"], strict=True)
+
+
+class TestTargetSources:
+    def test_every_v1_target_declares_sources(self):
+        assert set(gv.TARGET_SOURCES) == set(gv.V1_DIRECT)
+
+    def test_inverse(self):
+        assert "ontario" in gv.targets_for_source("onODPRN")
+        assert "alberta" in gv.targets_for_source("nationalHealthInfobase")
+        assert gv.targets_for_source("drugChecking") == ["canada"]
+
+    def test_union(self):
+        assert gv.sources_for_targets(["ontario"]) == {
+            "nationalHealthInfobase", "nationalPopulationData", "onODPRN"}
+
+
+def test_drugcheck_header_normalization():
+    df = pandas.DataFrame(columns=["Visit Date ", "Expected Drug 1", "FTIR 1"])
+    assert list(gv.normalize_drugcheck_headers(df).columns) == ["Visit Date", "Expected Drug (1)", "FTIR (1)"]

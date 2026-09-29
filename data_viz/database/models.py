@@ -32,6 +32,8 @@ class User(UserMixin, db.Model):
     # that needs no extra package (Flask-Login's own alternative_token would work too, but this
     # keeps the invalidation logic in one place we already own).
     session_version = db.Column(db.Integer, nullable = False, default = 1)
+    # Opt-in to the nightly Data Updates report email (site admins only; re-checked at send time).
+    data_report_subscribed = db.Column(db.Boolean, nullable = False, default = False, server_default = db.false())
 
     def get_id(self):
         return f"{self.id}:{self.session_version}"
@@ -348,6 +350,77 @@ class UserActivity(db.Model):
 
     def __repr__(self):
         return f"<UserActivity User ID: {self.user_id}, Activity Type: {self.activity_type}, Timestamp: {self.timestamp}>"
+
+class ScrapeRun(db.Model):
+    """One attempt to bring a source up to date: a scheduled/manual scrape, an upload, a rollback, or
+    the one-time bootstrap. `is_active` marks the version the site is currently built from (at most one
+    per source -- partial unique index). The S3 object at `s3_key` is never deleted."""
+    __tablename__ = "scrape_runs"
+    __table_args__ = (
+        db.Index("uq_scrape_runs_active_source", "source_key", unique = True,
+                 postgresql_where = db.text("is_active")),
+    )
+
+    STATUS_VALIDATING = "validating"
+    STATUS_RUNNING = "running"
+    STATUS_NO_NEW_DATA = "no_new_data"
+    STATUS_REJECTED = "rejected"
+    STATUS_FAILED = "failed"
+    STATUS_HELD = "held"
+    STATUS_PUBLISHED = "published"
+    STATUS_DISCARDED = "discarded"
+    STATUS_PUBLISH_FAILED = "publish_failed"
+    IN_FLIGHT = (STATUS_VALIDATING, STATUS_RUNNING)
+
+    TRIGGER_SCHEDULE = "schedule"
+    TRIGGER_MANUAL = "manual"
+    TRIGGER_UPLOAD = "upload"
+    TRIGGER_ROLLBACK = "rollback"
+    TRIGGER_BOOTSTRAP = "bootstrap"
+
+    id = db.Column(db.Integer, primary_key = True)
+    source_key = db.Column(db.String(64), nullable = False, index = True)
+    data_source_id = db.Column(db.Integer, db.ForeignKey("data_sources.id"), nullable = True)
+    trigger = db.Column(db.String(20), nullable = False)
+    status = db.Column(db.String(20), nullable = False, index = True)
+    started_at = db.Column(db.DateTime, nullable = False, default = lambda: datetime.now(timezone.utc).replace(tzinfo = None))
+    finished_at = db.Column(db.DateTime, nullable = True)
+    scraped_on = db.Column(db.Date, nullable = True)
+    data_until = db.Column(db.Date, nullable = True)
+    previous_data_until = db.Column(db.Date, nullable = True)
+    content_hash = db.Column(db.String(64), nullable = True)
+    s3_key = db.Column(db.String(512), nullable = True)
+    original_filename = db.Column(db.String(255), nullable = True)
+    is_active = db.Column(db.Boolean, nullable = False, default = False, server_default = db.false())
+    check_results = db.Column(db.JSON, nullable = True)
+    notices = db.Column(db.JSON, nullable = True)
+    error = db.Column(db.Text, nullable = True)
+    triggered_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable = True)
+    decided_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable = True)
+    decided_at = db.Column(db.DateTime, nullable = True)
+    rollback_of_run_id = db.Column(db.Integer, db.ForeignKey("scrape_runs.id"), nullable = True)
+
+    triggered_by = db.relationship("User", foreign_keys = [triggered_by_user_id])
+    decided_by = db.relationship("User", foreign_keys = [decided_by_user_id])
+
+    def __repr__(self):
+        return f"<ScrapeRun {self.id} {self.source_key} {self.status}>"
+
+
+class SourceSettings(db.Model):
+    """Mutable per-source switches (the static parts live in data_scraping/registry.py)."""
+    __tablename__ = "source_settings"
+
+    source_key = db.Column(db.String(64), primary_key = True)
+    schedule_enabled = db.Column(db.Boolean, nullable = False, default = False, server_default = db.false())
+    auto_publish = db.Column(db.Boolean, nullable = False, default = False, server_default = db.false())
+    consecutive_failures = db.Column(db.Integer, nullable = False, default = 0, server_default = "0")
+    paused_reason = db.Column(db.String(255), nullable = True)
+    updated_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable = True)
+    updated_at = db.Column(db.DateTime, nullable = True)
+
+    def __repr__(self):
+        return f"<SourceSettings {self.source_key}>"
 
 class SiteAdminKey(db.Model):
     __tablename__ = "site_admin_key"

@@ -13,6 +13,14 @@ RUN apt-get update && apt-get install -y \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# Scraper images (worker/beat/scrape-worker) need a real browser for the Selenium sources. Debian's
+# chromium + chromium-driver are version-matched and cover x86 and ARM alike.
+ARG INSTALL_CHROMIUM=0
+RUN if [ "$INSTALL_CHROMIUM" = "1" ]; then \
+        apt-get update && apt-get install -y --no-install-recommends chromium chromium-driver fonts-liberation \
+        && rm -rf /var/lib/apt/lists/*; \
+    fi
+
 # Build arg to switch requirements file
 ARG REQUIREMENTS_FILE=app_requirements/requirements.webapp.txt
 COPY app_requirements/ app_requirements/

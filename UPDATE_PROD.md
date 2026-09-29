@@ -39,13 +39,19 @@ If something regresses, see `DEPLOY_LIGHTSAIL.md` §11 (Rollback / recovery).
 
 ## B — Data-only update
 
-New source data lands in prod's own database by running the same idempotent ingestion CLI commands
-against prod's `web` container that you already ran locally — **not** by dumping/restoring the whole
-database, which would overwrite prod's live Users/Groups/Invites/UserActivity/site-admin-key state
-with dev's. `ingest-das`, `define-visuals`, and `gen-visuals` only ever touch the pipeline-owned tables
-(`DataPoints`, `DataSources`, `VisualQuery`, `Visuals`, `das_*`), so running them against prod is safe.
+Automated sources (see the registry in `data_scraping/registry.py`) refresh themselves every night —
+`beat` enqueues a scrape per enabled source at 01:00 America/Edmonton, validation runs in the
+`scrape-worker` container, and a clean result publishes itself (if the source has auto-publish on) or
+waits as a **held** run for a site admin's decision. The nightly report (06:00) summarizes what ran, what
+updated, and anything that needs attention — that's usually all "Data-only update" requires: **do
+nothing and read tomorrow's email**, or open `/v1/admin/data-updates` and click **Publish** on a held run.
 
-1. **Ingest and spot-check locally first**, in dev, before touching prod.
+For the two sources with no scraper (`drugChecking`, `nationalDAS`) — or to push a source's data sooner
+than its nightly slot, or to get a file in front of tier-1 validation before committing to a schedule —
+**upload it on the Data Updates page** instead:
+
+1. **Ingest and spot-check locally first**, in dev, before touching prod (upload it there too, or use
+   `make ingest-das` / `make build-visuals` as before — dev is unaffected by any of this).
 
 2. **DAS-specific — refresh the city gazetteer if new cities appeared:**
    ```
@@ -56,40 +62,49 @@ with dev's. `ingest-das`, `define-visuals`, and `gen-visuals` only ever touch th
    `MANUAL_COORDS` edit) — it is a **git-tracked asset**, not something rebuilt against prod. It
    reaches prod via Procedure A on the next code update.
 
-3. **Back up prod** (see [Always: back up first](#always-back-up-first)).
+3. **Back up prod** (see [Always: back up first](#always-back-up-first)) — belt-and-suspenders; a bad
+   upload only ever produces a `held`/`rejected` run, never touches the live data, but the habit is cheap.
 
-4. **Transfer the new source file(s)** from your machine to the prod host's `output/` directory:
-   ```
-   scp -i <your-login-key> <file> ubuntu@<static-ip>:~/CANASK/output/
-   ```
-   This is your own login key for the box, **not** the read-only `~/.ssh/canask_deploy` git deploy key.
+4. **Upload on the Data Updates page**: sign in as a site admin, open `/v1/admin/data-updates`, find the
+   source's row, click **Upload**, pick the file and its `data_until` date. The request itself only does
+   quick checks (extension, size) and stores the file to the S3 archive's `incoming/` prefix; the new run
+   appears in the log as **Validating…** and polls every 5s until it resolves:
+   - **Rejected** — tier-1 structure check failed (missing/renamed column, bad sheet); the run shows the
+     problem and, for a renamed column, a same-string-similarity hint. Fix the source file or the
+     contract/cleaner (see `CLAUDE.md`'s Scrape pipeline section) and re-upload.
+   - **Held** — passed validation but needs a decision (first run for a source, a tier-2 warning, or
+     auto-publish off for that source). Review the check results on the row, then **Publish** or
+     **Discard**.
+   - **Published** — auto-publish was on and every check passed; the affected dashboards are already
+     rebuilt.
 
-5. **On the prod host**, copy the file from the host into the running `web` container (prod has no
-   bind mount, and `.dockerignore` excludes `output/` from the image, so it won't appear there any
-   other way):
-   ```
-   make prod-copy-output file=<filename>
-   ```
+5. **Verify on the live site** — load the relevant dashboard or DAS Explorer page and confirm the new
+   data renders: date range, row counts, and a couple of spot-checked values. **Roll back** (DAS:
+   **Replay to here**) from the run log if something's wrong — no restore needed, the previous archived
+   version is still there.
 
-6. **Run the matching ingestion command:**
-   - DAS workbook:
-     ```
-     make prod-ingest-das                       # ingests every nationalDAS.xlsx in output/, oldest first
-     make prod-ingest-das file=<filename>        # or just the one you just copied in
-     ```
-   - Any other V1 source (drug checking, provincial scrapes, etc.):
-     ```
-     make prod-build-visuals                    # define-visuals then gen-visuals, all targets
-     ```
-     To regenerate just one target/province instead of everything, there's no wrapped Makefile
-     target — use the raw command:
-     ```
-     docker compose --env-file app_config/.env.prod -f docker-compose.yml -f docker-compose.prod.yml \
-       exec web flask gen-visuals --only <target>
-     ```
+### Fallback: manual file transfer (no scraper/upload path available)
 
-7. **Verify on the live site** — load the relevant dashboard or DAS Explorer page and confirm the new
-   data renders: date range, row counts, and a couple of spot-checked values.
+If you need to bypass the web upload entirely — e.g. debugging the pipeline itself, or a file too large
+for a comfortable browser upload — the old scp path still works for getting a file onto the box, but it
+no longer ingests itself:
+
+```
+scp -i <your-login-key> <file> ubuntu@<static-ip>:~/CANASK/output/    # your own login key, not canask_deploy
+make prod-copy-output file=<filename>                                 # host output/ -> the web container
+```
+
+From there, run the pre-pipeline CLI commands directly against the container's `output/` copy — this
+bypasses the pipeline's validation and S3 archiving entirely, so reserve it for troubleshooting the
+pipeline itself, not routine updates:
+```
+make prod-ingest-das file=<filename>          # DAS workbook, cumulative
+make prod-build-visuals                       # any other V1 source: define-visuals then gen-visuals
+```
+These CLI commands don't create a `ScrapeRun` or archive the file to S3 — they're a direct line to
+`gen-visuals`/`ingest-das`, same as before this pipeline existed. Prefer the Upload modal (step 4 above,
+uploading straight from your own machine) so the run is recorded, checked, and shows up in the nightly
+report.
 
 ## C — Combined update
 

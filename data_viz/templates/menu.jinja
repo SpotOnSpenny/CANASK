@@ -119,6 +119,12 @@
         <i class="bi bi-shield-lock nav-ic"></i>Data ownership
     </a>
     {% endif %}
+    {% if data_updates_visible %}
+    <a href="/v1/admin/data-updates" hx-get="/v1/admin/data-updates" hx-trigger="click" hx-target="#content-div"
+        hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/v1/admin/data-updates" class="nav-link htmx-element">
+        <i class="bi bi-arrow-repeat nav-ic"></i>Data Updates
+    </a>
+    {% endif %}
     <button type="button" hx-post="/v1/logout" hx-trigger="click"
         class="nav-link htmx-element rail-logout">
         <i class="bi bi-box-arrow-right nav-ic"></i>Logout
@@ -190,6 +196,13 @@
             Data ownership
         </a>
         {% endif %}
+        {% endif %}
+        {% if data_updates_visible %}
+        {% if not nav_perms.manage_users %}<h2 class="nav-title">Account</h2>{% endif %}
+        <a href="/v1/admin/data-updates" hx-get="/v1/admin/data-updates" hx-trigger="click" hx-target="#content-div"
+            hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/v1/admin/data-updates" class="mobile-nav-link htmx-element">
+            Data Updates
+        </a>
         {% endif %}
         {% if not current_user.is_authenticated %}
         <h2 class="nav-title">Account</h2>

@@ -160,7 +160,13 @@ class Config():
         "object-src 'none'",
         "form-action 'self'",
     ]))
-    # Add more configuration settings here as the need arises
+
+    # --- Scrape pipeline (see data_scraping/) -----------------------------------------------
+    # Storage creds are deliberately separate from the SES-only AWS_* key.
+    SCRAPE_STORAGE = os.environ.get("SCRAPE_STORAGE", "s3")
+    SCRAPE_S3_BUCKET = os.environ.get("SCRAPE_S3_BUCKET")
+    SCRAPE_S3_PREFIX = os.environ.get("SCRAPE_S3_PREFIX", "dev/")
+    SCRAPE_UPLOAD_MAX_BYTES = int(os.environ.get("SCRAPE_UPLOAD_MAX_BYTES", str(25 * 1024 * 1024)))
 
 def configure(app):
     app.config.from_object(Config)

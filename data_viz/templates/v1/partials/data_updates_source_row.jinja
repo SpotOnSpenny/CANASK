@@ -1,0 +1,35 @@
+{% set s = row.settings %}
+<tr id="source-row-{{ row.spec.key }}">
+  <td>{{ row.spec.label }}</td>
+  <td>{{ row.active.data_until if row.active else "—" }}</td>
+  <td>{% if row.last %}{{ row.last.status.replace("_", " ") }} · {{ row.last.started_at|mt }}{% else %}never{% endif %}</td>
+  <td>
+    {% if not row.onboarded %}<span class="badge text-bg-secondary">Not onboarded</span>{% endif %}
+    {% if s.paused_reason %}<span class="badge text-bg-danger" title="{{ s.paused_reason }}">Paused</span>{% endif %}
+    {% if row.onboarded and not s.auto_publish %}<span class="badge text-bg-warning">Auto-publish off</span>{% endif %}
+    {% if row.held %}<span class="badge text-bg-info">{{ row.held }} held</span>{% endif %}
+    {% if row.new_data %}<span class="badge text-bg-primary">New data available</span>{% endif %}
+  </td>
+  {% if is_admin %}
+  {% for field, value in (("schedule_enabled", s.schedule_enabled), ("auto_publish", s.auto_publish)) %}
+  <td>
+    <form hx-post="/v1/admin/data-updates/sources/{{ row.spec.key }}/settings" hx-target="#source-row-{{ row.spec.key }}" hx-swap="outerHTML">
+      <input type="hidden" name="field" value="{{ field }}">
+      <input type="hidden" name="value" value="{{ '0' if value else '1' }}">
+      <button class="btn btn-sm {{ 'btn-success' if value else 'btn-outline-secondary' }}"
+              {% if not row.onboarded or (field == 'schedule_enabled' and not row.spec.scrape) %}disabled{% endif %}>{{ "On" if value else "Off" }}</button>
+    </form>
+  </td>
+  {% endfor %}
+  <td class="text-nowrap">
+    {% if row.onboarded and row.spec.scrape %}
+    <button class="btn btn-sm btn-outline-primary" hx-post="/v1/admin/data-updates/sources/{{ row.spec.key }}/run" hx-target="#run-log" hx-swap="afterbegin">Run now</button>
+    {% endif %}
+    {% if row.onboarded %}
+    <button class="btn btn-sm btn-outline-primary" hx-get="/v1/admin/data-updates/sources/{{ row.spec.key }}/upload"
+            hx-target="#data-updates-modal-content" data-bs-toggle="modal" data-bs-target="#dataUpdatesModal">Upload</button>
+    {% endif %}
+    <button class="btn btn-sm btn-link" hx-get="/v1/admin/data-updates/runs?source={{ row.spec.key }}" hx-target="#run-log">History</button>
+  </td>
+  {% endif %}
+</tr>

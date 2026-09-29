@@ -279,3 +279,25 @@ def register_cli(app):
         from data_viz.auth.auth_helpers import reconcile_source_aliases
         merges = reconcile_source_aliases()
         print("Reconciled:", ", ".join(merges) if merges else "nothing to merge.")
+
+    @app.cli.command("bootstrap-sources", short_help="One-time: archive output/ source files to the scrape store as the initial active versions.")
+    @click.option("--dir", "directory", default="output", help="Directory holding <scraped>_<until>_<source>.<ext> files.")
+    def bootstrap_sources_cli(directory):
+        from data_scraping import registry
+        from data_scraping.orchestrator import active_run, bootstrap_sources
+        # os.listdir() inside bootstrap_sources would otherwise raise a bare FileNotFoundError (or,
+        # since get_storage() also runs unconditionally there, a confusing S3-credentials error before
+        # ever reaching the missing directory) -- this is a one-time manual runbook step
+        # (DEPLOY_LIGHTSAIL.md SS12), so a missing directory (files not scp'd/copied in yet) should
+        # read as a clear operator mistake, not a crash.
+        if not os.path.isdir(directory):
+            print(f"Bootstrap failed: directory not found: {directory}")
+            raise SystemExit(1)
+        stats = bootstrap_sources(directory)
+        print(f"Bootstrap complete: {stats['uploaded']} uploaded, {stats['skipped']} already archived.")
+        # V1 publishes need an active version of EVERY source their targets read (population
+        # estimates included) -- surface any source still missing one so a later publish's
+        # FileNotFoundError ("no active version of X") doesn't come as a surprise.
+        for key in registry.SOURCES:
+            if active_run(key) is None:
+                print(f"WARNING: {key} has no active version yet -- publishes that read it will fail until one exists.")

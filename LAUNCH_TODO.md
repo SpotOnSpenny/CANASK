@@ -90,14 +90,34 @@ blast radius:
       v4+v6 lists 2026-07-09: identical. Ongoing item — recheck occasionally.)*
 
 ### Data & bootstrap
-- [ ] **Load chart data via a Postgres dump** (chosen strategy — prod does not run scrapers). Data launch:
-      `make prod-db-up` → `make prod-restore DUMP=<dump.sql>` → `make prod-up`. Fresh launch: `make prod-up`
-      alone bootstraps schema + admin + visual definitions (charts stay blank until a restore). Capture a
-      dump from the populated source DB with `make prod-backup > canask-YYYY-MM-DD.sql`.
+- [ ] **Load the initial chart data via a Postgres dump, then hand off to the scrape pipeline** (prod now
+      runs its own nightly scrapes — see `DEPLOY_LIGHTSAIL.md §12`). Data launch: `make prod-db-up` →
+      `make prod-restore DUMP=<dump.sql>` → `make prod-up`. Fresh launch: `make prod-up` alone bootstraps
+      schema + admin + visual definitions (charts stay blank until a restore). Capture a dump from the
+      populated source DB with `make prod-backup > canask-YYYY-MM-DD.sql`.
       *(Dump captured 2026-07-09 from the dev DB → `canask-2026-07-09.sql` in the repo root (gitignored):
       119 visuals, 12,299 data points, 7 sources, users table empty. Dumped with `--no-owner
       --no-privileges` so it restores cleanly even if prod's `DB_USER` differs from dev's. Remaining:
       scp it to the box and run the restore sequence.)*
+- [ ] **Stand up the scrape archive**: create the S3 bucket + `canask-scrape` IAM user (Get/Put/List
+      only, no delete) and the `incoming/` 7-day lifecycle rule, set the `SCRAPE_*` vars in
+      `app_config/.env.prod`, then `make prod-up` (builds `scrape-worker` with Chromium alongside
+      `worker`/`beat`). Full steps in `DEPLOY_LIGHTSAIL.md §12`.
+- [ ] **Bootstrap the archive**: a DB dump has no files, and prod's `output/` is empty after `prod-up`
+      (no shared volume) — after the final `prod-up`, scp the same source files the restored dump was
+      built from to this host's `~/CANASK/output/`, run `make prod-copy-output`, then immediately
+      `make prod-bootstrap-sources` once to archive them as each source's initial active version
+      (idempotent by content hash — safe to re-run). Watch for its `WARNING:` lines: a V1 publish needs
+      an active version of every source its targets read (population estimates included), not just the
+      ones with a `DataSources` row.
+- [ ] **Subscribe to the nightly report**: on the Data Updates page (`/v1/admin/data-updates`), toggle
+      "Email me the nightly report" for at least one active site admin, so silence itself becomes a
+      signal something's wrong.
+- [ ] **Onboard sources one at a time**, per the rollout order in
+      `docs/superpowers/specs/2026-09-24-scrape-orchestration-design.md §3/§7`: **Run now** on the Data
+      Updates page → verify the run log + dashboard → enable scheduled scraping → watch a few nightly
+      reports come back clean (`no_new_data`/`published`) → enable auto-publish → move to the next
+      source. `drugChecking` and `nationalDAS` have no scraper; they're usable via **Upload** immediately.
 - [ ] **Schedule regular backups**: host cron running `deploy/backup.sh` (gzip + S3 upload + local
       pruning — see `DEPLOY_LIGHTSAIL.md §9` for the cron line).
 - [ ] Note: after `flask drop-db` you must `flask db stamp base` before `db upgrade` (Alembic stays

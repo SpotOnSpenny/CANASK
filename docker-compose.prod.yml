@@ -62,6 +62,12 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  scrape-worker:
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
   # TLS-terminating reverse proxy (Cloudflare -> nginx -> web). Config + certs mounted read-only; see
   # deploy/nginx/canask.conf and deploy/nginx/tls/README.md.
   nginx:

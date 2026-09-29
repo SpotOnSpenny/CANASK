@@ -1,0 +1,14 @@
+<div class="modal-header"><h5 class="modal-title">{{ action|capitalize }} — {{ spec.label }}</h5>
+  <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+<form hx-post="/v1/admin/data-updates/runs/{{ run.id }}/{{ action }}"
+      {% if action == "discard" %}hx-target="#run-{{ run.id }}" hx-swap="outerHTML"{% else %}hx-swap="none"{% endif %}
+      hx-on::after-request="bootstrap.Modal.getInstance(document.getElementById('dataUpdatesModal')).hide()">
+  <div class="modal-body">
+    <p>{{ copy }}</p>
+    <p class="mb-1">Run #{{ run.id }} · data until <b>{{ run.data_until }}</b></p>
+    {% if action != "discard" %}<p class="mb-1">Rebuilds:</p>
+    <ul class="small">{% for t in targets %}<li>{{ t }}</li>{% endfor %}</ul>{% endif %}
+  </div>
+  <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+    <button class="btn {{ 'btn-danger' if action == 'discard' else 'btn-primary' }}">{{ action|capitalize }}</button></div>
+</form>

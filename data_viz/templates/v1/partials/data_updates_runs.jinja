@@ -1,0 +1,7 @@
+<table class="table table-sm align-middle">
+  <thead><tr><th>Started</th><th>Source</th><th>Trigger</th><th>Status</th><th>Data until</th><th></th></tr></thead>
+  <tbody id="run-log-body">
+    {% for run in runs %}{% include "v1/partials/data_updates_run_row.jinja" %}{% else %}
+    <tr><td colspan="6" class="text-muted">No runs yet.</td></tr>{% endfor %}
+  </tbody>
+</table>

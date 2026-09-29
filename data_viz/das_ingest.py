@@ -87,6 +87,24 @@ _DRUG_ID_FIELDS = {
 _DRUG_POSITION_RE = re.compile(r"^Drug ID (\d+)")   # tolerates the source's "Drug ID 14de la drogue" typo
 
 
+def parse_das_filename(name):
+    """Extract scraped and data-until dates from a nationalDAS workbook filename.
+
+    Filenames match <scraped>_<data-until>_nationalDAS.xlsx (YYYYMMDD format).
+    Raises ValueError if the filename doesn't match the expected pattern."""
+    match = _FILENAME_RE.fullmatch(os.path.basename(name))
+    if match is None:
+        raise ValueError(f"{os.path.basename(name)} does not match <scraped>_<data-until>_nationalDAS.xlsx")
+    return (datetime.datetime.strptime(match.group(1), "%Y%m%d").date(),
+            datetime.datetime.strptime(match.group(2), "%Y%m%d").date())
+
+
+def validate_das_workbook(path):
+    """Tier-1 structure check for a DAS workbook: parse it exactly as ingest would. _resolve_columns
+    raises on any header it can't match, which is the 'missing required column' failure."""
+    _parse_workbook(path)
+
+
 def find_das_files(explicit=None):
     """Locate nationalDAS workbook(s) in output/ and parse their filename dates.
 
@@ -96,8 +114,8 @@ def find_das_files(explicit=None):
     output_dir = os.path.join(os.path.abspath(os.path.dirname(os.path.dirname(__file__))), "output")
     if explicit:
         paths = [explicit if os.path.isabs(explicit) else os.path.join(output_dir, explicit)]
-        if _FILENAME_RE.fullmatch(os.path.basename(paths[0])) is None:
-            raise ValueError(f"{os.path.basename(paths[0])} does not match <scraped>_<data-until>_nationalDAS.xlsx")
+        # Validate filename format by attempting to parse it
+        parse_das_filename(paths[0])
     else:
         names = sorted((f for f in os.listdir(output_dir) if _FILENAME_RE.fullmatch(f)),
                        key=lambda f: _FILENAME_RE.fullmatch(f).group(2))
@@ -106,10 +124,8 @@ def find_das_files(explicit=None):
         paths = [os.path.join(output_dir, f) for f in names]
     found = []
     for path in paths:
-        match = _FILENAME_RE.fullmatch(os.path.basename(path))
-        found.append((path,
-                      datetime.datetime.strptime(match.group(1), "%Y%m%d").date(),
-                      datetime.datetime.strptime(match.group(2), "%Y%m%d").date()))
+        scraped, data_until = parse_das_filename(path)
+        found.append((path, scraped, data_until))
     return found
 
 
@@ -307,6 +323,15 @@ def _upsert_das_source(db, DataSources, scraped, data_until):
     source.data_until_str = data_until.strftime("%B %d, %Y")
 
 
+def clear_das_tables():
+    """Delete every das_* fact row (drug codes stay -- they're a lookup, refreshed on ingest). No
+    commit: the replay caller owns the transaction so the Explorer never sees empty tables."""
+    from data_viz import db
+    from data_viz.database.models import DasSamples, DasSampleDrugs, DasQuant, DasNps
+    for model in (DasSampleDrugs, DasSamples, DasQuant, DasNps):
+        model.query.delete(synchronize_session=False)
+
+
 def ingest_das(file=None):
     """Parse the DAS workbook(s) in output/ and rewrite their rows into the das_* tables, one
     transaction per file, oldest first.
@@ -315,10 +340,15 @@ def ingest_das(file=None):
     follows das_samples via FK cascade) and quant/NPS rows are rewritten by source month, so
     overlapping months replace rather than duplicate."""
     for path, scraped, data_until in find_das_files(file):
-        _ingest_file(path, scraped, data_until)
+        ingest_das_file(path, scraped, data_until)
 
 
-def _ingest_file(path, scraped, data_until):
+def ingest_das_file(path, scraped, data_until, commit=True):
+    """Ingest a single DAS workbook file, optionally committing the transaction.
+
+    When commit=False, uses db.session.flush() instead, leaving the transaction open for
+    the caller to manage. This enables orchestration patterns where multiple files are
+    ingested in a single transaction."""
     from data_viz import db
     from data_viz.database.models import (DasDrugCodes, DasSamples, DasSampleDrugs, DasQuant,
                                           DasNps, DataSources)
@@ -372,10 +402,14 @@ def _ingest_file(path, scraped, data_until):
         db.session.bulk_insert_mappings(DasNps, nps)
 
         _upsert_das_source(db, DataSources, scraped, data_until)
-        db.session.commit()
+        if commit:
+            db.session.commit()
+        else:
+            db.session.flush()
     except Exception:
         # Fail loudly and leave the tables as they were -- a partial ingest would silently
-        # misrepresent the month.
+        # misrepresent the month. With commit=False, the rollback aborts the caller's whole
+        # transaction (e.g., a DAS replay), which is the intended behavior.
         db.session.rollback()
         raise
 

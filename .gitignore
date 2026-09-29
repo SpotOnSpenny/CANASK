@@ -1,4 +1,5 @@
 output/*
+scrape_archive/
 __pycache__/
 *.py[cod]
 /build
