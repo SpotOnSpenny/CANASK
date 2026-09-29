@@ -17,7 +17,8 @@ var confluenceState = null;
 
 function initConfluence(cfg) {
     if (!document.getElementById("confluence-chart")) return;
-    confluenceState = { cfg: cfg, data: null, geojson: null, geojsons: {} };
+    // seq/controller: only the newest Overlay request may draw (see confluenceApply).
+    confluenceState = { cfg: cfg, data: null, geojson: null, geojsons: {}, seq: 0, controller: null };
 
     const provinceSelect = document.getElementById("confluence-province");
     const slugs = Object.keys(cfg.provinces).sort((a, b) =>
@@ -39,8 +40,8 @@ function initConfluence(cfg) {
     expr.oninput = function () {
         expr.classList.toggle("das-filter-invalid", !dasValidExpression(expr.value, true));
     };
-    expr.onkeydown = function (event) { if (event.key === "Enter") confluenceApply(); };
-    document.getElementById("confluence-build").onclick = confluenceApply;
+    expr.onkeydown = function (event) { if (event.key === "Enter") confluenceUserApply(); };
+    document.getElementById("confluence-build").onclick = confluenceUserApply;
 
     confluenceFillVisuals();
     if (!confluenceReplayFromUrl()) confluenceSyncChips(null);
@@ -118,25 +119,39 @@ function confluenceCheckedKeys() {
 }
 
 // Deep links: ?province=&visual=&groups=&level=&basis=&expr= (written by confluenceApply).
-// Returns true when it found a valid pairing and kicked off the fetch.
+// Returns true when it found a valid pairing and kicked off the fetch. A link that no longer
+// resolves (or names unknown substances) says so rather than quietly showing something else.
 function confluenceReplayFromUrl() {
     const params = new URLSearchParams(window.location.search);
     const cfg = confluenceState.cfg;
     const province = params.get("province");
-    if (!province || !cfg.provinces[province]) return false;
+    if (!province) return false;
+    if (!cfg.provinces[province]) {
+        confluenceSetNote("confluence-link-note", "The linked province isn't available, so the default pairing is shown instead.");
+        return false;
+    }
     document.getElementById("confluence-province").value = province;
     confluenceFillVisuals();
     const visual = params.get("visual");
-    if (!visual || !cfg.provinces[province].visuals.some(v => v.id === visual)) return false;
+    if (!visual || !cfg.provinces[province].visuals.some(v => v.id === visual)) {
+        confluenceSetNote("confluence-link-note", "The linked visual isn't available for this province. Pick one and press Overlay.");
+        return false;
+    }
     document.getElementById("confluence-visual").value = visual;
     const level = cfg.levels.includes(params.get("level")) ? params.get("level") : "group";
     document.getElementById(`confluence-level-${level}`).checked = true;
     const basis = params.get("basis");
     if (cfg.bases.includes(basis)) document.getElementById("confluence-basis").value = basis;
     document.getElementById("confluence-expr").value = params.get("expr") || "";
-    const groups = params.has("groups")
-        ? params.get("groups").split(",").filter(k => cfg.groups[k] || cfg.families[k])
-        : null;
+    let groups = null;
+    if (params.has("groups")) {
+        const linked = params.get("groups").split(",").filter(k => k);
+        groups = linked.filter(k => cfg.groups[k] || cfg.families[k]);
+        const dropped = linked.filter(k => !groups.includes(k));
+        if (dropped.length) {
+            confluenceSetNote("confluence-link-note", `Some linked substances aren't recognised and were dropped: ${dropped.join(", ")}.`);
+        }
+    }
     confluenceSyncChips(groups, level);
     confluenceApply();
     return true;
@@ -150,8 +165,11 @@ async function confluenceEnsureGeojson(slug) {
         const response = await fetch(`/static/assets/geojsons/${slug}.geojson`,
                                      { signal: AbortSignal.timeout(10000) });
         // A missing or stub file (some provinces have no health-authority polygons) is a real
-        // state the page must explain, not an error.
-        cache[slug] = response.ok ? await response.json() : null;
+        // state the page must explain, not an error. Anything else is a failure: don't cache it,
+        // so the next Overlay retries.
+        if (response.status === 404) cache[slug] = null;
+        else if (!response.ok) throw new Error(`geojson fetch failed: ${response.status}`);
+        else cache[slug] = await response.json();
     }
     return cache[slug];
 }
@@ -165,6 +183,20 @@ function confluenceEmptyState(message) {
     chart.appendChild(p);
     document.getElementById("confluence-table").innerHTML = "";
     document.getElementById("confluence-table-title").textContent = "";
+}
+
+// The request's abort signal: superseded OR timed out. AbortSignal.any is recent (2023-24), so
+// older browsers fall back to a manual timeout on the same controller.
+function confluenceSignal(controller, ms) {
+    if (AbortSignal.any) return AbortSignal.any([controller.signal, AbortSignal.timeout(ms)]);
+    setTimeout(() => controller.abort(), ms);
+    return controller.signal;
+}
+
+// The Overlay button / Enter: a fresh user choice supersedes any note about the incoming link.
+function confluenceUserApply() {
+    confluenceSetNote("confluence-link-note", "");
+    confluenceApply();
 }
 
 async function confluenceApply() {
@@ -186,32 +218,57 @@ async function confluenceApply() {
     if (keys.length) params.set("groups", keys.join(","));
     if (expr) params.set("expr", expr);
 
+    // Only the newest request may draw: abort the one in flight, and drop any response that
+    // resolves after a newer Overlay (or a page re-init) has started.
+    const seq = ++state.seq;
+    if (state.controller) state.controller.abort();
+    state.controller = null;
+    const stale = () => state !== confluenceState || seq !== state.seq;
     // Drop the previous overlay before fetching: a failed re-apply must not leave a stale
     // payload for the theme/resize redraw hooks to replay over the error message.
     state.data = null;
+    ["confluence-incomplete", "confluence-truncated", "confluence-undated", "confluence-unmapped"]
+        .forEach(id => document.getElementById(id).classList.add("d-none"));
+    if (keys.length > state.cfg.maxKeys) {
+        confluenceEmptyState(`Pick at most ${state.cfg.maxKeys} substances.`);
+        return;
+    }
+    const controller = new AbortController();
+    state.controller = controller;
     const chart = document.getElementById("confluence-chart");
     dasResetChart(chart, '<div class="skeleton skeleton-chart"></div>');
-    ["confluence-incomplete", "confluence-truncated", "confluence-unmapped"]
-        .forEach(id => document.getElementById(id).classList.add("d-none"));
     const needsMap = visual.shape === "geo_series";
     try {
         const [response, geojson] = await Promise.all([
-            fetch(`${CONFLUENCE_API}?${params.toString()}`, { signal: AbortSignal.timeout(15000) }),
+            fetch(`${CONFLUENCE_API}?${params.toString()}`,
+                  { signal: confluenceSignal(controller, 15000) }),
             needsMap
                 ? Promise.all([dasEnsureGeoAssets("map_city"), confluenceEnsureGeojson(province)]).then(r => r[1])
                 : Promise.resolve(null),
         ]);
+        if (stale()) return;
         if (response.status === 429) {
             confluenceEmptyState("Too many requests. Please wait a moment and try again.");
             return;
         }
         if (response.status === 400) {
             const body = await response.json();
+            if (stale()) return;
             confluenceEmptyState(body.error || "That overlay couldn't be built.");
             return;
         }
+        if (response.status === 403) {
+            confluenceEmptyState("You no longer have access to this data. Try signing in again.");
+            return;
+        }
+        if (response.status === 404) {
+            confluenceEmptyState("That province or visual is no longer available. Pick another.");
+            return;
+        }
         if (!response.ok) throw new Error(`confluence fetch failed: ${response.status}`);
-        state.data = await response.json();
+        const data = await response.json();
+        if (stale()) return;
+        state.data = data;
         state.geojson = geojson;
         // Plotly.react draws beside existing children rather than replacing them, so the
         // skeleton must go before the first render (dasApplyPivot does the same).
@@ -219,6 +276,7 @@ async function confluenceApply() {
         window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}`);
         confluenceRender();
     } catch (error) {
+        if (stale()) return;   // superseded (and aborted) by a newer Overlay
         console.error("Confluence failed:", error);
         confluenceEmptyState("Sorry, that overlay couldn't be built. Please try again.");
     }
@@ -272,9 +330,20 @@ function confluenceRender() {
 
     const incomplete = d.periods.filter(p => !p.das_complete).map(p => p.key);
     confluenceSetNote("confluence-incomplete", incomplete.length
-        ? `DAS counts for ${incomplete.join(", ")} are not yet complete (samples from those periods are still being returned).`
+        ? `DAS counts for ${incomplete.join(", ")} are incomplete (DAS doesn't fully cover those periods).`
         : "");
-    document.getElementById("confluence-truncated").classList.toggle("d-none", !d.das.truncated);
+    // Date-kind pivots keep the newest periods, so a clip drops the oldest ones; a city pivot can
+    // also drop its smallest cities.
+    confluenceSetNote("confluence-truncated", !d.das.truncated ? ""
+        : d.das.mode === "cities"
+            ? "Some DAS results were clipped (the smallest cities or the oldest periods). Narrow the advanced filter to see the rest."
+            : "Some of the oldest DAS periods were clipped.");
+    const undated = Object.entries(d.das.undated || {}).filter(entry => entry[1] > 0);
+    const keyLabel = key => (d.das.keys.find(k => k.key === key) || { label: key }).label;
+    confluenceSetNote("confluence-undated", !undated.length ? ""
+        : d.das.mode === "cities"
+            ? `${undated[0][1]} DAS samples have no ${d.das.basis} date and aren't shown.`
+            : `DAS samples with no ${d.das.basis} date aren't plotted (${undated.map(([k, n]) => `${keyLabel(k)}: ${n}`).join(", ")}).`);
     confluenceSetNote("confluence-unmapped", "");
 
     const about = document.getElementById("confluence-about-visual");
@@ -383,6 +452,7 @@ function confluenceRenderCities(d, chart) {
     const periods = d.periods.map(p => p.key);
     const heat = factsToHeatmap(d.visual.facts, d.visual.key_kind);
     const names = new Set(geojson.features.map(f => f.properties.ENGNAME));
+    const unmatchedAreas = Object.keys(heat).filter(geo => !names.has(geo)).sort();
     const frames = periods.map(p => {
         const locations = [], z = [];
         Object.keys(heat).forEach(geo => {
@@ -456,14 +526,23 @@ function confluenceRenderCities(d, chart) {
         });
     }
     const notes = [];
+    if (unmatchedAreas.length) {
+        notes.push(`${unmatchedAreas.length} ${unmatchedAreas.length === 1 ? "area has" : "areas have"} no map outline and ${unmatchedAreas.length === 1 ? "isn't" : "aren't"} drawn (see the table): ${unmatchedAreas.join("; ")}.`);
+    }
     if (unmapped.length) {
         const shown = unmapped.slice(0, 5).join("; ") + (unmapped.length > 5 ? "; …" : "");
         notes.push(`${unmapped.length} ${unmapped.length === 1 ? "city is" : "cities are"} missing from the map (no known coordinates): ${shown}`);
     }
-    if ("Unknown" in d.das.cities) notes.push("DAS results with no recorded city are not shown.");
+    if ("Unknown" in d.das.cities) {
+        notes.push("DAS results with no recorded city aren't shown on the map (they're counted in the table's total).");
+    }
     confluenceSetNote("confluence-unmapped", notes.join(" "));
     Plotly.react(chart, traces, themeChartLayout(layout), { displaylogo: false, responsive: true })
-        .then(() => dasFitMapHeight(chart));
+        .then(() => dasFitMapHeight(chart))
+        .catch(error => {
+            console.error("Confluence map render failed:", error);
+            confluenceEmptyState("Sorry, that map couldn't be drawn. Please press Overlay again.");
+        });
 }
 
 // Aligned table: one row per period; the visual's series (or health authorities) beside the DAS
@@ -480,7 +559,8 @@ function confluenceRenderTable(d) {
         });
         columns.push("DAS samples (all cities)");
         periods.forEach((p, i) => {
-            let total = null;
+            // Every shared period touches DAS coverage, so no city having it means zero samples.
+            let total = 0;
             Object.values(d.das.cities).forEach(byPeriod => {
                 if (p in byPeriod) total = (total || 0) + byPeriod[p];
             });
@@ -509,7 +589,7 @@ function confluenceRenderTable(d) {
         const tr = table.insertRow(-1);
         tr.className = "align-middle";
         cells.forEach(value => { tr.insertCell(-1).innerText = value == null ? "" : value; });
-        if (!d.periods[i].das_complete) tr.title = "DAS counts for this period are still being returned";
+        if (!d.periods[i].das_complete) tr.title = "DAS doesn't fully cover this period, so its counts are incomplete";
     });
     host.innerHTML = "";
     host.appendChild(table);
@@ -532,6 +612,11 @@ window.addEventListener("resize", () => {
 // Theme toggle hook: canaskRedrawCharts() calls this so trace colours follow the palette.
 window.confluenceRedraw = function () {
     if (confluenceState && confluenceState.data && document.getElementById("confluence-chart")) {
-        confluenceRender();
+        try {
+            confluenceRender();
+        } catch (error) {
+            console.error("Confluence redraw failed:", error);
+            confluenceEmptyState("Sorry, that overlay couldn't be redrawn. Please press Overlay again.");
+        }
     }
 };

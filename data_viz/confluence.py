@@ -44,32 +44,58 @@ _YEAR = re.compile(r"^\d{4}$")
 _MONTH = re.compile(r"^\d{4}-\d{2}$")
 
 
+class UnalignableVisualError(ValueError):
+    """The chosen visual can't be put on a shared time axis with DAS -- a user-facing 400, unlike
+    any other ValueError out of the payload build (which is a bug and should surface as a 500)."""
+
+
 # --------------------------------------------------------------------------------------- #
 # Substance crosswalk
 # --------------------------------------------------------------------------------------- #
 
+def _is_str_list(value):
+    return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+
 def validate_substance_groups(data):
-    """Fail loudly on a malformed crosswalk: every group names a real family, has something to
-    match on, keys don't collide across the two levels, and every term points at a known key."""
+    """Fail loudly on a malformed crosswalk: every key has a label, every group names a real
+    family and has something to match on (lists of strings, never a bare string), keys don't
+    collide across the two levels or with ALL_KEY, and every term points at a known key.
+    Returns the crosswalk with member-less families dropped -- there's nothing to match or show
+    for them -- so a term naming one fails here like any other unknown key."""
     families, groups, terms = data.get("families", {}), data.get("groups", {}), data.get("terms", {})
-    collisions = set(families) & set(groups)
+    collisions = (set(families) & set(groups)) | ({ALL_KEY} & (set(families) | set(groups)))
     if collisions:
-        raise ValueError(f"substance crosswalk: keys collide across families/groups: {sorted(collisions)}")
+        raise ValueError(f"substance crosswalk: keys collide across families/groups/{ALL_KEY!r}: "
+                         f"{sorted(collisions)}")
+    for kind, specs in (("family", families), ("group", groups)):
+        for key, spec in specs.items():
+            if not isinstance(spec.get("label"), str) or not spec["label"]:
+                raise ValueError(f"substance crosswalk: {kind} {key!r} has no label")
     for key, group in groups.items():
         if group.get("family") not in families:
             raise ValueError(f"substance crosswalk: group {key!r} names unknown family {group.get('family')!r}")
+        for field in ("codes", "subclasses", "exclude_codes"):
+            if field in group and not _is_str_list(group[field]):
+                raise ValueError(f"substance crosswalk: group {key!r} {field} must be a list of strings")
         if not (group.get("codes") or group.get("subclasses")):
             raise ValueError(f"substance crosswalk: group {key!r} has neither codes nor subclasses")
+    populated = {g["family"] for g in groups.values()}
+    families = {k: f for k, f in families.items() if k in populated}
     known = set(families) | set(groups)
     for term, keys in terms.items():
+        if not _is_str_list(keys):
+            raise ValueError(f"substance crosswalk: term {term!r} must map to a list of keys")
         for key in keys:
             if key not in known:
                 raise ValueError(f"substance crosswalk: term {term!r} names unknown key {key!r}")
-    return data
+    return {**data, "families": families}
 
 
 @lru_cache(maxsize=1)
 def load_substance_groups():
+    """The validated crosswalk, cached for the process -- shared by every caller, so treat it as
+    read-only."""
     with open(CROSSWALK_PATH, encoding="utf-8") as handle:
         return validate_substance_groups(json.load(handle))
 
@@ -112,7 +138,8 @@ def key_label(key, data=None):
 
 def _group_membership(spec):
     """`sample_number IN (SELECT ... )` for one group: any drug row whose code is listed or whose
-    pharmacological subclass matches, minus the excluded codes."""
+    pharmacological subclass matches, ignoring drug rows whose code is in exclude_codes (a sample
+    still matches if another of its drugs does)."""
     matches = []
     if spec.get("codes"):
         matches.append(DasDrugCodes.code.in_(list(spec["codes"])))
@@ -126,13 +153,11 @@ def _group_membership(spec):
     return DasSamples.sample_number.in_(inner)
 
 
-def group_clause(keys, level, data=None):
-    """One SQLAlchemy boolean clause selecting the samples that contain ANY of `keys` (a family
-    is the union of its groups, so everything resolves to the group level). Fed to
-    query_pivot's extra_where."""
+def group_clause(keys, data=None):
+    """One SQLAlchemy boolean clause selecting the samples that contain ANY of `keys` (group or
+    family keys; a family is the union of its groups, so everything resolves to the group level).
+    Fed to query_pivot's extra_where."""
     data = data or load_substance_groups()
-    if level not in LEVELS:
-        raise ValueError(f"unknown level {level!r}")
     groups = keys_at_level(keys, "group", data)
     if not groups:
         raise ValueError("no substance groups to match")
@@ -145,13 +170,16 @@ def group_clause(keys, level, data=None):
 
 def detect_grain(facts):
     """"year" when every main fact's time frame is YYYY, "month" when every one is YYYY-MM.
-    Anything else (mixed, quarterly, empty) is unsupported and raises."""
+    Anything else (mixed, quarterly, empty) is unsupported and raises UnalignableVisualError."""
     frames = {f["t"] for f in facts if f.get("dt") != "additional_rows"}
-    if frames and all(_YEAR.match(str(t)) for t in frames):
+    if not frames:
+        raise UnalignableVisualError("This visual has no data for this province.")
+    if all(_YEAR.match(str(t)) for t in frames):
         return "year"
-    if frames and all(_MONTH.match(str(t)) for t in frames):
+    if all(_MONTH.match(str(t)) for t in frames):
         return "month"
-    raise ValueError("this visual's time frames can't be aligned with DAS (expected YYYY or YYYY-MM)")
+    raise UnalignableVisualError(
+        "This visual's time frames can't be aligned with DAS (expected years or months).")
 
 
 def visual_periods(facts):
@@ -199,12 +227,14 @@ def das_dim(grain, basis):
 
 
 def series_from_pivot(pivot):
-    """{period: value} from a rows-only pivot; null cells are omitted, never zeroed."""
+    """{period: value} from a rows-only pivot; null cells are omitted here (build_confluence_payload
+    zero-fills the periods DAS covers)."""
     return {row: cells[0] for row, cells in zip(pivot["rows"], pivot["cells"]) if cells[0] is not None}
 
 
 def cities_from_pivot(pivot):
-    """{"City, PR": {period: value}} from a rows x cols pivot; null cells omitted."""
+    """{"City, PR": {period: value}} from a rows x cols pivot; null cells omitted (an absent
+    city/period means zero samples -- a map draws no bubble for it)."""
     out = {}
     for row, cells in zip(pivot["rows"], pivot["cells"]):
         values = {col: v for col, v in zip(pivot["cols"], cells) if v is not None}
@@ -257,29 +287,33 @@ def _das_filters(code, expr):
     return filters
 
 
-def das_series(code, keys, level, grain, basis, expr):
-    """{key: {period: samples}} -- one pivot per key (or one "all" series when no key is chosen).
-    rows_cap must be the geo cap: the date-kind ordering keeps only the NEWEST rows_cap periods,
-    which for the bar-chart default would silently drop a month series' oldest months."""
-    series, truncated = {}, False
+def das_series(code, keys, grain, basis, expr):
+    """({key: {period: samples}}, {key: undated samples}, truncated) -- one pivot per key (or one
+    "all" series when no key is chosen). rows_cap must be the geo cap: the date-kind ordering
+    keeps only the NEWEST rows_cap periods, which for the bar-chart default would silently drop a
+    month series' oldest months."""
+    series, undated, truncated = {}, {}, False
     for key in (keys or [ALL_KEY]):
-        extra = [] if key == ALL_KEY else [group_clause([key], level)]
+        extra = [] if key == ALL_KEY else [group_clause([key])]
         pivot = query_pivot(DAS_DATASET, das_dim(grain, basis), None, _das_filters(code, expr),
                             DAS_MEASURE, rows_cap=PIVOT_MAX_ROWS_GEO, extra_where=extra)
         values = series_from_pivot(pivot)
-        values.pop("Unknown", None)   # samples with no date: no period to align to
+        # Samples with no date have no period to align to; they're counted, not plotted.
+        undated[key] = values.pop("Unknown", 0)
         series[key] = values
         truncated = truncated or pivot["truncated"]
-    return series, truncated
+    return series, undated, truncated
 
 
-def das_cities(code, keys, level, grain, basis, expr):
-    """{"City, PR": {period: samples}} for the union of the chosen keys."""
-    extra = [] if not keys else [group_clause(keys, level)]
+def das_cities(code, keys, grain, basis, expr):
+    """({"City, PR": {period: samples}}, undated samples, truncated) for the union of the keys."""
+    extra = [] if not keys else [group_clause(keys)]
     pivot = query_pivot(DAS_DATASET, "city", das_dim(grain, basis), _das_filters(code, expr),
                         DAS_MEASURE, rows_cap=PIVOT_MAX_ROWS_GEO, cols_cap=PIVOT_MAX_COLS_GEO,
                         extra_where=extra)
-    return cities_from_pivot(pivot), pivot["truncated"]
+    cities = cities_from_pivot(pivot)
+    undated = sum(by_period.pop("Unknown", 0) for by_period in cities.values())
+    return cities, undated, pivot["truncated"]
 
 
 def _clip(values_by_period, periods):
@@ -287,8 +321,15 @@ def _clip(values_by_period, periods):
 
 
 def build_confluence_payload(province, visual, keys, level, basis, expr):
-    """The whole pre-aligned overlay for one (province, visual) pair. Raises ValueError for a
-    visual whose time frames can't be aligned and FilterSyntaxError for a bad `expr`."""
+    """The whole pre-aligned overlay for one (province, visual) pair. `keys` must already be
+    normalized to `level` (keys_at_level). Raises UnalignableVisualError for a visual whose time
+    frames can't be aligned and FilterSyntaxError for a bad `expr`.
+
+    `das` always carries both `series` and `cities`; `mode` says which one is populated:
+    - "series" (flat visuals): series = {key: {period: samples}} over every shared period (a
+      period DAS covers with no matching samples is 0), undated = {key: samples with no date};
+    - "cities" (health-authority maps): cities = {"City, PR": {period: samples}}, sparse (absent
+      = 0), undated = {ALL_KEY: samples with no date}."""
     block = visual_block(visual)
     grain = detect_grain(block["facts"])
     coverage = das_coverage(basis)
@@ -306,12 +347,17 @@ def build_confluence_payload(province, visual, keys, level, basis, expr):
         "mode": mode,
         "coverage": coverage,
     }
+    das["series"], das["cities"] = {}, {}
     if mode == "series":
-        series, truncated = das_series(code, keys, level, grain, basis, expr)
-        das["series"] = {k: _clip(v, period_set) for k, v in series.items()}
+        series, undated, truncated = das_series(code, keys, grain, basis, expr)
+        # Every shared period touches DAS coverage, so a period with no matching samples is a
+        # real zero, not missing data.
+        das["series"] = {k: {p: v.get(p, 0) for p in periods} for k, v in series.items()}
     else:
-        cities, truncated = das_cities(code, keys, level, grain, basis, expr)
+        cities, undated_total, truncated = das_cities(code, keys, grain, basis, expr)
         das["cities"] = {c: clipped for c, v in cities.items() if (clipped := _clip(v, period_set))}
+        undated = {ALL_KEY: undated_total}
+    das["undated"] = undated
     das["truncated"] = truncated
 
     return {

@@ -1,5 +1,5 @@
-# Province constants shared by the write side (generate_visuals) and the serve side (confluence,
-# menus). Kept in a dependency-free module so the request path never has to import
+# Province constants shared by the write side (generate_visuals) and the serve side (confluence
+# and its API route in main). Kept in a dependency-free module so the request path never has to import
 # generate_visuals (which pulls pandas) just to map a URL slug to a display name or postal code.
 
 # URL-friendly province slug -> the display/Region name used as the geo for province-level facts.

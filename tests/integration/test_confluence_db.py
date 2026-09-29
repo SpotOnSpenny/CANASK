@@ -1,5 +1,7 @@
 """Confluence payload assembly on Postgres (to_char period dims, the group-membership
 subquery, and the V1 fact selectors it composes)."""
+from datetime import date
+
 import pytest
 
 from data_viz import confluence as cf
@@ -7,8 +9,8 @@ from data_viz.das_explorer import query_pivot
 from data_viz.database.models import DasSamples
 from data_viz.visual_generic import visual_block, visual_dimension_values
 
-from tests.confluence_data import seed_confluence
-from tests.factories import make_user
+from tests.confluence_data import seed_confluence, seed_month_visuals
+from tests.factories import make_das_drug, make_das_sample, make_user
 
 
 @pytest.fixture()
@@ -75,7 +77,7 @@ class TestSeriesPayload:
         assert [p["key"] for p in payload["periods"]] == ["2025", "2026"]   # 2024 has no DAS overlap
         das = payload["das"]
         assert das["mode"] == "series"
-        assert das["series"]["fentanyl"] == {"2025": 2.0}          # S-1 (subclass) + S-2 (code)
+        assert das["series"]["fentanyl"] == {"2025": 2.0, "2026": 0}   # S-1 (subclass) + S-2 (code)
         assert das["series"]["cocaine"] == {"2025": 1.0, "2026": 1.0}
         assert das["keys"] == [{"key": "fentanyl", "label": "Fentanyl & analogues"},
                                {"key": "cocaine", "label": "Cocaine"}]
@@ -87,11 +89,12 @@ class TestSeriesPayload:
                                               ["fentanyl"], "group", "received", None)
         # Coverage starts 2025-04, so neither year is fully inside the complete window.
         assert [p["das_complete"] for p in payload["periods"]] == [False, False]
+        assert payload["das"]["undated"] == {"fentanyl": 0}
 
     def test_expression_narrows(self, seeded, admin):
         payload = cf.build_confluence_payload("saskatchewan", seeded["flat"],
                                               ["fentanyl"], "group", "received", "fentanyl NOT *")
-        assert payload["das"]["series"]["fentanyl"] == {"2025": 1.0}   # S-2 also has cocaine
+        assert payload["das"]["series"]["fentanyl"] == {"2025": 1.0, "2026": 0}   # S-2 also has cocaine
 
     def test_empty_keys_means_all_samples(self, seeded, admin):
         payload = cf.build_confluence_payload("saskatchewan", seeded["flat"],
@@ -102,7 +105,7 @@ class TestSeriesPayload:
     def test_family_level_unions_groups(self, seeded, admin):
         payload = cf.build_confluence_payload("saskatchewan", seeded["flat"],
                                               ["opioids", "stimulants"], "family", "received", None)
-        assert payload["das"]["series"]["opioids"] == {"2025": 2.0}
+        assert payload["das"]["series"]["opioids"] == {"2025": 2.0, "2026": 0}
         assert payload["das"]["series"]["stimulants"] == {"2025": 1.0, "2026": 1.0}
 
     def test_returned_basis_bins_by_return_month(self, seeded, admin):
@@ -128,12 +131,83 @@ class TestCitiesPayload:
         das = payload["das"]
         assert das["mode"] == "cities"
         assert das["cities"] == {"Saskatoon, SK": {"2025": 2.0}, "Regina, SK": {"2026": 1.0}}
-        assert "series" not in das
+        assert das["series"] == {}
+        assert das["undated"] == {"all": 0}
 
     def test_cities_mode_all_samples(self, seeded, admin):
         payload = cf.build_confluence_payload("saskatchewan", seeded["heat"],
                                               [], "group", "received", None)
         assert payload["das"]["cities"]["Saskatoon, SK"] == {"2025": 2.0}
+
+
+class TestZeroFillAndClip:
+    def test_covered_period_with_no_matching_samples_is_zero(self, seeded, admin):
+        # 2026 is inside DAS coverage but has no fentanyl sample: a real 0, not a gap.
+        payload = cf.build_confluence_payload("saskatchewan", seeded["flat"],
+                                              ["fentanyl"], "group", "received", None)
+        assert payload["das"]["series"]["fentanyl"]["2026"] == 0
+
+    def test_das_periods_outside_the_visual_are_clipped(self, seeded, admin):
+        coc = make_das_drug(code="COC", display_name="Cocaine base")
+        make_das_sample(sample_number="S-27", province="SK", city="Moose Jaw", drugs=[coc],
+                        date_received=date(2027, 6, 1), date_returned=date(2027, 7, 1))
+        flat = cf.build_confluence_payload("saskatchewan", seeded["flat"],
+                                           [], "group", "received", None)
+        assert set(flat["das"]["series"]["all"]) == {"2025", "2026"}   # the visual has no 2027
+        heat = cf.build_confluence_payload("saskatchewan", seeded["heat"],
+                                           [], "group", "received", None)
+        assert "Moose Jaw, SK" not in heat["das"]["cities"]
+
+    def test_undated_samples_are_counted_not_plotted(self, seeded, admin):
+        coc = make_das_drug(code="COC", display_name="Cocaine base")
+        make_das_sample(sample_number="S-ND", province="SK", city="Regina", drugs=[coc],
+                        date_received=None, date_returned=date(2025, 5, 1))
+        flat = cf.build_confluence_payload("saskatchewan", seeded["flat"],
+                                           [], "group", "received", None)
+        assert "Unknown" not in flat["das"]["series"]["all"]
+        assert flat["das"]["undated"] == {"all": 1}
+        heat = cf.build_confluence_payload("saskatchewan", seeded["heat"],
+                                           [], "group", "received", None)
+        assert heat["das"]["cities"]["Regina, SK"] == {"2026": 1.0}
+        assert heat["das"]["undated"] == {"all": 1}
+
+
+class TestMonthGrain:
+    def test_month_visual_aligns_and_flags_both_ends(self, seeded, admin):
+        months = [f"2025-{m:02d}" for m in range(1, 13)] + ["2026-01", "2026-02", "2026-03"]
+        monthly = seed_month_visuals(months=months)
+        payload = cf.build_confluence_payload("saskatchewan", monthly["flat"],
+                                              [], "group", "received", None)
+        assert payload["grain"] == "month"
+        # Received coverage opens two months before the first return month (2025-04) and ends at
+        # the last one (2026-02); the two months at each end are incomplete.
+        flags = {p["key"]: p["das_complete"] for p in payload["periods"]}
+        assert list(flags) == [f"2025-{m:02d}" for m in range(2, 13)] + ["2026-01", "2026-02"]
+        assert [k for k, done in flags.items() if not done] == ["2025-02", "2025-03",
+                                                                "2026-01", "2026-02"]
+        series = payload["das"]["series"]["all"]
+        assert series["2025-03"] == 1.0 and series["2025-06"] == 1.0 and series["2026-01"] == 1.0
+        assert series["2025-04"] == 0 and sum(series.values()) == 3.0
+
+    def test_more_periods_than_the_default_pivot_caps(self, db_session, admin):
+        # 45 received-months: past both PIVOT_MAX_ROWS (40) and PIVOT_MAX_COLS (15). The date-kind
+        # ordering keeps the NEWEST periods, so a default cap would drop the oldest months.
+        coc = make_das_drug(code="COC", display_name="Cocaine base")
+        months = [cf.shift_month("2020-01", i) for i in range(45)]
+        for i, month in enumerate(months):
+            year, mon = (int(x) for x in month.split("-"))
+            ret_year, ret_mon = (int(x) for x in cf.shift_month(month, 1).split("-"))
+            make_das_sample(sample_number=f"M-{i}", province="SK", city="Saskatoon", drugs=[coc],
+                            date_received=date(year, mon, 5), date_returned=date(ret_year, ret_mon, 5))
+        monthly = seed_month_visuals(months=months)
+        flat = cf.build_confluence_payload("saskatchewan", monthly["flat"],
+                                           [], "group", "received", None)
+        assert flat["das"]["series"]["all"]["2020-01"] == 1.0
+        assert flat["das"]["truncated"] is False
+        heat = cf.build_confluence_payload("saskatchewan", monthly["heat"],
+                                           [], "group", "received", None)
+        assert heat["das"]["cities"]["Saskatoon, SK"]["2020-01"] == 1.0
+        assert heat["das"]["truncated"] is False
 
 
 class TestConfluenceConfig:
@@ -148,6 +222,7 @@ class TestConfluenceConfig:
         assert "ontario" not in config["provinces"]
         assert config["groups"]["fentanyl"]["family"] == "opioids"
         assert "opioids" in config["families"]
+        assert "other" not in config["families"]   # no member groups -> no chip
 
     def test_anonymous_sees_nothing_when_private(self, db_session):
         seed_confluence(visibility="private")

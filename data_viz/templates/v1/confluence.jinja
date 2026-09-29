@@ -58,9 +58,10 @@
                     <p class="table-caption mt-2 mb-0">
                         The DAS half is aligned to the visual's own time grain (years or months) and to
                         the chosen province. Substance chips pre-select from the visual's own drug
-                        categories where a match is known. DAS results reach the data a month or two
-                        after a sample is received, so the most recent periods are marked as still
-                        filling in. Map pairings draw DAS samples as bubbles by city on top of the
+                        categories where a match is known. Any period DAS doesn't fully cover is
+                        marked incomplete: on the received-date basis that includes the first and last
+                        couple of months, since results reach the data a month or two after a sample
+                        is received. Map pairings draw DAS samples as bubbles by city on top of the
                         visual's map, with one slider for both.
                     </p>
                 </div>
@@ -73,10 +74,10 @@
             <div class="card">
                 <div class="card-body">
                     <h4 class="card-title" id="confluence-chart-title"></h4>
+                    <p class="text-warning small d-none" id="confluence-link-note"></p>
                     <p class="text-warning small d-none" id="confluence-incomplete"></p>
-                    <p class="text-warning small d-none" id="confluence-truncated">
-                        Showing only the largest DAS categories. Refine with the advanced filter to see the rest.
-                    </p>
+                    <p class="text-warning small d-none" id="confluence-truncated"></p>
+                    <p class="text-warning small d-none" id="confluence-undated"></p>
                     <p class="text-warning small d-none" id="confluence-unmapped"></p>
                     <div id="confluence-chart">
                         <p class="text-muted text-center py-5 mb-0">Pick a province and a visual, then press Overlay.</p>

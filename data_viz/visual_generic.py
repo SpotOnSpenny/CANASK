@@ -78,12 +78,13 @@ def _visual_facts(visual):
 
 
 def _main_query(visual, preds):
-    """The DataPoints query for a visual's main (non-additional) facts, or None when the visual
-    has nothing of its own to select."""
+    """The DataPoints query for a visual's main (non-additional) facts, or None when a
+    province-level visual has no geo predicate (this province has no data for it). Callers must
+    reject metric-less visuals first -- this would query data_metric=None."""
     # Province-level (flat) visuals share source+metric+dimension2_type across ALL provinces, so they
     # are meaningful only when scoped to this province's geo. The write path always emits a "geo"
     # predicate alongside such a visual's facts, so a *missing* geo predicate means this province has
-    # no data for the visual (e.g. a territory whose breakdown is privacy-suppressed) -- return empty
+    # no data for the visual (e.g. a territory whose breakdown is privacy-suppressed) -- return None
     # rather than leaking every other province's facts.
     if visual.geo_type == PROVINCE_GEO_TYPE and not preds.get("geo"):
         return None

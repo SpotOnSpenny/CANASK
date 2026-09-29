@@ -18,8 +18,10 @@ def das_gate(visibility="public"):
                        vis_type="das_table", data_shape="das_table", metric=None)
 
 
-def seed_confluence(visibility="public"):
-    gate = das_gate(visibility)
+def seed_confluence(visibility="public", gate_visibility=None):
+    """`visibility` applies to the province visuals, and to the DAS gate too unless
+    `gate_visibility` sets the gate separately (to exercise each half of the access check)."""
+    gate = das_gate(gate_visibility or visibility)
     source = make_data_source(name="Saskatchewan Coroners Service", link="https://sk.example.org",
                               about="SK about")
     source.last_updated_str = "June, 2026"
@@ -68,3 +70,29 @@ def seed_confluence(visibility="public"):
     make_das_sample(sample_number="S-4", province="ON", city="Toronto", drugs=[fent],
                     date_received=date(2025, 3, 1), date_returned=date(2025, 4, 2))
     return {"gate": gate, "source": source, "flat": flat, "heat": heat}
+
+
+def seed_month_visuals(source=None, months=(), heat_months=None):
+    """A Saskatchewan month-grain flat visual (one Fentanyl fact per month in `months`) and a
+    month-grain Saskatoon/Regina heatmap (over `heat_months`, default the same months)."""
+    source = source or make_data_source(name="SK Monthly", link="https://sk.example.org/m",
+                                        about="monthly")
+    flat = make_visual(province="saskatchewan", name="monthly_deaths", visibility="public",
+                       data_source=source, vis_type="flat_series", data_shape="flat_series",
+                       chart_type="line", metric="deaths", geo_type="province",
+                       dimension2_type="drug_type", key_kind="suffix_y", level="1",
+                       data_types="counts", menu_parent="Deaths", menu_name="Monthly deaths")
+    make_visual_query(flat, "geo", "Saskatchewan")
+    for month in months:
+        make_datapoint(source, geo="Saskatchewan", geo_type="province", time_frame=month,
+                       data_metric="deaths", data_value=1,
+                       dimension2_type="drug_type", dimension2_value="Fentanyl")
+    heat = make_visual(province="saskatchewan", name="monthly_heatmap", visibility="public",
+                       data_source=source, vis_type="geo_series", data_shape="geo_series",
+                       chart_type="heatmap", metric="deaths", geo_type="health_authority",
+                       key_kind="constant", level="1", data_types="counts",
+                       menu_parent="Deaths", menu_name="Monthly heatmap")
+    for month in (months if heat_months is None else heat_months):
+        make_datapoint(source, geo="Saskatoon", geo_type="health_authority", time_frame=month,
+                       data_metric="deaths", data_value=1)
+    return {"source": source, "flat": flat, "heat": heat}

@@ -184,12 +184,6 @@ def v1_province_visual(province, rest):
     return _render_scope_visual(province, rest)
 
 
-# DAS Explorer: a row-level data table + pivot builder over its own das_* tables, not the visuals
-# chart machinery -- so it gets its own template and JSON endpoints instead of provincial_vis.jinja
-# + /api/v1/province/<...>/data. Access is still the standard per-visual model: the metric-less
-# "canada-das"/das_explorer Visuals row (app_config/visuals/nationalDAS.json) carries the visibility
-# + group grants, checked server-side here AND on both APIs below. A static path segment outranks
-# the /v1/national/<dashboard> converter, so this coexists with the dashboards above.
 def _das_gate_or_redirect():
     """Shared by the DAS-backed pages: None when the viewer may see the DAS data, else the
     flash + redirect response (an HX-Redirect for HTMX navigation) that sends them home."""
@@ -204,12 +198,18 @@ def _das_gate_or_redirect():
 
 
 def _render_dash(template, **context):
-    """The HTMX-vs-full-page branch every dashboard-style page shares."""
+    """The HTMX-vs-full-page branch the DAS-backed pages (DAS Explorer, Confluence) share."""
     if request.headers.get("HX-Request") == "true":
         return render_template(template, **context)
     return render_template("base.jinja", include_partials="index", dash_template=template, **context)
 
 
+# DAS Explorer: a row-level data table + pivot builder over its own das_* tables, not the visuals
+# chart machinery -- so it gets its own template and JSON endpoints instead of provincial_vis.jinja
+# + /api/v1/province/<...>/data. Access is still the standard per-visual model: the metric-less
+# "canada-das"/das_explorer Visuals row (app_config/visuals/nationalDAS.json) carries the visibility
+# + group grants, checked server-side here AND on both APIs below. A static path segment outranks
+# the /v1/national/<dashboard> converter, so this coexists with the dashboards above.
 @main_blueprint.route("/v1/national/das-explorer")
 def das_explorer_page():
     from .confluence import das_source
@@ -306,8 +306,9 @@ def das_pivot(dataset):
 @limiter.limit(lambda: current_app.config["RATELIMIT_API"])
 def confluence_data():
     from flask_login import current_user
-    from .confluence import (BASES, LEVELS, MAX_KEYS, build_confluence_payload,
-                             load_substance_groups, supported_visuals)
+    from .confluence import (BASES, LEVELS, MAX_KEYS, UnalignableVisualError,
+                             build_confluence_payload, keys_at_level, load_substance_groups,
+                             supported_visuals)
     from .das_explorer import das_access_allowed
     from .das_filter_expr import MAX_EXPRESSION_LENGTH, FilterSyntaxError
     from .database.models import Visuals
@@ -324,19 +325,29 @@ def confluence_data():
         return jsonify({"error": "forbidden"}), 403
     level = request.args.get("level", "group")
     basis = request.args.get("basis", "received")
-    keys = list(dict.fromkeys(k for k in request.args.get("groups", "").split(",") if k))
+    raw_keys = [k for k in request.args.get("groups", "").split(",") if k]
     crosswalk = load_substance_groups()
     known = set(crosswalk["groups"]) | set(crosswalk["families"])
     expr = request.args.get("expr") or None
-    if (level not in LEVELS or basis not in BASES or len(keys) > MAX_KEYS
-            or any(k not in known for k in keys)
-            or (expr is not None and len(expr) > MAX_EXPRESSION_LENGTH)):
-        return jsonify({"error": "bad confluence params"}), 400
+    if level not in LEVELS:
+        return jsonify({"error": f"Unknown substance level {level!r}."}), 400
+    if basis not in BASES:
+        return jsonify({"error": f"Unknown date basis {basis!r}."}), 400
+    unknown = [k for k in dict.fromkeys(raw_keys) if k not in known]
+    if unknown:
+        return jsonify({"error": f"Unknown substance {unknown[0]!r}. Pick from the chips."}), 400
+    if expr is not None and len(expr) > MAX_EXPRESSION_LENGTH:
+        return jsonify({"error": f"The advanced filter is limited to {MAX_EXPRESSION_LENGTH} characters."}), 400
+    # Normalize to the requested level so the payload's keys/series always match `level`, even
+    # for a hand-edited link; the cap applies to what will actually be queried.
+    keys = keys_at_level(raw_keys, level, crosswalk) if raw_keys else []
+    if len(keys) > MAX_KEYS:
+        return jsonify({"error": f"Pick at most {MAX_KEYS} substances."}), 400
     try:
         return jsonify(build_confluence_payload(province, visual, keys, level, basis, expr))
     except FilterSyntaxError as err:
         return jsonify({"error": f"Invalid filter: {err}"}), 400
-    except ValueError as err:   # e.g. a visual whose time frames can't be aligned
+    except UnalignableVisualError as err:
         return jsonify({"error": str(err)}), 400
 
 

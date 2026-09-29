@@ -54,6 +54,8 @@ class TestCrosswalkValidation:
         assert data["groups"]["fentanyl"]["family"] in data["families"]
         for key in ("opioids", "stimulants"):
             assert key in data["families"]
+        # "other" has no member groups yet, so it's dropped rather than shown as a dead chip.
+        assert "other" not in data["families"]
 
     def test_unknown_family_rejected(self):
         bad = {"families": {}, "groups": {"g": {"label": "G", "family": "nope", "codes": ["X"]}},
@@ -72,6 +74,46 @@ class TestCrosswalkValidation:
                "groups": {"g": {"label": "G", "family": "f", "codes": ["X"]}},
                "terms": {"x": ["missing"]}}
         with pytest.raises(ValueError, match="term"):
+            cf.validate_substance_groups(bad)
+
+    def test_member_less_family_is_dropped(self):
+        data = {"families": {"f": {"label": "F"}, "empty": {"label": "Empty"}},
+                "groups": {"g": {"label": "G", "family": "f", "codes": ["X"]}}, "terms": {}}
+        assert set(cf.validate_substance_groups(data)["families"]) == {"f"}
+
+    def test_term_naming_member_less_family_rejected(self):
+        bad = {"families": {"f": {"label": "F"}, "empty": {"label": "Empty"}},
+               "groups": {"g": {"label": "G", "family": "f", "codes": ["X"]}},
+               "terms": {"x": ["empty"]}}
+        with pytest.raises(ValueError, match="unknown key 'empty'"):
+            cf.validate_substance_groups(bad)
+
+    @pytest.mark.parametrize("field", ["codes", "subclasses", "exclude_codes"])
+    def test_bare_string_lists_rejected(self, field):
+        group = {"label": "G", "family": "f", "codes": ["X"], field: "METH"}
+        bad = {"families": {"f": {"label": "F"}}, "groups": {"g": group}, "terms": {}}
+        with pytest.raises(ValueError, match=f"{field} must be a list of strings"):
+            cf.validate_substance_groups(bad)
+
+    def test_bare_string_term_rejected(self):
+        bad = {"families": {"f": {"label": "F"}},
+               "groups": {"g": {"label": "G", "family": "f", "codes": ["X"]}},
+               "terms": {"x": "g"}}
+        with pytest.raises(ValueError, match="list of keys"):
+            cf.validate_substance_groups(bad)
+
+    @pytest.mark.parametrize("where", ["families", "groups"])
+    def test_missing_label_rejected(self, where):
+        bad = {"families": {"f": {"label": "F"}},
+               "groups": {"g": {"label": "G", "family": "f", "codes": ["X"]}}, "terms": {}}
+        del bad[where]["f" if where == "families" else "g"]["label"]
+        with pytest.raises(ValueError, match="no label"):
+            cf.validate_substance_groups(bad)
+
+    def test_all_key_is_reserved(self):
+        bad = {"families": {"f": {"label": "F"}},
+               "groups": {cf.ALL_KEY: {"label": "A", "family": "f", "codes": ["X"]}}, "terms": {}}
+        with pytest.raises(ValueError, match="collide"):
             cf.validate_substance_groups(bad)
 
     def test_group_and_family_keys_must_not_collide(self):
@@ -120,23 +162,23 @@ class TestKeyLabel:
 
 class TestGroupClause:
     def test_group_clause_names_codes_and_subclasses(self):
-        sql = compiled(cf.group_clause(["fentanyl"], "group", CROSSWALK))
+        sql = compiled(cf.group_clause(["fentanyl"], CROSSWALK))
         assert "das_sample_drugs" in sql and "das_drug_codes" in sql
         assert "'PFLFENT'" in sql and "'Fentanyl & analogues'" in sql
         assert "sample_number IN" in sql
 
     def test_exclude_codes_appear_as_not_in(self):
-        sql = compiled(cf.group_clause(["other_opioids"], "group", CROSSWALK))
+        sql = compiled(cf.group_clause(["other_opioids"], CROSSWALK))
         assert "NOT IN" in sql and "'NALOX'" in sql
 
     def test_family_is_union_of_its_groups(self):
-        sql = compiled(cf.group_clause(["opioids"], "family", CROSSWALK))
+        sql = compiled(cf.group_clause(["opioids"], CROSSWALK))
         assert "'PFLFENT'" in sql and "'Opiates'" in sql
         assert "'COC'" not in sql
 
     def test_unknown_key_rejected(self):
         with pytest.raises(ValueError):
-            cf.group_clause(["nope"], "group", CROSSWALK)
+            cf.group_clause(["nope"], CROSSWALK)
 
 
 class TestDetectGrain:
@@ -155,7 +197,7 @@ class TestDetectGrain:
         [{"dt": "counts", "t": "2024 Q1"}],
     ])
     def test_mixed_or_unknown_raises(self, facts):
-        with pytest.raises(ValueError):
+        with pytest.raises(cf.UnalignableVisualError):
             cf.detect_grain(facts)
 
 

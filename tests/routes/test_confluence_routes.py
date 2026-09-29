@@ -3,7 +3,8 @@ chosen visual's own visibility."""
 import pytest
 
 from tests.confluence_data import das_gate, seed_confluence
-from tests.factories import grant_visual, make_group, make_user
+from tests.factories import (grant_visual, make_data_source, make_datapoint, make_group,
+                             make_user, make_visual, make_visual_query)
 
 API = "/api/v1/confluence/data"
 SK_FLAT = {"province": "saskatchewan", "visual": "deaths_by_opioid_type"}
@@ -36,6 +37,21 @@ class TestAccessLadder:
         login_as(make_user(site_admin=True))
         assert client.get(url(**SK_FLAT)).status_code == 200
 
+    def test_public_gate_does_not_open_a_private_visual(self, client, db_session, login_as):
+        # Isolates the visual half of the conjunction: DAS access alone must not expose a private
+        # V1 visual's facts through payload["visual"].
+        seed_confluence(visibility="private", gate_visibility="public")
+        assert client.get(url(**SK_FLAT)).status_code == 403
+        login_as(make_user(site_admin=True))
+        assert client.get(url(**SK_FLAT)).status_code == 200
+
+    def test_granted_gate_does_not_open_an_ungranted_visual(self, client, db_session, login_as):
+        seeded = seed_confluence(visibility="group")
+        group = make_group()
+        grant_visual(group, seeded["gate"])
+        login_as(make_user(group=group, role="Data Viewer"))
+        assert client.get(url(**SK_FLAT)).status_code == 403   # flat visual not granted
+
     def test_group_grant_needs_both_visuals(self, client, db_session, login_as):
         seeded = seed_confluence(visibility="group")
         group = make_group()
@@ -63,7 +79,27 @@ class TestParams:
         {"expr": "x" * 301},
     ])
     def test_bad_params_400(self, client, bad):
-        assert client.get(url(**SK_FLAT, **bad)).status_code == 400
+        response = client.get(url(**SK_FLAT, **bad))
+        assert response.status_code == 400
+        assert response.get_json()["error"] != "bad confluence params"   # says what's wrong
+
+    def test_too_many_keys_message(self, client):
+        groups = "fentanyl,nitazenes,other_opioids,cocaine,methamphetamine,mdma,benzos,xylazine,medetomidine"
+        assert client.get(url(**SK_FLAT, groups=groups)).get_json()["error"] == "Pick at most 8 substances."
+
+    def test_exactly_max_keys_ok(self, client):
+        groups = "fentanyl,nitazenes,other_opioids,cocaine,methamphetamine,mdma,benzos,xylazine"
+        assert client.get(url(**SK_FLAT, groups=groups)).status_code == 200
+
+    def test_group_keys_collapse_to_family_level(self, client):
+        payload = client.get(url(**SK_FLAT, level="family", groups="fentanyl,nitazenes")).get_json()
+        assert [k["key"] for k in payload["das"]["keys"]] == ["opioids"]
+        assert set(payload["das"]["series"]) == {"opioids"}
+
+    def test_family_key_expands_at_group_level(self, client):
+        payload = client.get(url(**SK_FLAT, level="group", groups="opioids")).get_json()
+        keys = [k["key"] for k in payload["das"]["keys"]]
+        assert "opioids" not in keys and {"fentanyl", "nitazenes", "other_opioids"} <= set(keys)
 
     def test_malformed_expression_400_with_message(self, client):
         response = client.get(url(**SK_FLAT, expr="(fentanyl"))
@@ -91,12 +127,48 @@ class TestPayload:
         assert set(payload) == {"province", "visual", "visual_label", "visual_metric", "grain",
                                 "periods", "das"}
         assert payload["das"]["mode"] == "series"
-        assert payload["das"]["series"]["fentanyl"] == {"2025": 2}
+        assert payload["das"]["series"]["fentanyl"] == {"2025": 2, "2026": 0}
 
     def test_cities_shape(self, client):
         payload = client.get(url(province="saskatchewan", visual="drug_death_heatmap")).get_json()
         assert payload["das"]["mode"] == "cities"
         assert "Saskatoon, SK" in payload["das"]["cities"]
+
+
+class TestUnalignableVisual:
+    @pytest.fixture(autouse=True)
+    def _seed(self, db_session):
+        seed_confluence()
+
+    def _flat(self, name, frames):
+        source = make_data_source(name=f"src-{name}", link="https://x.example.org", about="x")
+        visual = make_visual(province="saskatchewan", name=name, visibility="public",
+                             data_source=source, vis_type="flat_series", data_shape="flat_series",
+                             chart_type="line", metric="deaths", geo_type="province",
+                             key_kind="suffix_y", level="1", data_types="counts")
+        if frames:
+            make_visual_query(visual, "geo", "Saskatchewan")
+        for frame in frames:
+            make_datapoint(source, geo="Saskatchewan", geo_type="province", time_frame=frame,
+                           data_metric="deaths", data_value=1)
+
+    def test_quarterly_visual_400(self, client):
+        self._flat("quarterly", ["2025 Q1", "2025 Q2"])
+        response = client.get(url(province="saskatchewan", visual="quarterly"))
+        assert response.status_code == 400
+        assert "can't be aligned" in response.get_json()["error"]
+
+    def test_mixed_grain_visual_400(self, client):
+        self._flat("mixed", ["2025", "2025-06"])
+        assert client.get(url(province="saskatchewan", visual="mixed")).status_code == 400
+
+    def test_visual_without_data_for_the_province_is_not_pairable(self, client):
+        # No geo predicate: a province-level visual this province has no facts for.
+        # displayable_visuals drops it, so it's never offered and the API refuses it (403) before
+        # detect_grain's "no data" guard is reached.
+        self._flat("empty", [])
+        assert client.get(url(province="saskatchewan", visual="empty")).status_code == 403
+        assert '"empty"' not in client.get("/v1/national/confluence").data.decode()
 
 
 class TestPage:
