@@ -24,6 +24,7 @@ from data_viz.database.models import (
     SiteAdminKey,
     User,
     UserGroups,
+    VisualQuery,
     Visuals,
 )
 
@@ -120,6 +121,14 @@ def make_visual(province="ontario", name=None, visibility="public", data_source=
     return visual
 
 
+def make_visual_query(visual, filter_type="geo", filter_value="Ontario"):
+    """One VisualQuery predicate row (the write path's link from a visual to its facts)."""
+    row = VisualQuery(filter_type=filter_type, filter_value=filter_value, for_visual_id=visual.id)
+    db.session.add(row)
+    db.session.flush()
+    return row
+
+
 def grant_visual(group, visual):
     grant = GroupVisuals(group_id=group.id, visual_id=visual.id)
     db.session.add(grant)
@@ -189,11 +198,13 @@ def make_password_reset(user, expires_delta=timedelta(hours=1), used=False):
 
 # --- DAS row-level tables ------------------------------------------------------------------
 
-def make_das_drug(code=None, display_name=None, english_name=None):
+def make_das_drug(code=None, display_name=None, english_name=None, **overrides):
+    """overrides: any other DasDrugCodes column (pharm_class, pharm_subclass, ...)."""
     drug = DasDrugCodes(
         code=code or unique("DRUG-"),
         display_name=display_name or (code or "Drug"),
         english_name=english_name or display_name or code,
+        **overrides,
     )
     db.session.add(drug)
     db.session.flush()

@@ -1349,10 +1349,43 @@ a { text-decoration: none; }
 .tabulator-edit-list .tabulator-edit-list-item:hover { background: var(--c-accent-soft); color: var(--c-text); }
 .tabulator-edit-list .tabulator-edit-list-item.active:hover { background: var(--c-accent-hover); color: #fff; }
 .tabulator-edit-list .tabulator-edit-list-placeholder { color: var(--c-muted); }
+/* Loading / error overlays: Tabulator's stock grey scrim + white "Loading" box becomes a
+   surface-coloured scrim carrying the site's skeleton lines (dataLoaderLoading in dasExplorer.js),
+   pushed below the header row so the column headers stay readable. */
+.tabulator .tabulator-alert {
+  background: color-mix(in srgb, var(--c-surface) 82%, transparent);
+  align-items: flex-start;
+}
+.tabulator .tabulator-alert .tabulator-alert-msg.tabulator-alert-state-msg {
+  background: transparent;
+  border: 0;
+  color: var(--c-text);
+  width: 100%;
+  max-width: 48rem;
+  padding: 84px 16px 0;
+}
+.tabulator .tabulator-alert .tabulator-alert-msg.tabulator-alert-state-error {
+  background: var(--c-surface);
+  border: 1px solid var(--c-danger);
+  color: var(--c-danger);
+  margin-top: 84px;
+}
+.das-table-loading .skeleton-line { margin: 14px auto; }
 /* Pivot builder controls: mirror the treemap control row's compact select sizing. */
 .das-pivot-controls > div { min-width: 8.5rem; }
 #das-pivot-chart { min-height: 0; }
 #das-pivot-chart .skeleton-chart { height: 300px; }
+/* Confluence controls: same compact sizing; the visual select gets room for long menu names, and
+   the advanced-filter input reuses the DAS red-ring invalid state. */
+.confluence-controls > div { min-width: 8.5rem; }
+.confluence-controls .confluence-visual-wrap { min-width: 16rem; flex: 1 1 16rem; }
+.confluence-expr-wrap { max-width: 32rem; }
+#confluence-expr.das-filter-invalid {
+  border-color: var(--c-danger);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--c-danger) 28%, transparent);
+}
+#confluence-chart { min-height: 0; }
+#confluence-chart .skeleton-chart { height: 300px; }
 
 /* --------------------------- Reduced motion ----------------------------- */
 @media (prefers-reduced-motion: reduce) {

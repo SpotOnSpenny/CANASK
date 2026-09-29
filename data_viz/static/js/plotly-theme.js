@@ -209,11 +209,14 @@ function canaskRedrawCharts() {
   });
   // Full rebuild for the active V1 visual so trace colors pick up the new
   // colorway (relayout alone cannot recolor existing traces).
+  // Guarded on the province chart container being present: currentVisual is a page-lifetime
+  // global that outlives an HTMX navigation to a page without that chart.
   try {
     if (
       typeof masterLoop === "function" &&
       typeof currentVisual !== "undefined" &&
-      currentVisual
+      currentVisual &&
+      document.getElementById("vis-div")
     ) {
       masterLoop(typeof lastLocation !== "undefined" ? lastLocation : null);
     }
@@ -227,6 +230,14 @@ function canaskRedrawCharts() {
     }
   } catch (e) {
     /* no active DAS pivot chart */
+  }
+  // ...and for the Confluence overlay, when that page is active.
+  try {
+    if (typeof window.confluenceRedraw === "function") {
+      window.confluenceRedraw();
+    }
+  } catch (e) {
+    /* no active Confluence chart */
   }
 }
 

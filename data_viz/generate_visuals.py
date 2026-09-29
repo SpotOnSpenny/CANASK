@@ -1218,22 +1218,9 @@ def v1_SK_export_clean(writer, province):
 # Write-side constants + helpers for mapping cleaned values into normalized facts.
 # --------------------------------------------------------------------------------------- #
 
-# URL-friendly province -> the display/Region name used as the geo for province-level facts
-PROVINCE_DISPLAY = {
-    "british-columbia": "British Columbia",
-    "alberta": "Alberta",
-    "saskatchewan": "Saskatchewan",
-    "manitoba": "Manitoba",
-    "new-brunswick": "New Brunswick",
-    "ontario": "Ontario",
-    "nova-scotia": "Nova Scotia",
-    "quebec": "Quebec",
-    "prince-edward-island": "Prince Edward Island",
-    "newfoundland-and-labrador": "Newfoundland and Labrador",
-    "yukon": "Yukon",
-    "northwest-territories": "Northwest Territories",
-    "nunavut": "Nunavut",
-}
+# URL-friendly province -> the display/Region name used as the geo for province-level facts.
+# Lives in data_viz/provinces.py (shared with the serve side); aliased here for the cleaners.
+from data_viz.provinces import PROVINCE_LABELS as PROVINCE_DISPLAY
 
 # Provinces/territories whose national Health Infobase visuals are produced by
 # v1_national_export_clean (registered into V1_DIRECT below). BC is intentionally excluded -- it

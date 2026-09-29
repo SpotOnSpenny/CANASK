@@ -1,0 +1,148 @@
+<div class="container h-100 mobile-height-adjust py-2">
+    <!-- Header -->
+    <div class="row justify-content-center align-items-center py-2 mb-2 g-2">
+        <div class="col">
+            <div class="card">
+                <div class="card-body d-flex flex-wrap justify-content-between align-items-center gap-2 py-2">
+                    <nav class="vis-breadcrumb mb-0" aria-label="Breadcrumb">
+                        <span class="crumb crumb-current">Confluence</span>
+                    </nav>
+                    <span class="text-muted small">Overlay drug-supply seizures with harm trends</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    <!-- Controls: which province + visual to pair, and how to cut the DAS half -->
+    <div class="row justify-content-center align-items-center pb-2">
+        <div class="col">
+            <div class="card">
+                <div class="card-body">
+                    <div class="d-flex flex-wrap align-items-end gap-2 confluence-controls">
+                        <div>
+                            <label class="form-label mb-1 small" for="confluence-province">Province</label>
+                            <select class="form-select form-select-sm" id="confluence-province"></select>
+                        </div>
+                        <div class="confluence-visual-wrap">
+                            <label class="form-label mb-1 small" for="confluence-visual">Visual</label>
+                            <select class="form-select form-select-sm" id="confluence-visual"></select>
+                        </div>
+                        <div>
+                            <label class="form-label mb-1 small" for="confluence-basis">DAS date</label>
+                            <select class="form-select form-select-sm" id="confluence-basis">
+                                <option value="received">Received by lab</option>
+                                <option value="returned">Returned to client</option>
+                            </select>
+                        </div>
+                        <div>
+                            <span class="form-label mb-1 small d-block">Substance level</span>
+                            <div class="btn-group btn-group-sm" id="confluence-level" role="group" aria-label="Substance level">
+                                <input type="radio" class="btn-check" name="confluence-level" id="confluence-level-group" value="group" autocomplete="off" checked>
+                                <label class="btn btn-outline-secondary" for="confluence-level-group">Group</label>
+                                <input type="radio" class="btn-check" name="confluence-level" id="confluence-level-family" value="family" autocomplete="off">
+                                <label class="btn btn-outline-secondary" for="confluence-level-family">Family</label>
+                            </div>
+                        </div>
+                        <button type="button" class="btn btn-primary btn-sm" id="confluence-build">
+                            <i class="bi bi-layers"></i> Overlay
+                        </button>
+                    </div>
+                    <div class="mt-2">
+                        <span class="form-label mb-1 small d-block">DAS substances <span class="text-muted">(none checked = all samples)</span></span>
+                        <div class="d-flex flex-wrap gap-1" id="confluence-chips" role="group" aria-label="DAS substances"></div>
+                    </div>
+                    <div class="mt-2 confluence-expr-wrap">
+                        <label class="form-label mb-1 small" for="confluence-expr">Advanced DAS filter <span class="text-muted">(optional; same language as the DAS Explorer's Drugs Identified filter)</span></label>
+                        <input type="text" class="form-control form-control-sm" id="confluence-expr"
+                            placeholder="e.g. fentanyl NOT *" maxlength="300" autocomplete="off">
+                    </div>
+                    <p class="table-caption mt-2 mb-0">
+                        The DAS half is aligned to the visual's own time grain (years or months) and to
+                        the chosen province. Substance chips pre-select from the visual's own drug
+                        categories where a match is known. Any period DAS doesn't fully cover is
+                        marked incomplete: on the received-date basis that includes the first and last
+                        couple of months, since results reach the data a month or two after a sample
+                        is received. Map pairings draw DAS samples as bubbles by city on top of the
+                        visual's map, with one slider for both.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+    <!-- The overlay -->
+    <div class="row justify-content-center align-items-center pb-2">
+        <div class="col">
+            <div class="card">
+                <div class="card-body">
+                    <h4 class="card-title" id="confluence-chart-title"></h4>
+                    <p class="text-warning small d-none" id="confluence-link-note"></p>
+                    <p class="text-warning small d-none" id="confluence-incomplete"></p>
+                    <p class="text-warning small d-none" id="confluence-truncated"></p>
+                    <p class="text-warning small d-none" id="confluence-undated"></p>
+                    <p class="text-warning small d-none" id="confluence-unmapped"></p>
+                    <div id="confluence-chart">
+                        <p class="text-muted text-center py-5 mb-0">Pick a province and a visual, then press Overlay.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <!-- The aligned table -->
+    <div class="row justify-content-center align-items-center pb-2">
+        <div class="col">
+            <div class="card">
+                <div class="card-body table-responsive">
+                    <h4 class="card-title" id="confluence-table-title"></h4>
+                    <div id="confluence-table"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <!-- About both sources -->
+    <div class="row justify-content-center align-items-start pb-2 g-2">
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body" id="confluence-about-visual">
+                    <h4 class="card-title text-center">About these Data</h4>
+                    <hr />
+                    <p class="mb-0 text-muted">The visual's source details appear once an overlay is built.</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h4 class="card-title text-center">About the DAS Data</h4>
+                    <hr />
+                    {% if das_source %}
+                    {% if das_source.last_updated_str or das_source.data_until_str %}
+                    <h5 class="text-center">
+                        {%- if das_source.last_updated_str %}This data set was last updated on {{ das_source.last_updated_str }}{% if das_source.data_until_str %} and contains data up until {{ das_source.data_until_str }}{% endif %}.
+                        {%- else %}This data set contains data up until {{ das_source.data_until_str }}.
+                        {%- endif %}
+                    </h5>
+                    {% endif %}
+                    <p>{{ das_source.about }}</p>
+                    <div class="text-center pb-3">
+                        <a target="_blank" rel="noopener" href="{{ das_source.link }}" role="button"
+                            class="btn btn-primary">{{ das_source.name }}</a>
+                    </div>
+                    {% else %}
+                    <p class="mb-0">Source details are unavailable until the DAS data has been ingested.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    <script type="text/javascript">
+    (function() {
+        function boot() {
+            initConfluence({{ confluence_config | tojson }});
+        }
+        if (document.readyState === "loading") {
+            document.addEventListener("DOMContentLoaded", boot);
+        } else {
+            boot();
+        }
+    })();
+    </script>
+</div>
