@@ -13,6 +13,9 @@
     ('northwest-territories', 'Northwest Territories'),
     ('nunavut', 'Nunavut'),
 ] %}
+{# Confluence pairs the DAS data with a province visual, so its link needs both halves reachable. #}
+{% set confluence_available = 'canada-das' in accessible_provinces
+   and (province_links | map(attribute=0) | select('in', accessible_provinces) | list | length > 0) %}
 <div id="desktop-nav">
     <a class="rail-brand htmx-element" href="/" hx-get="/" hx-trigger="click" hx-target="#content-div"
         hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/">
@@ -57,6 +60,13 @@
                         hx-target="#content-div" hx-swap="innerHTML swap:1s settle:1s"
                         hx-push-url="/v1/national/das-explorer" class="nav-link htmx-element accordion-innard">
                         DAS Explorer
+                    </a>
+                    {% endif %}
+                    {% if confluence_available %}
+                    <a href="/v1/national/confluence" hx-get="/v1/national/confluence" hx-trigger="click"
+                        hx-target="#content-div" hx-swap="innerHTML swap:1s settle:1s"
+                        hx-push-url="/v1/national/confluence" class="nav-link htmx-element accordion-innard">
+                        Confluence
                     </a>
                     {% endif %}
                 </div>
@@ -161,6 +171,13 @@
             hx-target="#content-div" hx-swap="innerHTML swap:1s settle:1s"
             hx-push-url="/v1/national/das-explorer" class="mobile-nav-link htmx-element">
             DAS Explorer
+        </a>
+        {% endif %}
+        {% if confluence_available %}
+        <a href="/v1/national/confluence" hx-get="/v1/national/confluence" hx-trigger="click"
+            hx-target="#content-div" hx-swap="innerHTML swap:1s settle:1s"
+            hx-push-url="/v1/national/confluence" class="mobile-nav-link htmx-element">
+            Confluence
         </a>
         {% endif %}
         {% endif %}

@@ -257,7 +257,7 @@ def query_rows(dataset_key, page, size, sort, filters):
 
 
 def query_pivot(dataset_key, rows_field, cols_field, filters, measure_key,
-                 rows_cap=PIVOT_MAX_ROWS, cols_cap=PIVOT_MAX_COLS):
+                 rows_cap=PIVOT_MAX_ROWS, cols_cap=PIVOT_MAX_COLS, extra_where=()):
     """Pivot aggregation: GROUP BY the chosen dimension(s), aggregate the chosen measure.
 
     Returns {"rows": [...], "cols": [...], "cells": [[value|None per col] per row], "measure":
@@ -265,7 +265,10 @@ def query_pivot(dataset_key, rows_field, cols_field, filters, measure_key,
     (flagged) so a city- or drug-grained pivot can't ship thousands of traces. `rows_cap` lets the
     map charts opt up to PIVOT_MAX_ROWS_GEO (a map plots every place, not a top-N); `cols_cap`
     similarly lets a map's date-dimension Columns (its time-slider frames) opt up to
-    PIVOT_MAX_COLS_GEO instead of the bar-chart-tuned default."""
+    PIVOT_MAX_COLS_GEO instead of the bar-chart-tuned default. `extra_where` is a sequence of
+    pre-built SQLAlchemy boolean clauses AND-ed on after the registry filters -- how Confluence
+    adds substance-group membership (a subquery over das_sample_drugs) without widening the
+    client-facing filter whitelist."""
     dataset = DATASETS[dataset_key]
     dims = dataset["pivot_dims"]
     row_spec = dims[rows_field]
@@ -281,6 +284,8 @@ def query_pivot(dataset_key, rows_field, cols_field, filters, measure_key,
     # Filters may reference joined fields (e.g. quant's resolved drug name), so bring their joins too.
     joins += [tag for field in filters for tag in dataset["fields"][field]["joins"]]
     query = _apply_filters(_base_query(dataset, entities, joins), dataset, filters)
+    for clause in extra_where:
+        query = query.filter(clause)
     query = query.group_by("r", "c") if col_spec is not None else query.group_by("r")
     results = query.all()
 

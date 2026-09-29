@@ -104,6 +104,7 @@ STATIC_PAGE_TITLES = {
     "main.index": "Home",
     "main.page_not_found": "Page Not Found",
     "main.das_explorer_page": "DAS Explorer",
+    "main.confluence_page": "Confluence",
     "auth.login": "Login",
     "auth.invite_user": "Invite User",
     "auth.invite_management": "Invite Management",
@@ -189,23 +190,49 @@ def v1_province_visual(province, rest):
 # "canada-das"/das_explorer Visuals row (app_config/visuals/nationalDAS.json) carries the visibility
 # + group grants, checked server-side here AND on both APIs below. A static path segment outranks
 # the /v1/national/<dashboard> converter, so this coexists with the dashboards above.
+def _das_gate_or_redirect():
+    """Shared by the DAS-backed pages: None when the viewer may see the DAS data, else the
+    flash + redirect response (an HX-Redirect for HTMX navigation) that sends them home."""
+    from flask_login import current_user
+    from .das_explorer import das_access_allowed
+    if das_access_allowed(current_user):
+        return None
+    flash("That page isn't available.", "danger")
+    if request.headers.get("HX-Request") == "true":
+        return ("", 204, {"HX-Redirect": url_for("main.index")})
+    return redirect(url_for("main.index"))
+
+
+def _render_dash(template, **context):
+    """The HTMX-vs-full-page branch every dashboard-style page shares."""
+    if request.headers.get("HX-Request") == "true":
+        return render_template(template, **context)
+    return render_template("base.jinja", include_partials="index", dash_template=template, **context)
+
+
 @main_blueprint.route("/v1/national/das-explorer")
 def das_explorer_page():
+    from .confluence import das_source
+    from .das_explorer import explorer_config
+    denied = _das_gate_or_redirect()
+    if denied is not None:
+        return denied
+    return _render_dash("v1/das_explorer.jinja", das_config=explorer_config(), das_source=das_source())
+
+
+# Confluence: overlay DAS seizures with one V1 visual of a province (data_viz/confluence.py holds
+# every alignment rule). Access is the conjunction of the two halves' existing rules: the DAS gate
+# visual (das_access_allowed) AND the chosen V1 visual being displayable to this viewer -- so no
+# new Visuals row, grant, or migration. Same static-segment precedence note as the DAS Explorer.
+@main_blueprint.route("/v1/national/confluence")
+def confluence_page():
     from flask_login import current_user
-    from .das_explorer import das_access_allowed, explorer_config
-    from .database.models import DataSources
-    from .das_ingest import DAS_SOURCE_NAME
-    if not das_access_allowed(current_user):
-        flash("That page isn't available.", "danger")
-        if request.headers.get("HX-Request") == "true":
-            return ("", 204, {"HX-Redirect": url_for("main.index")})
-        return redirect(url_for("main.index"))
-    source = DataSources.query.filter_by(name=DAS_SOURCE_NAME).first()
-    context = {"das_config": explorer_config(), "das_source": source}
-    if request.headers.get("HX-Request") == "true":
-        return render_template("v1/das_explorer.jinja", **context)
-    return render_template("base.jinja", include_partials="index",
-                           dash_template="v1/das_explorer.jinja", **context)
+    from .confluence import confluence_config, das_source
+    denied = _das_gate_or_redirect()
+    if denied is not None:
+        return denied
+    return _render_dash("v1/confluence.jinja", confluence_config=confluence_config(current_user),
+                        das_source=das_source())
 
 
 # JSON APIs the DAS Explorer fetches: one page of table rows (Tabulator's remote pagination/sort/
@@ -270,6 +297,47 @@ def das_pivot(dataset):
                                    rows_cap=rows_cap, cols_cap=cols_cap))
     except FilterSyntaxError as err:
         return jsonify({"error": f"Invalid filter: {err}"}), 400
+
+
+# The Confluence payload: one pre-aligned overlay (see data_viz/confluence.py for the contract).
+# Ladder: 404 unknown province / no such visual, 403 no DAS access or the visual isn't one this
+# viewer may pair, 400 for bad params or an unalignable visual / malformed expression.
+@main_blueprint.route("/api/v1/confluence/data")
+@limiter.limit(lambda: current_app.config["RATELIMIT_API"])
+def confluence_data():
+    from flask_login import current_user
+    from .confluence import (BASES, LEVELS, MAX_KEYS, build_confluence_payload,
+                             load_substance_groups, supported_visuals)
+    from .das_explorer import das_access_allowed
+    from .das_filter_expr import MAX_EXPRESSION_LENGTH, FilterSyntaxError
+    from .database.models import Visuals
+    from .provinces import PROVINCE_CODES
+    province = request.args.get("province", "")
+    if province not in PROVINCE_CODES:
+        return jsonify({"error": "unknown province"}), 404
+    if not das_access_allowed(current_user):
+        return jsonify({"error": "forbidden"}), 403
+    visual = Visuals.query.filter_by(province=province, name=request.args.get("visual", "")).first()
+    if visual is None:
+        return jsonify({"error": "unknown visual"}), 404
+    if visual.id not in {v.id for v in supported_visuals(current_user, province)}:
+        return jsonify({"error": "forbidden"}), 403
+    level = request.args.get("level", "group")
+    basis = request.args.get("basis", "received")
+    keys = list(dict.fromkeys(k for k in request.args.get("groups", "").split(",") if k))
+    crosswalk = load_substance_groups()
+    known = set(crosswalk["groups"]) | set(crosswalk["families"])
+    expr = request.args.get("expr") or None
+    if (level not in LEVELS or basis not in BASES or len(keys) > MAX_KEYS
+            or any(k not in known for k in keys)
+            or (expr is not None and len(expr) > MAX_EXPRESSION_LENGTH)):
+        return jsonify({"error": "bad confluence params"}), 400
+    try:
+        return jsonify(build_confluence_payload(province, visual, keys, level, basis, expr))
+    except FilterSyntaxError as err:
+        return jsonify({"error": f"Invalid filter: {err}"}), 400
+    except ValueError as err:   # e.g. a visual whose time frames can't be aligned
+        return jsonify({"error": str(err)}), 400
 
 
 # National dashboards: render like a province page but under their own URL space (canada is a data

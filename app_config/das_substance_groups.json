@@ -1,0 +1,271 @@
+{
+  "_comment": [
+    "Confluence's substance crosswalk (a maintained asset, read by data_viz/confluence.py).",
+    "families: coarse buckets matching Health Infobase's vocabulary. groups: fine buckets, each",
+    "inside one family, defined by das_drug_codes.pharm_subclass values (`subclasses`) plus",
+    "explicit `codes` for drugs the source leaves unclassified (COCBAS, COC_HCL, PFLFENT...).",
+    "`exclude_codes` drops that drug ROW from the match, not the sample: a sample holding both",
+    "fentanyl and an excluded code still matches via fentanyl. terms: lower-cased V1 dimension",
+    "values (dimension_value / dimension2_value) -> the family or group keys they pre-select.",
+    "Refresh `terms` when a new V1 source adds dimension values; refresh `codes` when a monthly",
+    "ingest-das introduces high-volume unclassified codes."
+  ],
+  "families": {
+    "opioids": {
+      "label": "Opioids"
+    },
+    "stimulants": {
+      "label": "Stimulants"
+    },
+    "benzodiazepines": {
+      "label": "Benzodiazepines"
+    },
+    "sedatives": {
+      "label": "Other sedatives"
+    },
+    "other": {
+      "label": "Other"
+    }
+  },
+  "groups": {
+    "fentanyl": {
+      "label": "Fentanyl & analogues",
+      "family": "opioids",
+      "subclasses": [
+        "Fentanyl & analogues"
+      ],
+      "codes": [
+        "PFLFENT",
+        "FENT_FB",
+        "CARFENT_FB"
+      ],
+      "exclude_codes": []
+    },
+    "nitazenes": {
+      "label": "Nitazenes",
+      "family": "opioids",
+      "subclasses": [
+        "Nitazenes"
+      ],
+      "codes": [],
+      "exclude_codes": []
+    },
+    "other_opioids": {
+      "label": "Other opioids",
+      "family": "opioids",
+      "subclasses": [
+        "Opiates",
+        "Orphines",
+        "Other opioids",
+        "Utopioids"
+      ],
+      "codes": [],
+      "exclude_codes": []
+    },
+    "cocaine": {
+      "label": "Cocaine",
+      "family": "stimulants",
+      "subclasses": [
+        "Tropanes (stimulant)"
+      ],
+      "codes": [
+        "COCBAS",
+        "COC_HCL",
+        "COC_FB"
+      ],
+      "exclude_codes": []
+    },
+    "methamphetamine": {
+      "label": "Methamphetamine",
+      "family": "stimulants",
+      "subclasses": [],
+      "codes": [
+        "METH",
+        "METH_HCL",
+        "AMPH"
+      ],
+      "exclude_codes": []
+    },
+    "mdma": {
+      "label": "MDMA / MDA",
+      "family": "stimulants",
+      "subclasses": [],
+      "codes": [
+        "MDMA",
+        "MDMA_HCL",
+        "MDA"
+      ],
+      "exclude_codes": []
+    },
+    "benzos": {
+      "label": "Benzodiazepines",
+      "family": "benzodiazepines",
+      "subclasses": [
+        "Benzodiazepines"
+      ],
+      "codes": [],
+      "exclude_codes": []
+    },
+    "xylazine": {
+      "label": "Xylazine",
+      "family": "sedatives",
+      "subclasses": [],
+      "codes": [
+        "XYLA"
+      ],
+      "exclude_codes": []
+    },
+    "medetomidine": {
+      "label": "Medetomidine",
+      "family": "sedatives",
+      "subclasses": [],
+      "codes": [
+        "MEDTM"
+      ],
+      "exclude_codes": []
+    }
+  },
+  "terms": {
+    "acetylfentanyl": [
+      "fentanyl"
+    ],
+    "amphetamine": [
+      "methamphetamine"
+    ],
+    "benzodiazepine": [
+      "benzos"
+    ],
+    "benzodiazepine - nonpharmaceutical": [
+      "benzos"
+    ],
+    "benzodiazepine - pharmaceutical": [
+      "benzos"
+    ],
+    "benzodiazepines": [
+      "benzos"
+    ],
+    "buprenor-phine": [
+      "other_opioids"
+    ],
+    "buprenorphine": [
+      "other_opioids"
+    ],
+    "carfentanil": [
+      "fentanyl"
+    ],
+    "carfentanyl": [
+      "fentanyl"
+    ],
+    "cocaine": [
+      "cocaine"
+    ],
+    "codeine": [
+      "other_opioids"
+    ],
+    "fentanyl": [
+      "fentanyl"
+    ],
+    "fentanyl analogues": [
+      "fentanyl"
+    ],
+    "fluorofentanyl": [
+      "fentanyl"
+    ],
+    "furanyl fentanyl": [
+      "fentanyl"
+    ],
+    "furanyl uf-17": [
+      "fentanyl"
+    ],
+    "heroin": [
+      "other_opioids"
+    ],
+    "hydrocodone": [
+      "other_opioids"
+    ],
+    "hydromorphone": [
+      "other_opioids"
+    ],
+    "mdma": [
+      "mdma"
+    ],
+    "medetomidine": [
+      "medetomidine"
+    ],
+    "meperidine": [
+      "other_opioids"
+    ],
+    "meth/amph": [
+      "methamphetamine"
+    ],
+    "methadone": [
+      "other_opioids"
+    ],
+    "methamphetamine": [
+      "methamphetamine"
+    ],
+    "methylfentanyl": [
+      "fentanyl"
+    ],
+    "monoacetylmorphine": [
+      "other_opioids"
+    ],
+    "morphine": [
+      "other_opioids"
+    ],
+    "nitazene": [
+      "nitazenes"
+    ],
+    "nitazenes": [
+      "nitazenes"
+    ],
+    "non-fentanyl opioids": [
+      "other_opioids"
+    ],
+    "opioid": [
+      "opioids"
+    ],
+    "opioid (unknown)": [
+      "opioids"
+    ],
+    "opioid - nonpharmaceutical": [
+      "opioids"
+    ],
+    "opioid - pharmaceutical": [
+      "opioids"
+    ],
+    "opioid - total": [
+      "opioids"
+    ],
+    "opioids": [
+      "opioids"
+    ],
+    "other opioid": [
+      "other_opioids"
+    ],
+    "other opioids": [
+      "other_opioids"
+    ],
+    "other stimulants": [
+      "mdma"
+    ],
+    "oxycodone": [
+      "other_opioids"
+    ],
+    "para-fluorofentanyl": [
+      "fentanyl"
+    ],
+    "stimulant": [
+      "stimulants"
+    ],
+    "stimulant - other": [
+      "mdma"
+    ],
+    "stimulants": [
+      "stimulants"
+    ],
+    "xylazine": [
+      "xylazine"
+    ]
+  }
+}

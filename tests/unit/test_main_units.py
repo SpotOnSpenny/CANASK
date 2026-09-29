@@ -32,3 +32,8 @@ def test_non_page_endpoints_resolve_none(app):
     # JSON APIs and modal/row endpoints must not disturb the page title.
     assert title_for(app, "/api/v1/province/ontario/data") is None
     assert title_for(app, "/healthz") is None
+
+
+def test_confluence_page_title(app):
+    assert title_for(app, "/v1/national/confluence") == "Confluence"
+    assert title_for(app, "/api/v1/confluence/data") is None

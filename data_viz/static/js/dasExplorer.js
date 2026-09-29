@@ -29,9 +29,6 @@ var dasState = null;
 
 function initDasExplorer(cfg) {
     if (!document.getElementById("das-table")) return;
-    // Globals persist across HTMX swaps: a stale currentVisual would make the theme toggle's
-    // canaskRedrawCharts() replay a province chart into DOM this page doesn't have.
-    if (typeof currentVisual !== "undefined") currentVisual = null;
     if (dasState && dasState.table) {
         try { dasState.table.destroy(); } catch (e) { /* already-removed DOM */ }
     }
@@ -191,6 +188,9 @@ function dasBuildTable() {
         layout: "fitDataStretch",
         movableColumns: true,
         placeholder: "No rows match the current filters.",
+        // Tabulator's stock loader is a white "Loading" box on a grey scrim; show the site's
+        // skeleton lines instead (the overlay itself is themed in master_sheet.css).
+        dataLoaderLoading: dasLoadingSkeleton(),
         columns: columns,
         pagination: true,
         paginationMode: "remote",
@@ -227,6 +227,19 @@ function dasBuildTable() {
         document.getElementById("das-table-title").textContent = `${ds.label}: data failed to load${hint}`;
     });
     dasWireFilterValidation();
+}
+
+// The rows-loading placeholder Tabulator shows over the table while a remote page is fetched:
+// the same skeleton lines the province page uses for its table.
+function dasLoadingSkeleton() {
+    const wrap = document.createElement("div");
+    wrap.className = "das-table-loading";
+    ["w-80", "w-60", "w-80", "w-40", "w-60"].forEach(width => {
+        const line = document.createElement("div");
+        line.className = `skeleton skeleton-line ${width}`;
+        wrap.appendChild(line);
+    });
+    return wrap;
 }
 
 // Live red-ring feedback while typing an expression into a text column's header filter. Delegated

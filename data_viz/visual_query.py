@@ -239,6 +239,18 @@ def _predicates(visual_id):
     return preds
 
 
+def source_block(source):
+    """The data_source dict every visual payload carries (also reused for the DAS source in the
+    Confluence payload, so both halves of an overlay describe their source the same way)."""
+    return {
+        "name": source.name,
+        "about": source.about,
+        "link": source.link,
+        "last_updated": source.last_updated_str,
+        "data_until": source.data_until_str,
+    }
+
+
 def _base_block(visual):
     block = {}
     # Maps carry a data_source_id only for ownership/RBAC (drill-heading maps inherit their chain's
@@ -246,13 +258,7 @@ def _base_block(visual):
     if visual.data_source_id and visual.data_shape != "map_none":
         source = DataSources.query.get(visual.data_source_id)
         if source:
-            block["data_source"] = {
-                "name": source.name,
-                "about": source.about,
-                "link": source.link,
-                "last_updated": source.last_updated_str,
-                "data_until": source.data_until_str,
-            }
+            block["data_source"] = source_block(source)
     if visual.visual_options is not None:
         block["visual_options"] = visual.visual_options
     return block

@@ -67,6 +67,7 @@ assets.register(
         "js/main.js",
         "js/visualGeneration.js",
         "js/dasExplorer.js",
+        "js/confluence.js",
         output="assets/main.js"
     )
 )
