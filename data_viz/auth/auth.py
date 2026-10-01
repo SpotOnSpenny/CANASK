@@ -502,8 +502,8 @@ def login():
 
         user = User.query.filter(
             or_(
-                User.username == identifier,
-                func.lower(User.email) == (identifier or "").lower(),
+                func.lower(User.username) == identifier.lower(),
+                func.lower(User.email) == identifier.lower(),
             )
         ).first()
 
@@ -1865,7 +1865,7 @@ def accept_invite(token = None):
         if not valid:
             flash(message, "danger")
             return redirect(url_for("auth.accept_invite"))
-        if User.query.filter_by(username=username).first():
+        if User.query.filter(func.lower(User.username) == username.lower()).first():
             flash("Username already taken. Please choose a different username.", "danger")
             return redirect(url_for("auth.accept_invite"))
 

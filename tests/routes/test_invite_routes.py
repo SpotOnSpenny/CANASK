@@ -271,6 +271,17 @@ class TestAcceptInvite:
         response = client.get(f"/v1/accept-invite/{invite.token}", follow_redirects=True)
         assert "already exists" in response.get_data(as_text=True)
 
+    def test_username_taken_in_another_case_refused(self, client, db_session, app):
+        invite, _ = self._pending_invite(app)
+        existing = make_user()
+        client.get(f"/v1/accept-invite/{invite.token}")
+        response = client.post("/v1/accept-invite", data={
+            "username": existing.username.upper(), "password": TEST_PASSWORD,
+            "confirm_password": TEST_PASSWORD}, follow_redirects=True)
+        assert "Username already taken" in response.get_data(as_text=True)
+        assert invite.status == "pending"
+        assert User.query.filter_by(email=invite.email).count() == 0
+
     def test_weak_password_refused(self, client, db_session, app):
         invite, _ = self._pending_invite(app)
         client.get(f"/v1/accept-invite/{invite.token}")

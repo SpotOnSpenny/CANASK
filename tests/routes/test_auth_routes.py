@@ -26,6 +26,12 @@ class TestLogin:
         assert response.status_code == 200
         assert "HX-Push-Url" in response.headers
 
+    def test_login_by_username_case_insensitive(self, client, db_session):
+        user = make_user()
+        response = login(client, user.username.upper())
+        assert response.status_code == 200
+        assert "HX-Push-Url" in response.headers
+
     def test_wrong_password_generic_message(self, client, db_session):
         user = make_user()
         response = login(client, user.username, password="Wrong-password-1!")

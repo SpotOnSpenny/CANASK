@@ -28,7 +28,9 @@
                            maxlength="30"
                            pattern="[A-Za-z0-9._-]{3,30}"
                            title="3-30 characters: letters, numbers, and . _ - only"
+                           autocomplete="username"
                            required>
+                    <div class="form-text">3-30 characters: letters, numbers, and . _ - only. You can still sign in with your email address.</div>
                 </div>
 
                 <div class="mb-3">
@@ -38,10 +40,11 @@
                            name="password"
                            class="form-control"
                            placeholder="Choose a password"
+                           autocomplete="new-password"
                            minlength="12"
                            maxlength="72"
                            required>
-                    <div class="form-text">Minimum 12 characters with at least 3 special characters.</div>
+                    <div class="form-text">12-72 characters with an uppercase letter, a lowercase letter, a number, and a special character.</div>
                 </div>
 
                 <div class="mb-4">
@@ -67,8 +70,6 @@
         const password = document.getElementById('password').value;
         const confirmPassword = document.getElementById('confirm_password').value;
         const alerts = document.getElementById('flashed-messages-container');
-
-        console.log("Config request fired");
 
         if (password !== confirmPassword) {
             event.preventDefault();
@@ -96,13 +97,13 @@
             return;
         }
 
-        const specialChars = password.match(/[^a-zA-Z0-9]/g);
-        if (!specialChars || specialChars.length < 3) {
+        // Mirrors validate_password (auth_helpers.py) -- the server re-checks; keep the two in sync.
+        if (!/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/[0-9]/.test(password) || !/[^a-zA-Z0-9]/.test(password)) {
             event.preventDefault();
             alerts.innerHTML = `
             <div class="position-fixed top-0 start-50 translate-middle-x pt-3" style="z-index: 1050; width: 50%;">
                 <div class="alert alert-danger alert-dismissible fade show" role="alert">
-                    Password must contain at least 3 special characters.
+                    Password needs an uppercase letter, a lowercase letter, a number, and a special character.
                     <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
                 </div>
             </div>

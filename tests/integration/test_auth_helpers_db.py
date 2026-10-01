@@ -1,6 +1,7 @@
 """auth_helpers mutations: user/group/membership lifecycle + the UserActivity audit
 convention (state-changing helpers append an activity row)."""
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from data_viz.auth.auth_helpers import (
     assign_group,
@@ -47,6 +48,13 @@ class TestCreateUser:
         name = unique("invited")
         create_user(invite.email, name, "Sufficiently-strong-pw1!", invited_by=inviter.id)
         assert invite.status == "accepted"
+
+    def test_username_unique_ignoring_case(self, db_session):
+        # The DB index is the backstop for the route's pre-check (e.g. two concurrent accepts).
+        existing = make_user()
+        with pytest.raises(IntegrityError):
+            with db_session.begin_nested():
+                make_user(username=existing.username.upper())
 
 
 class TestAssignGroup:

@@ -33,6 +33,10 @@ class User(UserMixin, db.Model):
     # keeps the invalidation logic in one place we already own).
     session_version = db.Column(db.Integer, nullable = False, default = 1)
 
+    # Usernames are unique case-insensitively ("Spencer" and "spencer" can't coexist); the stored
+    # value keeps the casing the user chose. Look users up with func.lower(User.username).
+    __table_args__ = (db.Index("uq_users_username_lower", db.func.lower(username), unique = True),)
+
     def get_id(self):
         return f"{self.id}:{self.session_version}"
 
