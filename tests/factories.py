@@ -264,11 +264,21 @@ def make_das_nps(sample_number="N/A*", drug=None, substance_name="Novel substanc
     return row
 
 
+FAILED_SEND_REASON = "MessageRejected: Email address is not verified."
+
+
 def make_feedback(body="Great charts", name=None, email=None, page=None, email_sent=True,
-                  addressed=False, addressed_by=None, user=None):
+                  email_error="auto", addressed=False, addressed_by=None, user=None):
+    """email_error="auto" mirrors the real write path (a failed send always records a reason);
+    pass email_error=None with email_sent=False for the "status never recorded" state. addressed
+    needs addressed_by: the pair is tied by ck_feedback_submissions_addressed_pair."""
+    if email_error == "auto":
+        email_error = None if email_sent else FAILED_SEND_REASON
+    if addressed and addressed_by is None:
+        raise ValueError("addressed=True needs addressed_by (ck_feedback_submissions_addressed_pair)")
     row = FeedbackSubmission(
         name=name, email=email, body=body, page=page, email_sent=email_sent,
-        email_error=None if email_sent else "SES send failed; see the web container log",
+        email_error=email_error,
         user_id=user.id if user else None,
         addressed_at=db.func.current_timestamp() if addressed else None,
         addressed_by=addressed_by.id if addressed_by else None,

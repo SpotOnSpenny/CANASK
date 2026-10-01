@@ -143,6 +143,10 @@ class TestValidatePagePath:
     def test_surrounding_whitespace_stripped(self):
         assert validate_page_path("  /v1/national/das-explorer ") == "/v1/national/das-explorer"
 
+    def test_fragment_stripped(self):
+        assert validate_page_path("/v1/province/ontario?y=2024#frag") == "/v1/province/ontario?y=2024"
+        assert validate_page_path("/#frag") == "/"
+
     def test_missing_leading_slash_dropped(self):
         assert validate_page_path("v1/province/ontario") is None
 

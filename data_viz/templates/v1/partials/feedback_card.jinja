@@ -18,7 +18,8 @@
             {% else %}
             <span class="badge bg-warning text-dark">Open</span>
             {% endif %}
-            {% if not s.email_sent %}<span class="badge bg-danger">Email failed</span>{% endif %}
+            {% if s.email_status == "failed" %}<span class="badge bg-danger">Email failed</span>
+            {% elif s.email_status == "unknown" %}<span class="badge bg-secondary">Email status unknown</span>{% endif %}
             {% if s.notes %}<span class="badge bg-secondary">{{ s.notes|length }} note{{ '' if s.notes|length == 1 else 's' }}</span>{% endif %}
         </span>
     </div>
@@ -35,7 +36,10 @@
             {% endif %}
             <dt class="col-sm-3 col-lg-2">Notification email</dt>
             <dd class="col-sm-9 col-lg-10">
-                {% if s.email_sent %}Sent{% else %}<span class="text-danger">Failed</span>{% if s.email_error %} &ndash; {{ s.email_error }}{% endif %}{% endif %}
+                {% if s.email_status == "sent" %}Sent
+                {% elif s.email_status == "failed" %}<span class="text-danger">Failed</span> &ndash; {{ s.email_error }}
+                {% else %}Unknown &ndash; the status was not recorded (the send may have succeeded; see the web container log)
+                {% endif %}
             </dd>
             {% if s.is_addressed %}
             <dt class="col-sm-3 col-lg-2">Addressed</dt>
@@ -48,13 +52,13 @@
             {% if s.is_addressed %}
             <button type="button" class="btn btn-sm btn-outline-secondary"
                 hx-post="/v1/admin/feedback/{{ s.id }}/reopen"
-                hx-target="#feedback-{{ s.id }}" hx-swap="outerHTML">
+                hx-target="#feedback-{{ s.id }}" hx-swap="outerHTML" hx-disabled-elt="this">
                 <i class="bi bi-arrow-counterclockwise me-1"></i>Reopen
             </button>
             {% else %}
             <button type="button" class="btn btn-sm btn-success"
                 hx-post="/v1/admin/feedback/{{ s.id }}/address"
-                hx-target="#feedback-{{ s.id }}" hx-swap="outerHTML">
+                hx-target="#feedback-{{ s.id }}" hx-swap="outerHTML" hx-disabled-elt="this">
                 <i class="bi bi-check2 me-1"></i>Mark addressed
             </button>
             {% endif %}

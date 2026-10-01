@@ -32,6 +32,8 @@ def upgrade():
     sa.Column('addressed_by', sa.Integer(), nullable=True),
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], ),
     sa.ForeignKeyConstraint(['addressed_by'], ['users.id'], ),
+    sa.CheckConstraint('(addressed_at IS NULL) = (addressed_by IS NULL)',
+                       name='ck_feedback_submissions_addressed_pair'),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index('ix_feedback_submissions_created_at', 'feedback_submissions', ['created_at'], unique=False)

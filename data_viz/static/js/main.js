@@ -11,6 +11,46 @@ document.body.addEventListener('csrfTokenRefresh', (event) => {
     document.querySelector('meta[name="csrf-token"]').setAttribute('content', event.detail.token);
 });
 
+// Client-side flash, same markup the server's after_request hook injects OOB (base.jinja owns the
+// #flashed-messages-container). Text goes in via textContent, never innerHTML.
+function showFlash(text, category) {
+  let container = document.getElementById("flashed-messages-container");
+  if (!container) return;
+  let wrap = document.createElement("div");
+  wrap.className = "position-fixed top-0 start-50 translate-middle-x pt-3";
+  wrap.style.cssText = "z-index: 1050; width: 50%;";
+  let alert = document.createElement("div");
+  alert.className = `alert alert-${category} alert-dismissible fade show`;
+  alert.setAttribute("role", "alert");
+  alert.textContent = text;
+  let close = document.createElement("button");
+  close.type = "button";
+  close.className = "btn-close";
+  close.setAttribute("data-bs-dismiss", "alert");
+  alert.appendChild(close);
+  wrap.appendChild(alert);
+  container.replaceChildren(wrap);
+}
+
+// htmx 1.9 does not swap 4xx/5xx responses, so a failed hx-* request is a silent no-op unless the
+// page handles it. Pages whose actions answer API-style status codes (the Feedback inbox: a card
+// another admin already deleted -> 404, a failed commit -> 500) opt in with data-hx-flash-errors on
+// an ancestor; everything else keeps its own existing error handling.
+document.body.addEventListener("htmx:responseError", (event) => {
+  let elt = event.detail.elt;
+  if (!elt || !elt.closest("[data-hx-flash-errors]")) return;
+  let status = event.detail.xhr ? event.detail.xhr.status : 0;
+  let text;
+  if (status === 404) {
+    text = "That item no longer exists. Reload the page to refresh the list.";
+  } else if (status === 403) {
+    text = "You don't have permission to do that.";
+  } else {
+    text = `That action failed (${status || "network error"}). Please try again.`;
+  }
+  showFlash(text, "danger");
+});
+
 // --- reCAPTCHA v3 -----------------------------------------------------------------------------
 // The site key is rendered into a <meta> only when reCAPTCHA is enabled (see base.jinja); when it's
 // absent (dev, RECAPTCHA_ENABLED=false) every helper below no-ops and the server verifier returns
@@ -188,6 +228,31 @@ function initFeedback() {
   }
 }
 
+const GENERIC_FEEDBACK_ERROR = "There was an error submitting your feedback. Please try again later.";
+
+// Render an error alert into the feedback widget. The message is built with textContent so a
+// server-supplied string is never parsed as HTML.
+function showFeedbackError(alertContainer, message) {
+  let alert = document.createElement("div");
+  alert.className = "alert alert-danger alert-dismissible fade show";
+  alert.setAttribute("role", "alert");
+  let p = document.createElement("p");
+  p.style.marginBottom = "0";
+  let strong = document.createElement("strong");
+  strong.style.marginRight = "2px";
+  strong.textContent = "Error! ";
+  p.appendChild(strong);
+  p.appendChild(document.createTextNode(message));
+  let close = document.createElement("button");
+  close.type = "button";
+  close.className = "btn-close";
+  close.setAttribute("data-bs-dismiss", "alert");
+  close.setAttribute("aria-label", "Close");
+  alert.appendChild(p);
+  alert.appendChild(close);
+  alertContainer.replaceChildren(alert);
+}
+
 function feedbackSubmit(token) {
   // validate the form has required fields
   let feedbackForm = document.getElementById("feedback-form")
@@ -225,15 +290,15 @@ function feedbackSubmit(token) {
       },
       body: feedbackData,
     })
-      .then((response) => {
-        if (response.ok) {
-          return response.json();
-        } else {
-          console.log("response not ok");
-          console.log(response);
-          return Promise.reject(response);
-        }
-      })
+      .then((response) =>
+        // Every reply is JSON. A 4xx carries an actionable message from the server (over-length
+        // text, bad email, reCAPTCHA, rate limit) that the submitter can act on; "try again later"
+        // is only right for a 5xx / network failure.
+        response.json().catch(() => ({})).then((data) => {
+          if (response.ok) return data;
+          let message = (response.status < 500 && data && data.message) ? data.message : GENERIC_FEEDBACK_ERROR;
+          return Promise.reject(new Error(message));
+        }))
       .then((data) => {
         if (data["status"] == "success") {
           let feedbackAlert = `<div class="alert alert-success alert-dismissible fade show" role="alert">
@@ -243,23 +308,11 @@ function feedbackSubmit(token) {
           alertContainer.innerHTML = feedbackAlert;
           feedbackForm.reset();
         } else {
-          let feedbackAlert = `
-        <div class="alert alert-danger alert-dismissible fade show" role="alert">
-          <p style="margin-bottom:0;"><strong style="margin-right: 2px;">Error! </strong>There was an error submitting your feedback. Please try again later.</p>
-          <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-        </div>
-        `;
-          alertContainer.innerHTML = feedbackAlert;
+          showFeedbackError(alertContainer, GENERIC_FEEDBACK_ERROR);
         }
       })
       .catch((error) => {
-        let feedbackAlert = `
-      <div class="alert alert-danger alert-dismissible fade show" role="alert">
-        <p style="margin-bottom:0;"><strong style="margin-right: 2px;">Error! </strong><p>There was an error submitting your feedback. Please try again later.</p>
-        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-      </div>
-      `;
-        alertContainer.innerHTML = feedbackAlert;
+        showFeedbackError(alertContainer, (error && error.message) || GENERIC_FEEDBACK_ERROR);
       });
   }
 }

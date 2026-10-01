@@ -111,7 +111,8 @@ def validate_page_path(value):
     """The in-site path (+ optional query) a feedback form was submitted from. Diagnostic metadata,
     so this never produces an error: anything that is not a plain same-origin path -- a bare
     relative path, a scheme or protocol-relative URL (`//host`), embedded whitespace, hidden
-    characters, or an over-length value -- is dropped and None is returned."""
+    characters, or an over-length value -- is dropped and None is returned. A fragment is stripped
+    (the client sends pathname + search and a Referer never carries one, so it's never meaningful)."""
     if not isinstance(value, str):
         return None
     value = value.strip()
@@ -127,7 +128,7 @@ def validate_page_path(value):
     parts = urlsplit(value)
     if parts.scheme or parts.netloc:
         return None
-    return value
+    return value.split("#", 1)[0] or None
 
 
 def validate_role(role):

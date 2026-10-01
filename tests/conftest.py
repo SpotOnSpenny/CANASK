@@ -184,15 +184,20 @@ def client(app, db_session, app_context):
 
 @pytest.fixture()
 def ses_outbox(monkeypatch):
-    """Capture outbound email. Patches the names BOUND at the call sites (both modules
-    do `from data_viz.email import send_ses_email`), not the definition site."""
+    """Capture outbound email. Patches the names BOUND at the call sites, not the definition
+    site: data_viz.main imports send_ses_email_result (it stores the failure reason), the auth
+    module imports the bool-returning send_ses_email."""
     sent = []
 
     def fake_send(to_addresses, subject, html_body):
         sent.append(SimpleNamespace(to=to_addresses, subject=subject, html=html_body))
         return True
 
-    monkeypatch.setattr("data_viz.main.send_ses_email", fake_send)
+    def fake_send_result(to_addresses, subject, html_body):
+        fake_send(to_addresses, subject, html_body)
+        return True, None
+
+    monkeypatch.setattr("data_viz.main.send_ses_email_result", fake_send_result)
     monkeypatch.setattr("data_viz.auth.auth.send_ses_email", fake_send)
     return sent
 

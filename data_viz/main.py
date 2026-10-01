@@ -8,7 +8,7 @@ import bleach
 
 # Internal Dependency Imports
 from data_viz.extensions import limiter
-from data_viz.email import send_ses_email
+from data_viz.email import send_ses_email_result
 from data_viz.recaptcha import verify_recaptcha
 from data_viz.validation import validate_email, validate_text, validate_page_path, MAX_FEEDBACK_NAME, MAX_FEEDBACK_BODY
 from data_viz.database import db
@@ -49,7 +49,13 @@ def _referrer_path():
     same validator as the client-supplied page field, so a malformed referrer yields None rather
     than a stored URL. (CSRF + Referrer-Policy keep genuinely cross-site referrers rare; the path is
     only ever rendered as a same-origin link.)"""
-    parts = urlsplit(request.referrer or "")
+    try:
+        parts = urlsplit(request.referrer or "")
+    except ValueError:
+        # urlsplit raises on an unbalanced "[" (an "IPv6" host). The header is client-controlled
+        # and this is diagnostic metadata, so it must never turn into a 500.
+        current_app.logger.warning("Unparseable Referer %r on feedback; ignoring", request.referrer)
+        return None
     return validate_page_path(parts.path + ("?" + parts.query if parts.query else ""))
 
 
@@ -118,13 +124,23 @@ def feedback():
         <p>Feedback #{submission.id}</p>
         {review_link}
         """
-    sent = send_ses_email([current_app.config["FEEDBACK_EMAIL"]], "CANASK Feedback Received", html_body)
     submission_id = submission.id
+    try:
+        sent, reason = send_ses_email_result([current_app.config["FEEDBACK_EMAIL"]],
+                                             "CANASK Feedback Received", html_body)
+    except Exception as e:  # noqa: BLE001
+        # send_ses_email_result lets non-AWS exceptions propagate as programming bugs, but here the
+        # row is already committed: a 500 would make the submitter retry and duplicate it. Record
+        # the failure on the row instead (the traceback is in the log).
+        current_app.logger.exception("Feedback #%s: email send raised", submission_id)
+        sent, reason = False, f"unexpected {type(e).__name__}; see the web container log"
     submission.email_sent = sent
     if not sent:
-        submission.email_error = "SES send failed; see the web container log"
-        current_app.logger.error("Feedback #%s stored but the email to %s failed",
-                                 submission_id, current_app.config["FEEDBACK_EMAIL"])
+        # Always set on a failed send, so email_sent=False with email_error=None can only mean the
+        # status commit below failed (rendered as "unknown" on the Feedback page).
+        submission.email_error = (reason or "SES send failed; see the web container log")[:255]
+        current_app.logger.error("Feedback #%s stored but the email to %s failed: %s",
+                                 submission_id, current_app.config["FEEDBACK_EMAIL"], reason)
     try:
         db.session.commit()
     except SQLAlchemyError:
