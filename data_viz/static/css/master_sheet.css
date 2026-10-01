@@ -1253,6 +1253,32 @@ a { text-decoration: none; }
   color: var(--c-accent-hover);
 }
 
+/* Feedback widget: the character countdown under the message box (shown by main.js only when the
+   message is within 100 characters of the limit; the [hidden] attribute keeps it out of flow).
+   Amber while approaching, red once the limit is reached (.at-limit). */
+.feedback-char-count {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--c-warning);
+}
+.feedback-char-count.at-limit {
+  color: var(--c-danger);
+}
+
+/* Feedback page (site admins): stored feedback + notes keep their line breaks; long unbroken
+   strings (URLs pasted into a message) wrap instead of overflowing the card. */
+.feedback-message {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* The status filter sits at the top-right of the content column, under the viewport-fixed theme
+   toggle (.canask-theme-toggle: 44px wide, 16px from the right edge) -- keep clear of it. */
+.feedback-header {
+  padding-right: 4rem;
+}
+
 /* ------------------------ DAS Explorer (Tabulator) ----------------------- */
 /* Re-skin Tabulator's stock (light-only) CSS onto the design tokens so the explorer table follows
    both themes, matching the look of the app's other tables (sticky uppercase headers, striping,

@@ -12,6 +12,7 @@
 
 import re
 import unicodedata
+from urllib.parse import urlsplit
 
 from email_validator import validate_email as _validate_email, EmailNotValidError
 
@@ -24,6 +25,8 @@ MAX_GROUP_NAME = 120
 MAX_GROUP_DESC = 255
 MAX_FEEDBACK_NAME = 100
 MAX_FEEDBACK_BODY = 5000
+MAX_FEEDBACK_NOTE = 2000
+MAX_FEEDBACK_PAGE = 512
 
 _USERNAME_RE = re.compile(r"\A" + USERNAME_PATTERN + r"\Z")
 
@@ -102,6 +105,30 @@ def validate_text(value, label, max_len, required=True, multiline=False):
     if _has_disallowed_chars(value, allow_newlines=multiline):
         return False, f"{label} contains invalid or hidden characters. Please remove them."
     return True, value
+
+
+def validate_page_path(value):
+    """The in-site path (+ optional query) a feedback form was submitted from. Diagnostic metadata,
+    so this never produces an error: anything that is not a plain same-origin path -- a bare
+    relative path, a scheme or protocol-relative URL (`//host`), embedded whitespace, hidden
+    characters, or an over-length value -- is dropped and None is returned. A fragment is stripped
+    (the client sends pathname + search and a Referer never carries one, so it's never meaningful)."""
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    if not value or len(value) > MAX_FEEDBACK_PAGE:
+        return None
+    # Browsers treat "\\" as "/" in URLs, so "/\\evil.example" is scheme-relative (off-site) despite
+    # the leading slash: reject backslashes outright, then require urlsplit to see neither a
+    # scheme nor a host.
+    if "\\" in value or not value.startswith("/") or value.startswith("//"):
+        return None
+    if any(ch.isspace() for ch in value) or _has_disallowed_chars(value):
+        return None
+    parts = urlsplit(value)
+    if parts.scheme or parts.netloc:
+        return None
+    return value.split("#", 1)[0] or None
 
 
 def validate_role(role):

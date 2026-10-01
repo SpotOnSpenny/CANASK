@@ -17,13 +17,20 @@
             </div>
             <div class="form-group pb-2">
                 <label for="feedback-email">Email</label>
+                {# Prefilled for signed-in users (still editable; the server re-validates). The widget is
+                   part of the full-page shell, so this value also survives form.reset() after a submit. #}
                 <input name="email" type="email" maxlength="254" class="form-control" id="feedback-email"
-                    placeholder="Enter your email">
+                    placeholder="Enter your email"{% if current_user.is_authenticated and current_user.email %} value="{{ current_user.email }}"{% endif %}>
             </div>
             <div class="form-group pb-4">
                 <label for="feedback-message">Feedback</label>
-                <textarea class="form-control" id="feedback-message" rows="3" name="feedback" maxlength="5000" required
+                {# maxlength is the browser's hard stop (nothing over the limit is ever sent); data-max /
+                   data-warn-within drive the countdown in main.js (initFeedback), which appears once the
+                   message is within 100 characters of the limit so the stop isn't a surprise. #}
+                <textarea class="form-control" id="feedback-message" rows="3" name="feedback"
+                    maxlength="{{ max_feedback_body }}" data-max="{{ max_feedback_body }}" data-warn-within="100" required
                     placeholder="Please provide comments, ideas, or requests for things to be changed here"></textarea>
+                <small id="feedback-char-count" class="feedback-char-count" aria-live="polite" hidden></small>
             </div>
             <button id="feedback-submit-btn" type="submit"
                 class="btn m-auto btn-outline-light">Submit

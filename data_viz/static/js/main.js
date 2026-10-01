@@ -11,6 +11,46 @@ document.body.addEventListener('csrfTokenRefresh', (event) => {
     document.querySelector('meta[name="csrf-token"]').setAttribute('content', event.detail.token);
 });
 
+// Client-side flash, same markup the server's after_request hook injects OOB (base.jinja owns the
+// #flashed-messages-container). Text goes in via textContent, never innerHTML.
+function showFlash(text, category) {
+  let container = document.getElementById("flashed-messages-container");
+  if (!container) return;
+  let wrap = document.createElement("div");
+  wrap.className = "position-fixed top-0 start-50 translate-middle-x pt-3";
+  wrap.style.cssText = "z-index: 1050; width: 50%;";
+  let alert = document.createElement("div");
+  alert.className = `alert alert-${category} alert-dismissible fade show`;
+  alert.setAttribute("role", "alert");
+  alert.textContent = text;
+  let close = document.createElement("button");
+  close.type = "button";
+  close.className = "btn-close";
+  close.setAttribute("data-bs-dismiss", "alert");
+  alert.appendChild(close);
+  wrap.appendChild(alert);
+  container.replaceChildren(wrap);
+}
+
+// htmx 1.9 does not swap 4xx/5xx responses, so a failed hx-* request is a silent no-op unless the
+// page handles it. Pages whose actions answer API-style status codes (the Feedback inbox: a card
+// another admin already deleted -> 404, a failed commit -> 500) opt in with data-hx-flash-errors on
+// an ancestor; everything else keeps its own existing error handling.
+document.body.addEventListener("htmx:responseError", (event) => {
+  let elt = event.detail.elt;
+  if (!elt || !elt.closest("[data-hx-flash-errors]")) return;
+  let status = event.detail.xhr ? event.detail.xhr.status : 0;
+  let text;
+  if (status === 404) {
+    text = "That item no longer exists. Reload the page to refresh the list.";
+  } else if (status === 403) {
+    text = "You don't have permission to do that.";
+  } else {
+    text = `That action failed (${status || "network error"}). Please try again.`;
+  }
+  showFlash(text, "danger");
+});
+
 // --- reCAPTCHA v3 -----------------------------------------------------------------------------
 // The site key is rendered into a <meta> only when reCAPTCHA is enabled (see base.jinja); when it's
 // absent (dev, RECAPTCHA_ENABLED=false) every helper below no-ops and the server verifier returns
@@ -186,13 +226,59 @@ function initFeedback() {
       recaptchaToken("feedback").then((token) => feedbackSubmit(token));
     });
   }
+
+  // Character countdown: the textarea's maxlength silently stops input at the limit, so once the
+  // message is within data-warn-within characters of data-max (both rendered by the server from
+  // MAX_FEEDBACK_BODY) show an amber countdown, turning red when the limit is reached. Same re-init guard.
+  let feedbackMessage = document.getElementById("feedback-message");
+  let charCount = document.getElementById("feedback-char-count");
+  if (feedbackForm && feedbackMessage && charCount && !feedbackMessage.dataset.countWired) {
+    feedbackMessage.dataset.countWired = "true";
+    let max = parseInt(feedbackMessage.dataset.max, 10) || parseInt(feedbackMessage.getAttribute("maxlength"), 10);
+    let warnWithin = parseInt(feedbackMessage.dataset.warnWithin, 10) || 100;
+    let updateCount = () => {
+      let left = max - feedbackMessage.value.length;
+      if (left > warnWithin) {
+        charCount.hidden = true;
+        charCount.textContent = "";
+        return;
+      }
+      charCount.hidden = false;
+      charCount.classList.toggle("at-limit", left <= 0);
+      charCount.textContent = left <= 0
+        ? `${max} character limit reached`
+        : `Approaching ${max} character limit: ${left} character${left === 1 ? "" : "s"} left`;
+    };
+    feedbackMessage.addEventListener("input", updateCount);
+    // form.reset() (after a successful submit) clears the value AFTER the reset event fires.
+    feedbackForm.addEventListener("reset", () => setTimeout(updateCount, 0));
+    updateCount();
+  }
 }
 
-function validateEmail(mail) {
-  if (/^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/.test(mail)) {
-    return true;
-  }
-  return false;
+const GENERIC_FEEDBACK_ERROR = "There was an error submitting your feedback. Please try again later.";
+
+// Render an error alert into the feedback widget. The message is built with textContent so a
+// server-supplied string is never parsed as HTML.
+function showFeedbackError(alertContainer, message) {
+  let alert = document.createElement("div");
+  alert.className = "alert alert-danger alert-dismissible fade show";
+  alert.setAttribute("role", "alert");
+  let p = document.createElement("p");
+  p.style.marginBottom = "0";
+  let strong = document.createElement("strong");
+  strong.style.marginRight = "2px";
+  strong.textContent = "Error! ";
+  p.appendChild(strong);
+  p.appendChild(document.createTextNode(message));
+  let close = document.createElement("button");
+  close.type = "button";
+  close.className = "btn-close";
+  close.setAttribute("data-bs-dismiss", "alert");
+  close.setAttribute("aria-label", "Close");
+  alert.appendChild(p);
+  alert.appendChild(close);
+  alertContainer.replaceChildren(alert);
 }
 
 function feedbackSubmit(token) {
@@ -201,14 +287,17 @@ function feedbackSubmit(token) {
   let feedbackData = new FormData(feedbackForm);
   let feedbackMessage = document.getElementById("feedback-message");
   let emailField = document.getElementById("feedback-email");
-  if (validateEmail(feedbackData.get("email")) == false) {
-    emailField.classList.toggle("is-invalid");
+  // Email is OPTIONAL (the server accepts a blank one). When given, defer to the browser's
+  // type="email" constraint -- the old hand-rolled regex rejected blank emails, "+" addresses, and
+  // TLDs longer than three letters, so those submissions never reached the server at all. The
+  // server re-validates with email_validator either way.
+  let email = (feedbackData.get("email") || "").trim();
+  if (email && !emailField.checkValidity()) {
+    emailField.classList.add("is-invalid");
     emailField.value = "";
-    emailField.placeholder = `"${feedbackData.get(
-      "email"
-    )}"  is not a valid email address!`;
-  } else if (feedbackData.get("feedback") == "") {
-    feedbackMessage.classList.toggle("is-invalid");
+    emailField.placeholder = `"${email}"  is not a valid email address!`;
+  } else if ((feedbackData.get("feedback") || "").trim() == "") {
+    feedbackMessage.classList.add("is-invalid");
     feedbackMessage.value = "";
     feedbackMessage.placeholder = "This field cannot be blank";
   } else {
@@ -216,8 +305,11 @@ function feedbackSubmit(token) {
       emailField.classList.remove("is-invalid");
       feedbackMessage.classList.remove("is-invalid");
     } catch {}
-    // submit the form data with the recaptcha token
+    // submit the form data with the recaptcha token and the page the user is looking at
+    // (hx-push-url keeps window.location current as the SPA navigates). The server validates it
+    // and includes it in the stored row + the notification email.
     feedbackData.append("recaptcha-token", token);
+    feedbackData.append("page", window.location.pathname + window.location.search);
     let alertContainer = document.getElementById("form-alerts");
     fetch("/feedback", {
       method: "POST",
@@ -226,15 +318,15 @@ function feedbackSubmit(token) {
       },
       body: feedbackData,
     })
-      .then((response) => {
-        if (response.ok) {
-          return response.json();
-        } else {
-          console.log("response not ok");
-          console.log(response);
-          return Promise.reject(response);
-        }
-      })
+      .then((response) =>
+        // Every reply is JSON. A 4xx carries an actionable message from the server (over-length
+        // text, bad email, reCAPTCHA, rate limit) that the submitter can act on; "try again later"
+        // is only right for a 5xx / network failure.
+        response.json().catch(() => ({})).then((data) => {
+          if (response.ok) return data;
+          let message = (response.status < 500 && data && data.message) ? data.message : GENERIC_FEEDBACK_ERROR;
+          return Promise.reject(new Error(message));
+        }))
       .then((data) => {
         if (data["status"] == "success") {
           let feedbackAlert = `<div class="alert alert-success alert-dismissible fade show" role="alert">
@@ -244,23 +336,11 @@ function feedbackSubmit(token) {
           alertContainer.innerHTML = feedbackAlert;
           feedbackForm.reset();
         } else {
-          let feedbackAlert = `
-        <div class="alert alert-danger alert-dismissible fade show" role="alert">
-          <p style="margin-bottom:0;"><strong style="margin-right: 2px;">Error! </strong>There was an error submitting your feedback. Please try again later.</p>
-          <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-        </div>
-        `;
-          alertContainer.innerHTML = feedbackAlert;
+          showFeedbackError(alertContainer, GENERIC_FEEDBACK_ERROR);
         }
       })
       .catch((error) => {
-        let feedbackAlert = `
-      <div class="alert alert-danger alert-dismissible fade show" role="alert">
-        <p style="margin-bottom:0;"><strong style="margin-right: 2px;">Error! </strong><p>There was an error submitting your feedback. Please try again later.</p>
-        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-      </div>
-      `;
-        alertContainer.innerHTML = feedbackAlert;
+        showFeedbackError(alertContainer, (error && error.message) || GENERIC_FEEDBACK_ERROR);
       });
   }
 }

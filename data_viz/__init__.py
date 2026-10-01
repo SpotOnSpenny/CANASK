@@ -13,6 +13,7 @@ from data_viz.main import main_blueprint
 from data_viz.database import db, migrate
 from data_viz.auth import login_manager
 from data_viz.auth.auth import auth_blueprint
+from data_viz.feedback_admin import feedback_admin_blueprint
 from data_viz.cli import register_cli
 from celery_worker.celery import init_celery
 
@@ -149,6 +150,13 @@ def inject_nav_permissions():
     return {"nav_perms": nav_permissions(current_user),
             "accessible_provinces": accessible_provinces(current_user)}
 
+# The feedback widget (feedback.jinja, in the page shell) renders its limit from the same constant
+# the /feedback route validates with, so the client-side countdown can never drift from the server.
+@app.context_processor
+def inject_feedback_limits():
+    from data_viz.validation import MAX_FEEDBACK_BODY
+    return {"max_feedback_body": MAX_FEEDBACK_BODY}
+
 # Expose the current page's title to every template so base.jinja can set the <title> on full page
 # loads. Distinct from the `page_title` kwarg some routes pass for the breadcrumb heading.
 @app.context_processor
@@ -191,6 +199,7 @@ login_manager.init_app(app)
 # Register the blueprints for the application
 app.register_blueprint(main_blueprint)
 app.register_blueprint(auth_blueprint)
+app.register_blueprint(feedback_admin_blueprint)
 
 # Error handling for 404 errors
 @app.errorhandler(404)
