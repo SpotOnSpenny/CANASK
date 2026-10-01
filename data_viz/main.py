@@ -1,5 +1,6 @@
 # Python Standard Library Dependencies
 from functools import wraps
+from urllib.parse import urlsplit
 
 # External Dependency Imports
 from flask import Blueprint, render_template, redirect, url_for, request, jsonify, views, current_app, session, flash, get_flashed_messages
@@ -9,7 +10,9 @@ import bleach
 from data_viz.extensions import limiter
 from data_viz.email import send_ses_email
 from data_viz.recaptcha import verify_recaptcha
-from data_viz.validation import validate_email, validate_text, MAX_FEEDBACK_NAME, MAX_FEEDBACK_BODY
+from data_viz.validation import validate_email, validate_text, validate_page_path, MAX_FEEDBACK_NAME, MAX_FEEDBACK_BODY
+from data_viz.database import db
+from data_viz.database.models import FeedbackSubmission
 
 
 # Define the blueprint for the main application
@@ -41,16 +44,28 @@ def page_not_found():
     else:
         return render_template("base.jinja", include_partials="index", dash_template="404.jinja"), 404
 
+def _referrer_path():
+    """Path (+ query) of the Referer header -- the host is dropped, and the path goes through the
+    same validator as the client-supplied page field, so a malformed referrer yields None rather
+    than a stored URL. (CSRF + Referrer-Policy keep genuinely cross-site referrers rare; the path is
+    only ever rendered as a same-origin link.)"""
+    parts = urlsplit(request.referrer or "")
+    return validate_page_path(parts.path + ("?" + parts.query if parts.query else ""))
+
+
 # Route for Feedback submission and recaptcha verification
 @main_blueprint.route("/feedback", methods=["POST"])
 # Per-IP cap counts every attempt (also protects the reCAPTCHA quota + compute). The global cap is a
-# hard ceiling on SES emails across ALL clients, but only deducts on a successful send (status 200)
-# so a flood of reCAPTCHA-failing requests can't exhaust the budget and lock out real feedback.
+# hard ceiling on accepted submissions (= SES emails attempted) across ALL clients, but only deducts
+# on status 200 (submission stored) so a flood of reCAPTCHA-failing requests can't exhaust the
+# budget and lock out real feedback.
 @limiter.limit(lambda: current_app.config["RATELIMIT_FEEDBACK"])
 @limiter.limit(lambda: current_app.config["RATELIMIT_FEEDBACK_GLOBAL"],
                key_func=lambda: "feedback-global",
                deduct_when=lambda response: response.status_code == 200)
 def feedback():
+    from flask_login import current_user
+    from sqlalchemy.exc import SQLAlchemyError
     feedback_data = request.form
 
     # Validate + normalize submitted fields before any external work. The message is required; name
@@ -65,24 +80,61 @@ def feedback():
     ok, email = validate_email(feedback_data.get("email"), required=False)
     if not ok:
         return jsonify({"status": "error", "message": email}), 400
+    # The page the form was on: sent by the client (static/js/main.js appends window.location),
+    # falling back to the Referer. Diagnostic metadata -- never a reason to reject the submission.
+    page = validate_page_path(feedback_data.get("page")) or _referrer_path()
 
     # Verify the reCAPTCHA v3 token via the shared verifier (fails closed on missing secret,
-    # transport error, action mismatch, or below-threshold score -- never falls through to sending
-    # an email). See data_viz/recaptcha.verify_recaptcha.
+    # transport error, action mismatch, or below-threshold score -- never falls through to storing
+    # or emailing). See data_viz/recaptcha.verify_recaptcha.
     recaptcha_ok, _ = verify_recaptcha(feedback_data.get("recaptcha-token"), "feedback")
     if not recaptcha_ok:
         return jsonify({"status": "error", "message": "Recaptcha verification failed"}), 403
 
-    # Send the feedback email. Values are length-capped above and bleach-cleaned here before being
-    # embedded in the HTML body.
+    # Persist FIRST: the feedback_submissions row is the system of record (reviewed on the site-admin
+    # Feedback page); the email is a notification that can fail downstream of SES without losing
+    # anything. Only a DB failure is reported to the submitter as an error.
+    submission = FeedbackSubmission(
+        name=name, email=email, body=feedback_body, page=page,
+        user_id=current_user.id if current_user.is_authenticated else None,
+        ip_address=request.remote_addr)
+    try:
+        db.session.add(submission)
+        db.session.commit()
+    except SQLAlchemyError:
+        db.session.rollback()
+        current_app.logger.exception("Failed to store feedback submission")
+        return jsonify({"status": "error", "message": "Failed to save feedback"}), 500
+
+    # Send the notification email. Values are length-capped above and bleach-cleaned here before
+    # being embedded in the HTML body.
+    base = current_app.config.get("PUBLIC_BASE_URL")
+    review_link = (f'<p><a href="{base}/v1/admin/feedback">Review in CANASK</a></p>' if base else "")
     html_body = f"""
         <h2>Name:</h2>{bleach.clean(name) if name else "Anonymous"} </br>
         <h2>Feedback:</h2>{bleach.clean(feedback_body)} </br>
-        <h2>Reach them at:</h2>{bleach.clean(email) if email else "Not provided"}
+        <h2>Reach them at:</h2>{bleach.clean(email) if email else "Not provided"} </br>
+        <h2>Page:</h2>{bleach.clean(page) if page else "Unknown"} </br>
+        <p>Feedback #{submission.id}</p>
+        {review_link}
         """
-    if not send_ses_email([current_app.config["FEEDBACK_EMAIL"]], "CANASK Feedback Received", html_body):
-        return jsonify({"status": "error", "message": "Failed to send feedback email"}), 500
-    return jsonify({"status": "success"}), 200
+    sent = send_ses_email([current_app.config["FEEDBACK_EMAIL"]], "CANASK Feedback Received", html_body)
+    submission_id = submission.id
+    submission.email_sent = sent
+    if not sent:
+        submission.email_error = "SES send failed; see the web container log"
+        current_app.logger.error("Feedback #%s stored but the email to %s failed",
+                                 submission_id, current_app.config["FEEDBACK_EMAIL"])
+    try:
+        db.session.commit()
+    except SQLAlchemyError:
+        # The row itself is already committed; losing only the email status must not turn into an
+        # error for the submitter (a retry would duplicate both the row and the email).
+        db.session.rollback()
+        current_app.logger.exception("Feedback #%s stored but recording email_sent=%s failed",
+                                     submission_id, sent)
+    current_app.logger.info("Feedback #%s stored (email_sent=%s, page=%s)", submission_id, sent, page)
+    return jsonify({"status": "success", "id": submission_id}), 200
 
 # Route for V1 data visuals
 # Could automate this "active provinces check" but honestly this is easier and works fine for now
@@ -105,6 +157,7 @@ STATIC_PAGE_TITLES = {
     "main.page_not_found": "Page Not Found",
     "main.das_explorer_page": "DAS Explorer",
     "main.confluence_page": "Confluence",
+    "feedback_admin.page": "Feedback",
     "auth.login": "Login",
     "auth.invite_user": "Invite User",
     "auth.invite_management": "Invite Management",

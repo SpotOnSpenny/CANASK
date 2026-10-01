@@ -9,6 +9,7 @@ from data_viz.auth.auth_helpers import (
     create_group,
     create_user,
     get_assignable_roles,
+    nav_permissions,
     set_source_visibility,
     set_visual_visibility,
 )
@@ -256,3 +257,26 @@ class TestGetAssignableRoles:
         outsider = make_user()
         group = make_group()
         assert get_assignable_roles(outsider, group.id) == []
+
+
+class TestNavPermissions:
+    """The menu hides links by these flags; site_admin gates the site-admin-only pages (Feedback)."""
+
+    def test_anonymous_has_nothing(self, db_session):
+        from flask_login import AnonymousUserMixin
+        assert nav_permissions(AnonymousUserMixin()) == {
+            "manage_users": False, "manage_data": False, "site_admin": False}
+
+    def test_viewer_has_nothing(self, db_session):
+        user = make_user(group=make_group(), role="Data Viewer")
+        assert nav_permissions(user) == {
+            "manage_users": False, "manage_data": False, "site_admin": False}
+
+    def test_group_admin_manages_users_only(self, db_session):
+        user = make_user(group=make_group(), role="Group Admin")
+        assert nav_permissions(user) == {
+            "manage_users": True, "manage_data": False, "site_admin": False}
+
+    def test_site_admin_has_everything(self, db_session):
+        assert nav_permissions(make_user(site_admin=True)) == {
+            "manage_users": True, "manage_data": True, "site_admin": True}

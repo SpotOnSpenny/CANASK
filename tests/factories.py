@@ -11,6 +11,8 @@ from data_viz.database.models import (
     DataPoints,
     DataSources,
     DasDrugCodes,
+    FeedbackNote,
+    FeedbackSubmission,
     DasNps,
     DasQuant,
     DasSampleDrugs,
@@ -260,3 +262,24 @@ def make_das_nps(sample_number="N/A*", drug=None, substance_name="Novel substanc
     db.session.add(row)
     db.session.flush()
     return row
+
+
+def make_feedback(body="Great charts", name=None, email=None, page=None, email_sent=True,
+                  addressed=False, addressed_by=None, user=None):
+    row = FeedbackSubmission(
+        name=name, email=email, body=body, page=page, email_sent=email_sent,
+        email_error=None if email_sent else "SES send failed; see the web container log",
+        user_id=user.id if user else None,
+        addressed_at=db.func.current_timestamp() if addressed else None,
+        addressed_by=addressed_by.id if addressed_by else None,
+    )
+    db.session.add(row)
+    db.session.flush()
+    return row
+
+
+def make_feedback_note(submission, author, text="noted"):
+    note = FeedbackNote(feedback_id=submission.id, author_id=author.id, text=text)
+    db.session.add(note)
+    db.session.flush()
+    return note

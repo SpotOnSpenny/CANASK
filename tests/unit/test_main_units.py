@@ -13,6 +13,7 @@ def test_static_page_titles(app):
     assert title_for(app, "/v1/login") == "Login"
     assert title_for(app, "/v1/user-management") == "User Management"
     assert title_for(app, "/v1/national/das-explorer") == "DAS Explorer"
+    assert title_for(app, "/v1/admin/feedback") == "Feedback"
 
 
 def test_province_title_from_slug(app):

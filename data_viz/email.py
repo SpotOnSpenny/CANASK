@@ -31,7 +31,7 @@ def send_ses_email(to_addresses, subject, html_body):
             aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID"),
             aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
         )
-        client.send_email(
+        response = client.send_email(
             Source=sender,
             Destination={"ToAddresses": to_addresses},
             Message={
@@ -40,6 +40,12 @@ def send_ses_email(to_addresses, subject, html_body):
             },
             **({"ReplyToAddresses": [reply_to]} if reply_to else {}),
         )
+        # SES "accepted" is not "delivered": bounces, the account suppression list, and recipient-side
+        # spam filtering all happen after this point. The MessageId is the only handle for tracing a
+        # message in the SES console / CloudWatch, so log it on every accepted send.
+        current_app.logger.info(
+            "SES accepted %r from %s to %s: MessageId=%s",
+            subject, sender, to_addresses, (response or {}).get("MessageId"))
         return True
     except ClientError as e:
         # The response dict's shape isn't guaranteed -- .get() so the handler itself can't KeyError.

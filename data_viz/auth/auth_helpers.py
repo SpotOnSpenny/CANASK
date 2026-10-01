@@ -741,17 +741,18 @@ def reconcile_source_aliases(changed_by = None):
 def nav_permissions(user):
     """Capability flags for showing/hiding the account-management nav links, mirroring the
     @require_role gates on those routes: manage_users (invite/user/invite-management) needs Group
-    Admin+ in some group; manage_data (group management, data ownership) needs Data Owner+. Site
-    admins get everything."""
+    Admin+ in some group; manage_data (group management, data ownership) needs Data Owner+;
+    site_admin gates the site-admin-only pages (Feedback). Site admins get everything."""
     if not getattr(user, "is_authenticated", False):
-        return {"manage_users": False, "manage_data": False}
+        return {"manage_users": False, "manage_data": False, "site_admin": False}
     if getattr(user, "site_admin", False):
-        return {"manage_users": True, "manage_data": True}
+        return {"manage_users": True, "manage_data": True, "site_admin": True}
     top = max((ROLE_HIERARCHY.get(m.role, -1)
                for m in UserGroups.query.filter_by(user_id = user.id).all()), default = -1)
     return {
         "manage_users": top >= ROLE_HIERARCHY["Group Admin"],
         "manage_data": top >= ROLE_HIERARCHY["Data Owner"],
+        "site_admin": False,
     }
 
 def get_user_memberships_in_groups(user_id, group_ids):

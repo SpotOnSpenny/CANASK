@@ -353,6 +353,55 @@ class UserActivity(db.Model):
     def __repr__(self):
         return f"<UserActivity User ID: {self.user_id}, Activity Type: {self.activity_type}, Timestamp: {self.timestamp}>"
 
+class FeedbackSubmission(db.Model):
+    """One accepted public feedback-form submission (data_viz/main.py::feedback). The DB row is
+    the system of record: it is committed BEFORE the notification email is attempted, and an
+    email failure is recorded on the row (email_sent/email_error) rather than failing the
+    submission. Reviewed on the site-admin Feedback page (data_viz/feedback_admin.py)."""
+    __tablename__ = "feedback_submissions"
+
+    id = db.Column(db.Integer, primary_key = True)
+    name = db.Column(db.String(100), nullable = True)
+    email = db.Column(db.String(255), nullable = True)
+    body = db.Column(db.String(5000), nullable = False)
+    # In-site path (+ query) the form was submitted from (validation.validate_page_path), or None.
+    page = db.Column(db.String(512), nullable = True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable = True)
+    ip_address = db.Column(db.String(255), nullable = True)
+    created_at = db.Column(db.DateTime, nullable = False, default = db.func.current_timestamp(), index = True)
+    email_sent = db.Column(db.Boolean, nullable = False, default = False, server_default = db.false())
+    email_error = db.Column(db.String(255), nullable = True)
+    addressed_at = db.Column(db.DateTime, nullable = True)
+    addressed_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable = True)
+
+    user = db.relationship("User", foreign_keys = [user_id])
+    addressed_by_user = db.relationship("User", foreign_keys = [addressed_by])
+    notes = db.relationship("FeedbackNote", backref = "submission", cascade = "all, delete-orphan",
+                            order_by = "FeedbackNote.created_at")
+
+    @property
+    def is_addressed(self):
+        return self.addressed_at is not None
+
+    def __repr__(self):
+        return f"<FeedbackSubmission {self.id} addressed={self.is_addressed}>"
+
+class FeedbackNote(db.Model):
+    """A timestamped site-admin note on a FeedbackSubmission (append-only log; deleted with it)."""
+    __tablename__ = "feedback_notes"
+
+    id = db.Column(db.Integer, primary_key = True)
+    feedback_id = db.Column(db.Integer, db.ForeignKey("feedback_submissions.id", ondelete = "CASCADE"),
+                            nullable = False, index = True)
+    author_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable = False)
+    text = db.Column(db.String(2000), nullable = False)
+    created_at = db.Column(db.DateTime, nullable = False, default = db.func.current_timestamp())
+
+    author = db.relationship("User", foreign_keys = [author_id])
+
+    def __repr__(self):
+        return f"<FeedbackNote {self.id} on feedback {self.feedback_id}>"
+
 class SiteAdminKey(db.Model):
     __tablename__ = "site_admin_key"
 

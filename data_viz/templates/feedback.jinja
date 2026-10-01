@@ -17,8 +17,10 @@
             </div>
             <div class="form-group pb-2">
                 <label for="feedback-email">Email</label>
+                {# Prefilled for signed-in users (still editable; the server re-validates). The widget is
+                   part of the full-page shell, so this value also survives form.reset() after a submit. #}
                 <input name="email" type="email" maxlength="254" class="form-control" id="feedback-email"
-                    placeholder="Enter your email">
+                    placeholder="Enter your email"{% if current_user.is_authenticated and current_user.email %} value="{{ current_user.email }}"{% endif %}>
             </div>
             <div class="form-group pb-4">
                 <label for="feedback-message">Feedback</label>

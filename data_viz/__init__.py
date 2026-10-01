@@ -13,6 +13,7 @@ from data_viz.main import main_blueprint
 from data_viz.database import db, migrate
 from data_viz.auth import login_manager
 from data_viz.auth.auth import auth_blueprint
+from data_viz.feedback_admin import feedback_admin_blueprint
 from data_viz.cli import register_cli
 from celery_worker.celery import init_celery
 
@@ -191,6 +192,7 @@ login_manager.init_app(app)
 # Register the blueprints for the application
 app.register_blueprint(main_blueprint)
 app.register_blueprint(auth_blueprint)
+app.register_blueprint(feedback_admin_blueprint)
 
 # Error handling for 404 errors
 @app.errorhandler(404)

@@ -451,27 +451,23 @@ function initFeedback() {
   }
 }
 
-function validateEmail(mail) {
-  if (/^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/.test(mail)) {
-    return true;
-  }
-  return false;
-}
-
 function feedbackSubmit(token) {
   // validate the form has required fields
   let feedbackForm = document.getElementById("feedback-form")
   let feedbackData = new FormData(feedbackForm);
   let feedbackMessage = document.getElementById("feedback-message");
   let emailField = document.getElementById("feedback-email");
-  if (validateEmail(feedbackData.get("email")) == false) {
-    emailField.classList.toggle("is-invalid");
+  // Email is OPTIONAL (the server accepts a blank one). When given, defer to the browser's
+  // type="email" constraint -- the old hand-rolled regex rejected blank emails, "+" addresses, and
+  // TLDs longer than three letters, so those submissions never reached the server at all. The
+  // server re-validates with email_validator either way.
+  let email = (feedbackData.get("email") || "").trim();
+  if (email && !emailField.checkValidity()) {
+    emailField.classList.add("is-invalid");
     emailField.value = "";
-    emailField.placeholder = `"${feedbackData.get(
-      "email"
-    )}"  is not a valid email address!`;
-  } else if (feedbackData.get("feedback") == "") {
-    feedbackMessage.classList.toggle("is-invalid");
+    emailField.placeholder = `"${email}"  is not a valid email address!`;
+  } else if ((feedbackData.get("feedback") || "").trim() == "") {
+    feedbackMessage.classList.add("is-invalid");
     feedbackMessage.value = "";
     feedbackMessage.placeholder = "This field cannot be blank";
   } else {
@@ -479,8 +475,11 @@ function feedbackSubmit(token) {
       emailField.classList.remove("is-invalid");
       feedbackMessage.classList.remove("is-invalid");
     } catch {}
-    // submit the form data with the recaptcha token
+    // submit the form data with the recaptcha token and the page the user is looking at
+    // (hx-push-url keeps window.location current as the SPA navigates). The server validates it
+    // and includes it in the stored row + the notification email.
     feedbackData.append("recaptcha-token", token);
+    feedbackData.append("page", window.location.pathname + window.location.search);
     let alertContainer = document.getElementById("form-alerts");
     fetch("/feedback", {
       method: "POST",

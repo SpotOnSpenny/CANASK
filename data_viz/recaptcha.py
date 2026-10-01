@@ -28,6 +28,9 @@ def verify_recaptcha(token, action):
         return False, "not configured"
 
     if not token:
+        # Logged so a prod 403 is diagnosable: the client sends an empty token when grecaptcha
+        # failed to load (ad blocker, CSP, network) -- see recaptchaToken() in static/js/main.js.
+        current_app.logger.warning("reCAPTCHA token missing on %s submission; rejecting", action)
         return False, "missing token"
 
     try:

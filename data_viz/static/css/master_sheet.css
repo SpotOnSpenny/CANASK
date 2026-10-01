@@ -1253,6 +1253,18 @@ a { text-decoration: none; }
   color: var(--c-accent-hover);
 }
 
+/* Feedback page (site admins): stored feedback + notes keep their line breaks; long unbroken
+   strings (URLs pasted into a message) wrap instead of overflowing the card. */
+.feedback-message {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* The status filter sits at the top-right of the content column, under the viewport-fixed theme
+   toggle (.canask-theme-toggle: 44px wide, 16px from the right edge) -- keep clear of it. */
+.feedback-header {
+  padding-right: 4rem;
+}
+
 /* ------------------------ DAS Explorer (Tabulator) ----------------------- */
 /* Re-skin Tabulator's stock (light-only) CSS onto the design tokens so the explorer table follows
    both themes, matching the look of the app's other tables (sticky uppercase headers, striping,

@@ -3,8 +3,10 @@ import pytest
 
 from data_viz.validation import (
     MAX_EMAIL,
+    MAX_FEEDBACK_PAGE,
     MAX_GROUP_NAME,
     validate_email,
+    validate_page_path,
     validate_role,
     validate_text,
     validate_username,
@@ -129,3 +131,48 @@ class TestValidateRole:
 
     def test_case_sensitive(self):
         assert validate_role("data viewer")[0] is False
+
+
+class TestValidatePagePath:
+    """The page a feedback form was submitted from is diagnostic metadata: anything that is not
+    a plain in-site path is dropped (None), never rejected with an error."""
+
+    def test_path_with_query_kept(self):
+        assert validate_page_path("/v1/province/ontario?y=2024") == "/v1/province/ontario?y=2024"
+
+    def test_surrounding_whitespace_stripped(self):
+        assert validate_page_path("  /v1/national/das-explorer ") == "/v1/national/das-explorer"
+
+    def test_missing_leading_slash_dropped(self):
+        assert validate_page_path("v1/province/ontario") is None
+
+    def test_protocol_relative_dropped(self):
+        assert validate_page_path("//evil.example/phish") is None
+
+    def test_scheme_dropped(self):
+        assert validate_page_path("javascript:alert(1)") is None
+        assert validate_page_path("https://canask.ca/v1/province/ontario") is None
+
+    def test_backslash_variants_dropped(self):
+        # Browsers treat "\\" as "/" in URLs, so these resolve off-site (scheme-relative) despite
+        # looking like in-site paths.
+        assert validate_page_path("/\\evil.example/login") is None
+        assert validate_page_path("/\\/evil.example") is None
+        assert validate_page_path("/v1/province\\..\\evil") is None
+
+    def test_control_chars_dropped(self):
+        assert validate_page_path("/v1/province/ontario\x00") is None
+        assert validate_page_path("/v1/\u200bprovince") is None
+
+    def test_embedded_whitespace_dropped(self):
+        assert validate_page_path("/v1/province/on tario") is None
+
+    def test_over_length_dropped(self):
+        assert validate_page_path("/" + "a" * MAX_FEEDBACK_PAGE) is None
+        assert validate_page_path("/" + "a" * (MAX_FEEDBACK_PAGE - 1)) is not None
+
+    def test_blank_and_non_string_none(self):
+        assert validate_page_path("") is None
+        assert validate_page_path("   ") is None
+        assert validate_page_path(None) is None
+        assert validate_page_path(["/v1"]) is None
