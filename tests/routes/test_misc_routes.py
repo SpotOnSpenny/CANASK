@@ -182,6 +182,17 @@ class TestFeedback:
         assert 'id="feedback-email"' in html
         assert 'value="member@example.org"' in html
 
+    def test_widget_renders_limit_for_the_countdown(self, client, db_session):
+        # maxlength (the browser's hard stop) and data-max (the countdown) both come from
+        # MAX_FEEDBACK_BODY, so the client can't drift from what /feedback validates.
+        from data_viz.validation import MAX_FEEDBACK_BODY
+        html = client.get("/").get_data(as_text=True)
+        start = html.index('id="feedback-message"')
+        textarea = html[start:html.index(">", start)]
+        assert f'maxlength="{MAX_FEEDBACK_BODY}"' in textarea
+        assert f'data-max="{MAX_FEEDBACK_BODY}"' in textarea and 'data-warn-within="100"' in textarea
+        assert 'id="feedback-char-count"' in html
+
     def test_widget_email_blank_for_anonymous(self, client, db_session):
         html = client.get("/").get_data(as_text=True)
         assert 'id="feedback-email"' in html

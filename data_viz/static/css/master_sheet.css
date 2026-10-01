@@ -1253,6 +1253,20 @@ a { text-decoration: none; }
   color: var(--c-accent-hover);
 }
 
+/* Feedback widget: the character countdown under the message box (shown by main.js only when the
+   message is within 100 characters of the limit; the [hidden] attribute keeps it out of flow).
+   Amber while approaching, red once the limit is reached (.at-limit). */
+.feedback-char-count {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--c-warning);
+}
+.feedback-char-count.at-limit {
+  color: var(--c-danger);
+}
+
 /* Feedback page (site admins): stored feedback + notes keep their line breaks; long unbroken
    strings (URLs pasted into a message) wrap instead of overflowing the card. */
 .feedback-message {

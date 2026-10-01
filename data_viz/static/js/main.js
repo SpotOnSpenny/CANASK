@@ -226,6 +226,34 @@ function initFeedback() {
       recaptchaToken("feedback").then((token) => feedbackSubmit(token));
     });
   }
+
+  // Character countdown: the textarea's maxlength silently stops input at the limit, so once the
+  // message is within data-warn-within characters of data-max (both rendered by the server from
+  // MAX_FEEDBACK_BODY) show an amber countdown, turning red when the limit is reached. Same re-init guard.
+  let feedbackMessage = document.getElementById("feedback-message");
+  let charCount = document.getElementById("feedback-char-count");
+  if (feedbackForm && feedbackMessage && charCount && !feedbackMessage.dataset.countWired) {
+    feedbackMessage.dataset.countWired = "true";
+    let max = parseInt(feedbackMessage.dataset.max, 10) || parseInt(feedbackMessage.getAttribute("maxlength"), 10);
+    let warnWithin = parseInt(feedbackMessage.dataset.warnWithin, 10) || 100;
+    let updateCount = () => {
+      let left = max - feedbackMessage.value.length;
+      if (left > warnWithin) {
+        charCount.hidden = true;
+        charCount.textContent = "";
+        return;
+      }
+      charCount.hidden = false;
+      charCount.classList.toggle("at-limit", left <= 0);
+      charCount.textContent = left <= 0
+        ? `${max} character limit reached`
+        : `Approaching ${max} character limit: ${left} character${left === 1 ? "" : "s"} left`;
+    };
+    feedbackMessage.addEventListener("input", updateCount);
+    // form.reset() (after a successful submit) clears the value AFTER the reset event fires.
+    feedbackForm.addEventListener("reset", () => setTimeout(updateCount, 0));
+    updateCount();
+  }
 }
 
 const GENERIC_FEEDBACK_ERROR = "There was an error submitting your feedback. Please try again later.";
