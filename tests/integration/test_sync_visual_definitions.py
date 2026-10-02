@@ -141,3 +141,14 @@ class TestPrune:
     def test_empty_dir_is_a_noop(self, db_session, tmp_path):
         assert sync_visual_definitions(manifest_dir=str(tmp_path)) == {
             "created": 0, "updated": 0, "pruned": 0}
+
+
+class TestInvalidOptions:
+    def test_malformed_time_grains_fails_the_sync_and_writes_nothing(self, db_session, tmp_path, province):
+        write_manifest(tmp_path, unique("src"), [
+            entry(province, "ok_visual"),
+            entry(province, "bad_visual", visual_options={"time_grains": "quarterly"}),
+        ])
+        with pytest.raises(ValueError, match=f"{province}/bad_visual: time_grains"):
+            sync_visual_definitions(manifest_dir=str(tmp_path))
+        assert Visuals.query.filter_by(province=province).count() == 0

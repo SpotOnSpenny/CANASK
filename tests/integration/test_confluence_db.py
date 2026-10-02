@@ -7,9 +7,9 @@ import pytest
 from data_viz import confluence as cf
 from data_viz.das_explorer import query_pivot
 from data_viz.database.models import DasSamples
-from data_viz.visual_generic import visual_block, visual_dimension_values
+from data_viz.visual_generic import visual_block, visual_facets
 
-from tests.confluence_data import seed_confluence, seed_month_visuals
+from tests.confluence_data import seed_confluence, seed_grain_visuals, seed_month_visuals
 from tests.factories import make_das_drug, make_das_sample, make_user
 
 
@@ -36,10 +36,15 @@ class TestQueryPivotExtraWhere:
 
 class TestVisualDimensionValues:
     def test_flat_visual_returns_its_dimension_values(self, seeded):
-        assert visual_dimension_values(seeded["flat"]) == {"Fentanyl"}
+        assert visual_facets(seeded["flat"])[0] == {"Fentanyl"}
 
     def test_heatmap_without_dimensions_is_empty(self, seeded):
-        assert visual_dimension_values(seeded["heat"]) == set()
+        assert visual_facets(seeded["heat"])[0] == set()
+
+    def test_grains_come_paired_with_their_data_type(self, seeded):
+        # The data type lets available_grains count only a heatmap's counts.
+        grain_types = visual_facets(seeded["flat"])[1]
+        assert grain_types and all(g == "year" and dt in ("counts", "rates") for g, dt in grain_types)
 
 
 class TestSupportedVisuals:
@@ -210,6 +215,66 @@ class TestMonthGrain:
         assert heat["das"]["truncated"] is False
 
 
+class TestQuarterGrain:
+    @pytest.fixture()
+    def grains(self, seeded):
+        # A second Q2-2025 sample (May) so the quarter must SUM two DAS months (S-2 is June).
+        fent = make_das_drug(code="FENT2", display_name="Fentanyl (2)",
+                             pharm_subclass="Fentanyl & analogues")
+        make_das_sample(sample_number="S-5", province="SK", city="Saskatoon", drugs=[fent],
+                        date_received=date(2025, 5, 15), date_returned=date(2025, 6, 20))
+        return seed_grain_visuals()
+
+    def test_quarter_series_sums_das_months_into_quarters(self, grains, admin):
+        payload = cf.build_confluence_payload("saskatchewan", grains["flat"], [], "group",
+                                              "received", None, grain="quarter")
+        assert payload["grain"] == "quarter"
+        assert payload["grains"] == ["year", "quarter", "month"]
+        # Received coverage: overlap 2025-02 .. 2026-02, complete 2025-04 .. 2025-12.
+        flags = {p["key"]: p["das_complete"] for p in payload["periods"]}
+        assert flags == {"2025-Q1": False, "2025-Q2": True, "2025-Q3": True, "2025-Q4": True,
+                         "2026-Q1": False}
+        # S-1 (Mar) -> Q1; S-5 (May) + S-2 (Jun) -> Q2; S-3 (Jan 2026) -> 2026-Q1; ON's S-4 out.
+        assert payload["das"]["series"]["all"] == {"2025-Q1": 1.0, "2025-Q2": 2.0, "2025-Q3": 0,
+                                                   "2025-Q4": 0, "2026-Q1": 1.0}
+
+    def test_quarter_returned_basis(self, grains, admin):
+        payload = cf.build_confluence_payload("saskatchewan", grains["flat"], [], "group",
+                                              "returned", None, grain="quarter")
+        # Returned: S-1 Apr + S-5 Jun -> Q2, S-2 Jul -> Q3, S-3 Feb 2026 -> 2026-Q1.
+        assert payload["das"]["series"]["all"] == {"2025-Q2": 2.0, "2025-Q3": 1.0, "2025-Q4": 0,
+                                                   "2026-Q1": 1.0}
+
+    def test_quarter_cities(self, grains, admin):
+        payload = cf.build_confluence_payload("saskatchewan", grains["heat"], [], "group",
+                                              "received", None, grain="quarter")
+        assert payload["das"]["cities"] == {"Saskatoon, SK": {"2025-Q1": 1.0, "2025-Q2": 2.0},
+                                            "Regina, SK": {"2026-Q1": 1.0}}
+
+    def test_quarter_dim_in_the_explorer_pivot(self, grains):
+        result = query_pivot("id_all", "quarter_received", None, {"province": ["SK"]}, "samples")
+        assert dict(zip(result["rows"], (r[0] for r in result["cells"]))) == \
+            {"2025-Q1": 1.0, "2025-Q2": 2.0, "2026-Q1": 1.0}
+
+    def test_visual_facts_are_filtered_to_the_grain(self, grains, admin):
+        payload = cf.build_confluence_payload("saskatchewan", grains["flat"], [], "group",
+                                              "received", None, grain="month")
+        assert {f["g"] for f in payload["visual"]["facts"]} == {"month"}
+        assert payload["grain"] == "month"
+
+    def test_default_is_the_first_available_grain(self, grains, admin):
+        payload = cf.build_confluence_payload("saskatchewan", grains["flat"], [], "group",
+                                              "received", None)
+        assert payload["grain"] == "year"
+
+    def test_grain_outside_the_declared_list_is_unalignable(self, seeded, admin):
+        multi = seed_grain_visuals(time_grains=["year"])
+        assert cf.available_grains(multi["flat"], visual_block(multi["flat"])["facts"]) == ["year"]
+        with pytest.raises(cf.UnalignableVisualError):
+            cf.build_confluence_payload("saskatchewan", multi["flat"], [], "group",
+                                        "received", None, grain="quarter")
+
+
 class TestConfluenceConfig:
     def test_lists_supported_visuals_with_resolved_terms(self, seeded, admin):
         config = cf.confluence_config(admin)
@@ -219,10 +284,26 @@ class TestConfluenceConfig:
         assert by_id["deaths_by_opioid_type"]["terms_resolved"] == ["fentanyl"]
         assert by_id["deaths_by_opioid_type"]["shape"] == "flat_series"
         assert by_id["drug_death_heatmap"]["terms_resolved"] == []
+        assert by_id["deaths_by_opioid_type"]["grains"] == ["year"]
         assert "ontario" not in config["provinces"]
         assert config["groups"]["fentanyl"]["family"] == "opioids"
         assert "opioids" in config["families"]
         assert "other" not in config["families"]   # no member groups -> no chip
+
+    def test_grains_are_the_available_grains(self, seeded, admin):
+        seed_grain_visuals(time_grains=["month", "year"])   # quarter facts present, not declared
+        sk = cf.confluence_config(admin)["provinces"]["saskatchewan"]
+        by_id = {v["id"]: v for v in sk["visuals"]}
+        assert by_id["grain_deaths"]["grains"] == ["year", "month"]
+        assert by_id["grain_heatmap"]["grains"] == ["year", "month"]
+
+    def test_undeclared_grains_come_from_the_facts(self, seeded, admin):
+        seed_month_visuals(months=["2025-04", "2025-05"])
+        sk = cf.confluence_config(admin)["provinces"]["saskatchewan"]
+        by_id = {v["id"]: v for v in sk["visuals"]}
+        assert by_id["monthly_deaths"]["grains"] == ["month"]
+        assert by_id["monthly_heatmap"]["grains"] == ["month"]
+        assert by_id["monthly_deaths"]["terms_resolved"] == ["fentanyl"]
 
     def test_anonymous_sees_nothing_when_private(self, db_session):
         seed_confluence(visibility="private")

@@ -31,10 +31,19 @@ function initConfluence(cfg) {
         return;
     }
     slugs.forEach(slug => provinceSelect.appendChild(new Option(cfg.provinces[slug].label, slug)));
-    provinceSelect.onchange = function () { confluenceFillVisuals(); confluenceSyncChips(null); };
-    document.getElementById("confluence-visual").onchange = function () { confluenceSyncChips(null); };
+    provinceSelect.onchange = function () {
+        confluenceFillVisuals(); confluenceSyncChips(null); confluenceSyncGrains(null);
+    };
+    document.getElementById("confluence-visual").onchange = function () {
+        confluenceSyncChips(null); confluenceSyncGrains(null);
+    };
     document.querySelectorAll('input[name="confluence-level"]').forEach(radio => {
         radio.onchange = function () { confluenceSyncChips(confluenceCheckedKeys(), radio.value); };
+    });
+    // The server ships the visual's facts already narrowed to one grain, so a new grain is a new
+    // payload: re-request it straight away.
+    document.querySelectorAll('input[name="confluence-grain"]').forEach(radio => {
+        radio.onchange = confluenceUserApply;
     });
     const expr = document.getElementById("confluence-expr");
     expr.oninput = function () {
@@ -44,7 +53,10 @@ function initConfluence(cfg) {
     document.getElementById("confluence-build").onclick = confluenceUserApply;
 
     confluenceFillVisuals();
-    if (!confluenceReplayFromUrl()) confluenceSyncChips(null);
+    if (!confluenceReplayFromUrl()) {
+        confluenceSyncChips(null);
+        confluenceSyncGrains(null);
+    }
 }
 
 // --------------------------------- controls ----------------------------------
@@ -61,6 +73,31 @@ function confluenceVisualCfg() {
 function confluenceLevel() {
     const checked = document.querySelector('input[name="confluence-level"]:checked');
     return checked ? checked.value : "group";
+}
+
+function confluenceGrain() {
+    const checked = document.querySelector('input[name="confluence-grain"]:checked');
+    return checked ? checked.value : "year";
+}
+
+// Offer only the grains the chosen visual has (cfg ...visuals[i].grains, year/quarter/month order):
+// the rest are disabled and hidden, and the whole group hides when there's nothing to choose.
+// Keeps `preferred` (or the current pick) when the visual has it, else falls back to its first
+// grain. Returns the grain left selected.
+function confluenceSyncGrains(preferred) {
+    const visual = confluenceVisualCfg();
+    const grains = visual && visual.grains && visual.grains.length ? visual.grains : ["year"];
+    const wanted = preferred || confluenceGrain();
+    const pick = grains.includes(wanted) ? wanted : grains[0];
+    document.querySelectorAll('input[name="confluence-grain"]').forEach(radio => {
+        const offered = grains.includes(radio.value);
+        radio.disabled = !offered;
+        radio.checked = radio.value === pick;
+        const label = document.querySelector(`label[for="${radio.id}"]`);
+        if (label) label.classList.toggle("d-none", !offered);
+    });
+    document.getElementById("confluence-grain-wrap").classList.toggle("d-none", grains.length < 2);
+    return pick;
 }
 
 function confluenceFillVisuals() {
@@ -118,7 +155,7 @@ function confluenceCheckedKeys() {
     return Array.from(document.querySelectorAll("#confluence-chips input:checked")).map(i => i.value);
 }
 
-// Deep links: ?province=&visual=&groups=&level=&basis=&expr= (written by confluenceApply).
+// Deep links: ?province=&visual=&grain=&groups=&level=&basis=&expr= (written by confluenceApply).
 // Returns true when it found a valid pairing and kicked off the fetch. A link that no longer
 // resolves (or names unknown substances) says so rather than quietly showing something else.
 function confluenceReplayFromUrl() {
@@ -138,6 +175,11 @@ function confluenceReplayFromUrl() {
         return false;
     }
     document.getElementById("confluence-visual").value = visual;
+    const linkedGrain = params.get("grain");
+    const grain = confluenceSyncGrains(linkedGrain);
+    if (linkedGrain && linkedGrain !== grain) {
+        confluenceSetNote("confluence-link-note", `The linked period (${linkedGrain}) isn't available for this visual, so it's shown by ${grain} instead.`);
+    }
     const level = cfg.levels.includes(params.get("level")) ? params.get("level") : "group";
     document.getElementById(`confluence-level-${level}`).checked = true;
     const basis = params.get("basis");
@@ -212,7 +254,7 @@ async function confluenceApply() {
     const level = confluenceLevel();
     const keys = confluenceCheckedKeys();
     const params = new URLSearchParams({
-        province: province, visual: visual.id, level: level,
+        province: province, visual: visual.id, grain: confluenceGrain(), level: level,
         basis: document.getElementById("confluence-basis").value,
     });
     if (keys.length) params.set("groups", keys.join(","));
@@ -487,7 +529,7 @@ function confluenceRenderCities(d, chart) {
             locations: f.locations,
             z: f.z,
             zauto: false, zmin: zmin, zmax: zmax,
-            hovertemplate: `%{location}: %{z} ${metricLabel}<extra></extra>`,
+            hoverinfo: "none",   // label drawn by attachGeoHoverTip (events still fire); the DAS city bubbles keep Plotly's native label
             colorscale: t.dark ? "Cividis" : "YlOrRd",
             reversescale: !t.dark,
             marker: { line: { color: t.border, width: 0.5 } },
@@ -517,8 +559,9 @@ function confluenceRenderCities(d, chart) {
     // dasMapLayout frames all of Canada for the explorer; here the province's own polygons set the
     // view, and each slider step must toggle a PAIR of traces.
     layout.geo = {
+        ...provinceGeoLayout(geojson),   // same projection + pan-not-spin drag as the province's own heatmap
         fitbounds: "geojson", showcoastlines: false, showlakes: false, showland: false,
-        showcountries: false, showframe: false, bgcolor: "rgba(0,0,0,0)",
+        showframe: false, bgcolor: "rgba(0,0,0,0)",
     };
     if (layout.sliders) {
         layout.sliders[0].steps.forEach((step, j) => {
@@ -538,7 +581,11 @@ function confluenceRenderCities(d, chart) {
     }
     confluenceSetNote("confluence-unmapped", notes.join(" "));
     Plotly.react(chart, traces, themeChartLayout(layout), { displaylogo: false, responsive: true })
-        .then(() => dasFitMapHeight(chart))
+        .then(() => {
+            dasFitMapHeight(chart);
+            attachGeoHoverTip(chart, (point) => (point.location == null ? null
+                : { name: point.location, value: `${point.z} ${metricLabel}` }));
+        })
         .catch(error => {
             console.error("Confluence map render failed:", error);
             confluenceEmptyState("Sorry, that map couldn't be drawn. Please press Overlay again.");

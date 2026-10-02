@@ -147,7 +147,7 @@ def grant_data_source(group, source):
 
 def make_datapoint(source, geo="ontario", time_frame="2024", data_metric="deaths",
                    data_type="counts", data_value=1.0, geo_type="province",
-                   time_frame_type="yearly", **overrides):
+                   time_frame_type="year", **overrides):
     point = DataPoints(
         data_source_id=source.id,
         geo_type=geo_type,

@@ -49,6 +49,11 @@ def _year(column):
     return func.to_char(column, "YYYY")
 
 
+def _quarter(column):
+    """"YYYY-Qn" -- the same key format the V1 cleaners write for quarter facts."""
+    return func.to_char(column, "YYYY") + "-Q" + func.to_char(column, "Q")
+
+
 # Per-field spec: `expr` is the SELECT/filter/sort expression, `kind` picks the filter semantics
 # (text -> ilike substring, select/bool -> equality, date/number -> substring on the cast text,
 # which lets a "2026-06" header filter match a date column), `joins` names join tags the
@@ -95,6 +100,8 @@ DATASETS = {
             "month_received": _field("Month Received", _month(DasSamples.date_received), kind="date"),
             "year_returned": _field("Year Returned", _year(DasSamples.date_returned), kind="date"),
             "year_received": _field("Year Received", _year(DasSamples.date_received), kind="date"),
+            "quarter_returned": _field("Quarter Returned", _quarter(DasSamples.date_returned), kind="date"),
+            "quarter_received": _field("Quarter Received", _quarter(DasSamples.date_received), kind="date"),
             "public_health": _field("Public Health Sample", _yes_no(DasSamples.public_health), kind="bool"),
             "contains_nps": _field("Contains NPS", _yes_no(DasSamples.contains_nps), kind="bool"),
             "drug": _field("Drug Identified", func.coalesce(DasDrugCodes.display_name, DasSampleDrugs.drug_code),
@@ -131,6 +138,7 @@ DATASETS = {
             "province": _field("Province/Territory", DasQuant.province, kind="select"),
             "month_returned": _field("Month Returned", _month(DasQuant.date_returned), kind="date"),
             "year_returned": _field("Year Returned", _year(DasQuant.date_returned), kind="date"),
+            "quarter_returned": _field("Quarter Returned", _quarter(DasQuant.date_returned), kind="date"),
             "drug": _field("Drug", _DRUG_NAME_QUANT, joins=("codes",)),
             "pharm_class": _field("Pharmacological Class", DasDrugCodes.pharm_class, joins=("codes",)),
             "units": _field("Units", DasQuant.units, kind="select"),
@@ -159,6 +167,7 @@ DATASETS = {
             "province": _field("Province/Territory", DasNps.province, kind="select"),
             "month_found": _field("Month Found", _month(DasNps.finding_date), kind="date"),
             "year_found": _field("Year Found", _year(DasNps.finding_date), kind="date"),
+            "quarter_found": _field("Quarter Found", _quarter(DasNps.finding_date), kind="date"),
             "substance_name": _field("Substance", DasNps.substance_name),
             "pharm_class": _field("Pharmacological Class", DasDrugCodes.pharm_class, joins=("codes",)),
         },

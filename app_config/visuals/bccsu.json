@@ -26,7 +26,8 @@
         "rates-y-axis-title": "Percent of Samples Belonging to Category of Drug",
         "counts-y-axis-title": "Number of Samples Belonging to Category of Drug",
         "table-rates-row": "Percent of Samples Classified as replace_me",
-        "table-counts-row": "Number of Samples Classified as replace_me"
+        "table-counts-row": "Number of Samples Classified as replace_me",
+        "time_grains": ["year", "quarter", "month"]
       }
     },
     {
@@ -51,7 +52,8 @@
         "rates-y-axis-title": "Percent of Samples Containing Drug",
         "counts-y-axis-title": "Number of Samples Containing Drug",
         "table-rates-row": "Percent of Samples Pos. for replace_me",
-        "table-counts-row": "Number of Samples Pos. for replace_me"
+        "table-counts-row": "Number of Samples Pos. for replace_me",
+        "time_grains": ["year", "quarter", "month"]
       }
     },
     {
@@ -76,7 +78,8 @@
         "rates-y-axis-title": "Percent of Samples Containing Opioid Types",
         "counts-y-axis-title": "Number of Samples Containing Opioid Types",
         "table-rates-row": "Percent of Samples Pos. for replace_me",
-        "table-counts-row": "Number of Samples Pos. for replace_me"
+        "table-counts-row": "Number of Samples Pos. for replace_me",
+        "time_grains": ["year", "quarter", "month"]
       }
     }
   ]

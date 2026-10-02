@@ -23,7 +23,12 @@
       "visual_options": {
         "heatmap-title": "Unregulated Drug Deaths in British Columbia by Health Authority",
         "table-title": "Unregulated Drug Deaths in replace_with_health_authority Health Authority",
-        "table-row-title": "replace_location"
+        "table-row-title": "replace_location",
+        "counts-title": "Unregulated Drug Deaths in British Columbia by Health Authority",
+        "counts-y-axis-title": "Unregulated Drug Deaths",
+        "table-counts-row": "replace_me",
+        "time_grains": ["year", "quarter", "month"],
+        "chart_types": ["heatmap", "line"]
       }
     },
     {
@@ -104,7 +109,8 @@
         "rates-y-axis-title": "Unregulated Drug Deaths per 100,000 Population",
         "counts-y-axis-title": "Unregulated Drug Deaths",
         "table-rates-row": "Unregulated Drug Deaths for Those replace_me/100,000 Population",
-        "table-counts-row": "Unregulated Drug Deaths among for Those replace_me"
+        "table-counts-row": "Unregulated Drug Deaths among for Those replace_me",
+        "time_grains": ["year", "quarter", "month"]
       }
     }
   ]

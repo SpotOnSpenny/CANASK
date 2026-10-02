@@ -43,6 +43,42 @@ def derive_drill_chain(shape, dimension2_type):
     return []
 
 
+TIME_GRAINS = ("year", "quarter", "month")
+SWITCHABLE_CHART_TYPES = ("heatmap", "line")
+# The heatmap's Trend view renders through createVisualLine with the counts data type, which reads these.
+TREND_VIEW_OPTIONS = ("counts-title", "counts-y-axis-title", "table-counts-row")
+
+
+def visual_options_problems(entry):
+    """What's wrong with a manifest entry's grain / chart-type switch options ([] = fine). Both are
+    read by the client and Confluence, which would otherwise disagree about a malformed value (a
+    string `time_grains` is a substring test on the server, ignored by the client) or crash on it (a
+    Trend view without its title options)."""
+    options = entry.get("visual_options") or {}
+    problems = []
+    grains = options.get("time_grains")
+    if grains is not None and (not isinstance(grains, list) or not grains
+                               or any(g not in TIME_GRAINS for g in grains)):
+        problems.append(f"time_grains must be a non-empty list drawn from {list(TIME_GRAINS)}, got {grains!r}")
+    chart_types = options.get("chart_types")
+    if chart_types is not None:
+        if not isinstance(chart_types, list) or any(t not in SWITCHABLE_CHART_TYPES for t in chart_types):
+            problems.append(f"chart_types must be a list drawn from {list(SWITCHABLE_CHART_TYPES)}, "
+                            f"got {chart_types!r}")
+        elif entry.get("chart_type") not in chart_types:
+            problems.append(f"chart_types {chart_types} must include the entry's chart_type "
+                            f"{entry.get('chart_type')!r}")
+        elif entry.get("shape") != "geo_series" or entry.get("level") != 1:
+            problems.append("chart_types is only supported on a level-1 geo_series visual")
+        elif "line" in chart_types:
+            if (entry.get("data_types") or [None])[0] != "counts":
+                problems.append("a Trend view (chart_types 'line') needs data_types to start with 'counts'")
+            missing = [key for key in TREND_VIEW_OPTIONS if not options.get(key)]
+            if missing:
+                problems.append(f"a Trend view (chart_types 'line') needs visual_options {missing}")
+    return problems
+
+
 def sync_visual_definitions(manifest_dir=None, prune=True):
     """Upsert every visual defined in the manifests into the Visuals table, keyed by
     (province, visual_id). Returns {"created", "updated", "pruned"} counts.
@@ -68,6 +104,9 @@ def sync_visual_definitions(manifest_dir=None, prune=True):
             desired = set()
             for entry in manifest["visuals"]:
                 key = (entry["province"], entry["visual_id"])
+                problems = visual_options_problems(entry)
+                if problems:
+                    raise ValueError(f"{os.path.basename(path)} {key[0]}/{key[1]}: " + "; ".join(problems))
                 desired.add(key)
                 visual = existing.get(key)
                 if visual is None:

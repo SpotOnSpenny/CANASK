@@ -30,13 +30,10 @@
     <!-- This is the main content area where the visualizations will be rendered -->
     <div class="row data-row pb-2">
         <div class="col-md h-100">
-            <div class="card h-100">
-                <div class="card-body text-center h-100 d-flex align-items-center justify-content-center" id="viz-card">
-                    <!-- Overlayed controls -->
+            <div class="card h-100 d-flex flex-column">
+                <div class="card-body text-center d-flex flex-column flex-grow-1 align-items-center justify-content-center position-relative" id="viz-card">
+                    <!-- Overlayed navigation controls (back / reset) + the treemap's stratifier dropdowns -->
                     <div class="position-absolute top-0 start-0 m-1 z-3" style="">
-                        <div id="data-type-toggle" class="d-flex btn-group mb-2 align-items-start" role="group" aria-label="Basic radio toggle button group">
-                            <!-- Data type toggles will be dynamically generated here -->
-                        </div>
                         <!-- Config-driven treemap stratifier dropdowns + time control are generated here -->
                         <div id="vis-stratifiers" class="d-flex flex-column gap-1 mb-2 treemap-controls"></div>
                         <div class="d-flex flex-column gap-2 align-items-start">
@@ -50,9 +47,28 @@
                             </button>
                         </div>  
                     </div>
+                    <!-- The visual's title (HTML, above the figure; see setVisualTitle) -->
+                    <h3 id="vis-title" class="vis-title d-none"></h3>
                     <!-- This is the div where the visualizations will be rendered -->
                     <div id="vis-div" class="">
                         <div class="skeleton skeleton-chart" role="status" aria-label="Loading visualization"></div>
+                    </div>
+                </div>
+                <!-- Visual controls: measure (counts / rates / percentages), period (year / quarter / month) and
+                     view (map / trend). Shown by masterLoop only for visuals that offer a choice; each group hides
+                     itself (CSS :has) while it holds no radios. -->
+                <div id="vis-controls" class="vis-controls d-none">
+                    <div class="vis-control">
+                        <span class="vis-control-label" id="data-type-toggle-label">Measure</span>
+                        <div id="data-type-toggle" class="btn-group btn-group-sm" role="group" aria-labelledby="data-type-toggle-label"></div>
+                    </div>
+                    <div class="vis-control">
+                        <span class="vis-control-label" id="time-grain-toggle-label">Period</span>
+                        <div id="time-grain-toggle" class="btn-group btn-group-sm d-none" role="group" aria-labelledby="time-grain-toggle-label"></div>
+                    </div>
+                    <div class="vis-control">
+                        <span class="vis-control-label" id="chart-type-toggle-label">View</span>
+                        <div id="chart-type-toggle" class="btn-group btn-group-sm d-none" role="group" aria-labelledby="chart-type-toggle-label"></div>
                     </div>
                 </div>
             </div>
@@ -65,6 +81,8 @@
                 <div class="card-body overflow-scroll">
                     <h4 class="card-title" id="table-title"></h4>
                     <p class="table-caption">The same data shown in the chart above, as a table.</p>
+                    <!-- Map/data name mismatches for the current map visual (see geoMismatch); hidden otherwise -->
+                    <p class="table-caption d-none" id="vis-geo-note" role="note"></p>
                     <div id="data-table" class="text-center">
                         <div class="text-start" role="status" aria-label="Loading data table">
                             <div class="skeleton skeleton-line w-40"></div>

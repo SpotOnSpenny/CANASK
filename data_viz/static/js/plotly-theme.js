@@ -127,6 +127,9 @@ function themeChartLayout(layout) {
 
   canaskFillDefaults(layout, {
     font: { family: t.fontFamily, color: t.font, size: 13 },
+    // Titles are HTML headings outside the figure (see setVisualTitle), so Plotly's default 100px
+    // top margin is dead space: keep just enough for the mode bar.
+    margin: { t: 40 },
     paper_bgcolor: "rgba(0,0,0,0)",
     plot_bgcolor: "rgba(0,0,0,0)",
     colorway: t.colorway,

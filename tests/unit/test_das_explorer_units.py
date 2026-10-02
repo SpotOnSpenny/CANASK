@@ -1,9 +1,12 @@
 """Request-parsing helpers for the DAS Explorer APIs - pure given a MultiDict."""
 from datetime import date
 
+import pytest
+from sqlalchemy.dialects import postgresql
 from werkzeug.datastructures import MultiDict
 
-from data_viz.das_explorer import _serialize, parse_filters
+from data_viz.das_explorer import DATASETS, _quarter, _serialize, parse_filters
+from data_viz.database.models import DasSamples
 
 
 class TestParseFilters:
@@ -47,3 +50,23 @@ class TestSerialize:
     def test_passthrough(self):
         assert _serialize("ON") == "ON"
         assert _serialize(3.5) == 3.5
+
+
+class TestQuarterPivotDims:
+    """The quarter roll-up mirrors the month/year date dims on every dataset."""
+
+    @pytest.mark.parametrize("dataset, dim", [
+        ("id_all", "quarter_returned"), ("id_all", "quarter_received"),
+        ("quant", "quarter_returned"), ("nps", "quarter_found"),
+    ])
+    def test_registered_as_date_kind(self, dataset, dim):
+        spec = DATASETS[dataset]["pivot_dims"][dim]
+        assert spec["kind"] == "date"
+        assert spec["label"].startswith("Quarter ")
+
+    def test_expression_renders_yyyy_qn(self):
+        sql = str(_quarter(DasSamples.date_received).compile(
+            dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
+        assert "to_char(das_samples.date_received, 'YYYY')" in sql
+        assert "'-Q'" in sql
+        assert "to_char(das_samples.date_received, 'Q')" in sql
