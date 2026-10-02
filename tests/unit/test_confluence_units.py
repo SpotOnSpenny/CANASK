@@ -188,13 +188,18 @@ class TestDetectGrain:
     def test_month(self):
         assert cf.detect_grain([{"dt": "counts", "t": "2026-01"}]) == "month"
 
+    def test_quarter(self):
+        facts = [{"dt": "counts", "t": "2025-Q1"}, {"dt": "counts", "t": "2025-Q4"}]
+        assert cf.detect_grain(facts) == "quarter"
+
     def test_additional_rows_ignored(self):
         facts = [{"dt": "counts", "t": "2024"}, {"dt": "additional_rows", "t": "weird"}]
         assert cf.detect_grain(facts) == "year"
 
     @pytest.mark.parametrize("facts", [
         [], [{"dt": "counts", "t": "2024"}, {"dt": "counts", "t": "2024-05"}],
-        [{"dt": "counts", "t": "2024 Q1"}],
+        [{"dt": "counts", "t": "2024 Q1"}], [{"dt": "counts", "t": "2024-Q5"}],
+        [{"dt": "counts", "t": "2024-Q1"}, {"dt": "counts", "t": "2024"}],
     ])
     def test_mixed_or_unknown_raises(self, facts):
         with pytest.raises(cf.UnalignableVisualError):
@@ -211,6 +216,13 @@ class TestPeriods:
         assert cf.period_bounds("2025", "year") == ("2025-01", "2025-12")
         assert cf.period_bounds("2025-03", "month") == ("2025-03", "2025-03")
 
+    @pytest.mark.parametrize("key, bounds", [
+        ("2025-Q1", ("2025-01", "2025-03")), ("2025-Q2", ("2025-04", "2025-06")),
+        ("2025-Q3", ("2025-07", "2025-09")), ("2025-Q4", ("2025-10", "2025-12")),
+    ])
+    def test_period_bounds_quarter(self, key, bounds):
+        assert cf.period_bounds(key, "quarter") == bounds
+
     def test_shift_month_across_year_boundaries(self):
         assert cf.shift_month("2026-01", -2) == "2025-11"
         assert cf.shift_month("2025-12", 1) == "2026-01"
@@ -219,6 +231,7 @@ class TestPeriods:
     def test_das_dim(self):
         assert cf.das_dim("year", "received") == "year_received"
         assert cf.das_dim("month", "returned") == "month_returned"
+        assert cf.das_dim("quarter", "received") == "quarter_received"
 
 
 COVERAGE = {"first_month": "2025-01", "overlap_from": "2024-11", "last_month": "2026-07",
@@ -242,6 +255,12 @@ class TestPeriodComplete:
     def test_no_coverage(self):
         assert cf.period_complete("2025", "year", None) is False
 
+    def test_quarter_inside_and_straddling(self):
+        # complete window 2025-01 .. 2026-05: Q2 2026 (Apr-Jun) runs past it.
+        assert cf.period_complete("2025-Q1", "quarter", COVERAGE) is True
+        assert cf.period_complete("2026-Q1", "quarter", COVERAGE) is True
+        assert cf.period_complete("2026-Q2", "quarter", COVERAGE) is False
+
 
 class TestOverlappingPeriods:
     def test_keeps_periods_touching_the_window(self):
@@ -253,11 +272,74 @@ class TestOverlappingPeriods:
         months = ["2024-10", "2024-12", "2025-01", "2026-07", "2026-08"]
         assert cf.overlapping_periods(months, "month", COVERAGE) == ["2024-12", "2025-01", "2026-07"]
 
+    def test_quarter_grain(self):
+        # overlap_from 2024-11 lets 2024-Q4 in; last_month 2026-07 lets 2026-Q3 in.
+        quarters = ["2024-Q3", "2024-Q4", "2025-Q1", "2026-Q3", "2026-Q4"]
+        assert cf.overlapping_periods(quarters, "quarter", COVERAGE) == \
+            ["2024-Q4", "2025-Q1", "2026-Q3"]
+
     def test_leading_received_months_are_incomplete_not_hidden(self):
         assert cf.period_complete("2024-12", "month", COVERAGE) is False
 
     def test_no_coverage_means_nothing(self):
         assert cf.overlapping_periods(["2025"], "year", None) == []
+
+
+class _Visual:
+    def __init__(self, visual_options=None):
+        self.visual_options = visual_options
+
+
+MIXED = [{"dt": "counts", "t": "2025", "g": "year"},
+         {"dt": "counts", "t": "2025-Q2", "g": "quarter"},
+         {"dt": "counts", "t": "2025-04", "g": "month"},
+         {"dt": "additional_rows", "t": "2025-04", "g": "month"}]
+
+
+class TestFactsAtGrain:
+    def test_keeps_only_that_grains_main_facts(self):
+        kept = cf.facts_at_grain(MIXED, "quarter")
+        assert [f["t"] for f in kept if f["dt"] != "additional_rows"] == ["2025-Q2"]
+
+    def test_missing_grain_tag_means_year(self):
+        facts = [{"dt": "counts", "t": "2024"}, {"dt": "counts", "t": "2024", "g": None}]
+        assert cf.facts_at_grain(facts, "year") == facts
+        assert cf.facts_at_grain(facts, "month") == []
+
+    def test_additional_rows_are_kept(self):
+        assert MIXED[3] in cf.facts_at_grain(MIXED, "year")
+
+
+class TestAvailableGrains:
+    ALL = {"time_grains": ["month", "year", "quarter"]}
+
+    def test_declared_and_present_in_canonical_order(self):
+        assert cf.available_grains(_Visual(self.ALL), MIXED) == ["year", "quarter", "month"]
+
+    def test_undeclared_means_every_grain_present(self):
+        assert cf.available_grains(_Visual(), MIXED) == ["year", "quarter", "month"]
+        assert cf.available_grains(_Visual({"chart_types": ["line"]}), MIXED) == \
+            ["year", "quarter", "month"]
+        months = [{"dt": "counts", "t": "2025-04", "g": "month"}]
+        assert cf.available_grains(_Visual(), months) == ["month"]
+        assert cf.available_grains(_Visual(), [{"dt": "counts", "t": "2025"}]) == ["year"]
+
+    def test_declared_narrows(self):
+        assert cf.available_grains(_Visual({"time_grains": ["month", "year"]}), MIXED) == \
+            ["year", "month"]
+
+    def test_declared_but_absent_grains_dropped(self):
+        facts = [{"dt": "counts", "t": "2025"}]   # untagged = year
+        assert cf.available_grains(_Visual(self.ALL), facts) == ["year"]
+
+    def test_additional_rows_dont_make_a_grain_available(self):
+        facts = [{"dt": "counts", "t": "2025", "g": "year"},
+                 {"dt": "additional_rows", "t": "2025-04", "g": "month"}]
+        assert cf.available_grains(_Visual(self.ALL), facts) == ["year"]
+
+    def test_unknown_declared_grain_ignored(self):
+        facts = [{"dt": "counts", "t": "2025-W01", "g": "week"}]
+        assert cf.available_grains(_Visual({"time_grains": ["week"]}), facts) == []
 
 
 class TestPivotAdapters:

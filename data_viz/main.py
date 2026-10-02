@@ -375,7 +375,7 @@ def das_pivot(dataset):
 @limiter.limit(lambda: current_app.config["RATELIMIT_API"])
 def confluence_data():
     from flask_login import current_user
-    from .confluence import (BASES, LEVELS, MAX_KEYS, UnalignableVisualError,
+    from .confluence import (BASES, GRAINS, LEVELS, MAX_KEYS, UnalignableVisualError,
                              build_confluence_payload, keys_at_level, load_substance_groups,
                              supported_visuals)
     from .das_explorer import das_access_allowed
@@ -394,6 +394,7 @@ def confluence_data():
         return jsonify({"error": "forbidden"}), 403
     level = request.args.get("level", "group")
     basis = request.args.get("basis", "received")
+    grain = request.args.get("grain") or None   # None = the visual's first available grain
     raw_keys = [k for k in request.args.get("groups", "").split(",") if k]
     crosswalk = load_substance_groups()
     known = set(crosswalk["groups"]) | set(crosswalk["families"])
@@ -402,6 +403,8 @@ def confluence_data():
         return jsonify({"error": f"Unknown substance level {level!r}."}), 400
     if basis not in BASES:
         return jsonify({"error": f"Unknown date basis {basis!r}."}), 400
+    if grain is not None and grain not in GRAINS:
+        return jsonify({"error": f"Unknown time grain {grain!r}."}), 400
     unknown = [k for k in dict.fromkeys(raw_keys) if k not in known]
     if unknown:
         return jsonify({"error": f"Unknown substance {unknown[0]!r}. Pick from the chips."}), 400
@@ -413,7 +416,8 @@ def confluence_data():
     if len(keys) > MAX_KEYS:
         return jsonify({"error": f"Pick at most {MAX_KEYS} substances."}), 400
     try:
-        return jsonify(build_confluence_payload(province, visual, keys, level, basis, expr))
+        return jsonify(build_confluence_payload(province, visual, keys, level, basis, expr,
+                                                grain=grain))
     except FilterSyntaxError as err:
         return jsonify({"error": f"Invalid filter: {err}"}), 400
     except UnalignableVisualError as err:

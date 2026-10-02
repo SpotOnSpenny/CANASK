@@ -26,6 +26,18 @@
                             <label class="form-label mb-1 small" for="confluence-visual">Visual</label>
                             <select class="form-select form-select-sm" id="confluence-visual"></select>
                         </div>
+                        <div id="confluence-grain-wrap">
+                            <span class="form-label mb-1 small d-block" id="confluence-grain-label">Period</span>
+                            <!-- confluence.js disables + hides grains the chosen visual lacks, and the whole group when it offers just one -->
+                            <div class="btn-group btn-group-sm" id="confluence-grain" role="group" aria-labelledby="confluence-grain-label">
+                                <input type="radio" class="btn-check" name="confluence-grain" id="confluence-grain-year" value="year" autocomplete="off" checked>
+                                <label class="btn btn-outline-secondary" for="confluence-grain-year">Year</label>
+                                <input type="radio" class="btn-check" name="confluence-grain" id="confluence-grain-quarter" value="quarter" autocomplete="off">
+                                <label class="btn btn-outline-secondary" for="confluence-grain-quarter">Quarter</label>
+                                <input type="radio" class="btn-check" name="confluence-grain" id="confluence-grain-month" value="month" autocomplete="off">
+                                <label class="btn btn-outline-secondary" for="confluence-grain-month">Month</label>
+                            </div>
+                        </div>
                         <div>
                             <label class="form-label mb-1 small" for="confluence-basis">DAS date</label>
                             <select class="form-select form-select-sm" id="confluence-basis">
@@ -56,8 +68,8 @@
                             placeholder="e.g. fentanyl NOT *" maxlength="300" autocomplete="off">
                     </div>
                     <p class="table-caption mt-2 mb-0">
-                        The DAS half is aligned to the visual's own time grain (years or months) and to
-                        the chosen province. Substance chips pre-select from the visual's own drug
+                        The DAS half is aligned to the visual's time periods (years, quarters or months;
+                        pick with Period where the visual offers more than one) and to the chosen province. Substance chips pre-select from the visual's own drug
                         categories where a match is known. Any period DAS doesn't fully cover is
                         marked incomplete: on the received-date basis that includes the first and last
                         couple of months, since results reach the data a month or two after a sample

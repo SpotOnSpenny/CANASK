@@ -36,19 +36,23 @@ def visual_block(visual):
     return block
 
 
-def visual_dimension_values(visual):
-    """The distinct dimension / dimension2 values a visual's main facts carry (no additional
-    rows), as one set of strings. Confluence matches these against its substance crosswalk."""
+def visual_facets(visual):
+    """(dimension values, time_frame_types) of a visual's main facts, from ONE distinct query
+    and without loading the facts: the dimension / dimension2 values as one set of strings
+    (Confluence's substance crosswalk input) and the set of grains its facts carry (its grain
+    toggle). Both empty for a metric-less visual or a province with no data for it."""
     if not visual.metric:
-        return set()
+        return set(), set()
     query = _main_query(visual, _predicates(visual.id))
     if query is None:
-        return set()
-    values = set()
-    rows = query.with_entities(DataPoints.dimension_value, DataPoints.dimension2_value).distinct()
-    for dimension, dimension2 in rows:
+        return set(), set()
+    values, grains = set(), set()
+    rows = query.with_entities(DataPoints.dimension_value, DataPoints.dimension2_value,
+                               DataPoints.time_frame_type).distinct()
+    for dimension, dimension2, grain in rows:
         values.update(v for v in (dimension, dimension2) if v is not None)
-    return values
+        grains.add(grain)
+    return values, grains
 
 
 def _visual_facts(visual):
@@ -109,7 +113,7 @@ def _main_query(visual, preds):
 
 
 def _as_fact(p):
-    return {"dt": p.data_type, "geo": p.geo, "t": p.time_frame,
+    return {"dt": p.data_type, "geo": p.geo, "t": p.time_frame, "g": p.time_frame_type,
             "d": p.dimension_value, "d2": p.dimension2_value, "v": _value(p)}
 
 

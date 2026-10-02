@@ -394,6 +394,57 @@ a { text-decoration: none; }
    definite parent). Scoped to the skeleton so the rendered chart, which sizes itself, is untouched. */
 #vis-div:has(.skeleton-chart) { height: 100%; }
 
+/* The chart title is an HTML heading ABOVE the Plotly figure (#vis-title, set by setVisualTitle in
+   visualGeneration.js), not Plotly's layout.title: it wraps like any text, can never collide with
+   the mode bar / legend / plot (they live inside the figure below it), and is sized a clear step
+   above the 14px control buttons. */
+.vis-title {
+  flex: 0 0 auto;
+  /* Wrap for readability: a heading wider than 70% of the card breaks into (balanced) lines. The
+     15% left free on each side also keeps it clear of the back/reset buttons on drilled visuals. */
+  max-width: 70%;
+  margin: 0 0 0.5rem;
+  padding: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--c-text);
+  text-align: center;
+  text-wrap: balance;
+}
+@media (max-width: 768px) {
+  /* Phones: use the width (the back/reset overlay only exists on drilled visuals, so reserve room
+     for it only then) and give the card enough height for a map plus its slider. */
+  .vis-title { font-size: 1.0625rem; max-width: 100%; padding: 0 0.5rem; }
+  #viz-card:has(#back-button:not(.d-none)) .vis-title { padding: 0 2.75rem; }
+}
+#vis-div { flex: 1 1 auto; min-height: 0; }
+
+/* Visual control bar: the measure / period / view toggles sit in their own strip BELOW the chart
+   (not overlaid on it), so the title keeps the top of the card to itself and the controls read as
+   controls. masterLoop shows the bar before the chart is sized (so the chart height accounts for
+   it); each group hides itself when it has no radios. Back/reset and the treemap stratifiers stay
+   in the top-left overlay -- they are navigation, not data filters. */
+.vis-controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 0.5rem 1.75rem;
+  padding: 0.6rem 1rem;
+  min-height: 3.3rem;   /* the height of one row of small buttons, so the chart is sized before the groups fill */
+  border-top: 1px solid var(--c-border);
+  border-bottom-left-radius: var(--radius);
+  border-bottom-right-radius: var(--radius);
+  background: var(--c-surface);
+}
+.vis-control { display: flex; align-items: center; gap: 0.5rem; }
+.vis-control:not(:has(.btn-check)) { display: none; }
+.vis-control-label { font-size: 0.8rem; font-weight: 600; color: var(--c-muted); white-space: nowrap; }
+.vis-controls .btn-group-sm > .btn { font-size: 0.875rem; padding: 0.3rem 0.8rem; }
+/* The chart surface loses its bottom corners when the control bar is showing beneath it. */
+.card:has(> .vis-controls:not(.d-none)) > #viz-card { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+
 /* Treemap layout: title on top, the chart in the middle, and a horizontal filter bar beneath it --
    all stacked inside #vis-div. Driven entirely by visual_options. */
 #vis-div.treemap-layout { display: flex; flex-direction: column; height: 100%; }
@@ -1234,7 +1285,7 @@ a { text-decoration: none; }
   .card { height: auto !important; }
   .mobile-height-adjust { height: auto !important; }
   .menu-row, .data-row { height: auto; }
-  #viz-card { min-height: 350px !important; }
+  #viz-card { min-height: 440px !important; }   /* room for a map + its slider under a wrapped heading */
   #introduction-div { height: auto; }
   #feedback-form { width: 80%; }
   .feedback-content-container { padding: 22px 0 28px; }
@@ -1409,6 +1460,26 @@ a { text-decoration: none; }
 .confluence-controls > div { min-width: 8.5rem; }
 .confluence-controls .confluence-visual-wrap { min-width: 16rem; flex: 1 1 16rem; }
 .confluence-expr-wrap { max-width: 32rem; }
+/* Cursor-following tooltip for the geo maps (attachGeoHoverTip in visualGeneration.js). Plotly's own
+   choropleth label sits at the feature centroid, which for split regions is out in the water. */
+.canask-geo-tip {
+  position: fixed;
+  z-index: 1080;
+  display: none;
+  pointer-events: none;
+  padding: 6px 10px;
+  background: var(--c-surface);
+  color: var(--c-text);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+  font-size: 0.875rem;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.canask-geo-tip-name { font-weight: 600; }
+.canask-geo-tip-value { color: var(--c-text-2); }
+
 #confluence-expr.das-filter-invalid {
   border-color: var(--c-danger);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--c-danger) 28%, transparent);

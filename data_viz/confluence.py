@@ -19,7 +19,7 @@ from data_viz import db
 from data_viz.database.models import DasDrugCodes, DasSampleDrugs, DasSamples, DataSources
 from data_viz.das_explorer import PIVOT_MAX_COLS_GEO, PIVOT_MAX_ROWS_GEO, query_pivot
 from data_viz.provinces import PROVINCE_CODES, PROVINCE_LABELS
-from data_viz.visual_generic import visual_block, visual_dimension_values
+from data_viz.visual_generic import visual_block, visual_facets
 from data_viz.visual_query import accessible_provinces, displayable_visuals, source_block
 
 # Which V1 shapes can be overlaid, and how the DAS half is cut for each: a health-authority
@@ -27,6 +27,9 @@ from data_viz.visual_query import accessible_provinces, displayable_visuals, sou
 SUPPORTED_SHAPES = {"geo_series": "cities", "flat_series": "series"}
 LEVELS = ("group", "family")
 BASES = ("received", "returned")
+# The time grains a visual can be overlaid at, in display order. A manifest's
+# visual_options.time_grains narrows them; undeclared means every grain the visual's facts carry.
+GRAINS = ("year", "quarter", "month")
 MAX_KEYS = 8            # series mode runs one pivot per key; bound the request's cost
 ALL_KEY = "all"         # the "no substance selected" pseudo-key: every sample
 ALL_LABEL = "All samples"
@@ -42,6 +45,7 @@ CROSSWALK_PATH = os.path.join(
 
 _YEAR = re.compile(r"^\d{4}$")
 _MONTH = re.compile(r"^\d{4}-\d{2}$")
+_QUARTER = re.compile(r"^\d{4}-Q[1-4]$")
 
 
 class UnalignableVisualError(ValueError):
@@ -169,17 +173,36 @@ def group_clause(keys, data=None):
 # --------------------------------------------------------------------------------------- #
 
 def detect_grain(facts):
-    """"year" when every main fact's time frame is YYYY, "month" when every one is YYYY-MM.
-    Anything else (mixed, quarterly, empty) is unsupported and raises UnalignableVisualError."""
+    """"year" when every main fact's time frame is YYYY, "quarter" when every one is YYYY-Qn,
+    "month" when every one is YYYY-MM. Anything else (mixed, unknown, empty) is unsupported and
+    raises UnalignableVisualError."""
     frames = {f["t"] for f in facts if f.get("dt") != "additional_rows"}
     if not frames:
         raise UnalignableVisualError("This visual has no data for this province.")
-    if all(_YEAR.match(str(t)) for t in frames):
-        return "year"
-    if all(_MONTH.match(str(t)) for t in frames):
-        return "month"
+    for grain, pattern in (("year", _YEAR), ("quarter", _QUARTER), ("month", _MONTH)):
+        if all(pattern.match(str(t)) for t in frames):
+            return grain
     raise UnalignableVisualError(
-        "This visual's time frames can't be aligned with DAS (expected years or months).")
+        "This visual's time frames can't be aligned with DAS (expected years, quarters or months).")
+
+
+def _fact_grain(fact):
+    """A fact's time_frame_type; untagged facts predate the grain toggle and are yearly."""
+    return fact.get("g") or "year"
+
+
+def facts_at_grain(facts, grain):
+    """The facts a visual shows at one grain: its main facts tagged with that grain (untagged =
+    year), plus every additional row (table-only extras, never aligned)."""
+    return [f for f in facts if f.get("dt") == "additional_rows" or _fact_grain(f) == grain]
+
+
+def available_grains(visual, facts):
+    """The grains this visual can be overlaid at, in GRAINS order: every grain its main facts
+    carry, narrowed to the manifest's visual_options.time_grains when it declares them."""
+    declared = (visual.visual_options or {}).get("time_grains")
+    present = {_fact_grain(f) for f in facts if f.get("dt") != "additional_rows"}
+    return [g for g in GRAINS if g in present and (declared is None or g in declared)]
 
 
 def visual_periods(facts):
@@ -196,6 +219,9 @@ def period_bounds(key, grain):
     """(first_month, last_month) a period spans, as YYYY-MM strings (which compare lexically)."""
     if grain == "year":
         return f"{key}-01", f"{key}-12"
+    if grain == "quarter":
+        year, quarter = key[:4], int(key[-1])
+        return f"{year}-{(quarter - 1) * 3 + 1:02d}", f"{year}-{quarter * 3:02d}"
     return key, key
 
 
@@ -320,10 +346,14 @@ def _clip(values_by_period, periods):
     return {p: v for p, v in values_by_period.items() if p in periods}
 
 
-def build_confluence_payload(province, visual, keys, level, basis, expr):
-    """The whole pre-aligned overlay for one (province, visual) pair. `keys` must already be
-    normalized to `level` (keys_at_level). Raises UnalignableVisualError for a visual whose time
-    frames can't be aligned and FilterSyntaxError for a bad `expr`.
+def build_confluence_payload(province, visual, keys, level, basis, expr, grain=None):
+    """The whole pre-aligned overlay for one (province, visual) pair at one time grain (default:
+    the visual's first available grain). `keys` must already be normalized to `level`
+    (keys_at_level). Raises UnalignableVisualError for a grain the visual doesn't offer or whose
+    time frames can't be aligned, and FilterSyntaxError for a bad `expr`.
+
+    `visual` is the province API's block with its facts narrowed to the grain (facts_at_grain);
+    `grains` lists every grain the visual offers, so the client can switch between them.
 
     `das` always carries both `series` and `cities`; `mode` says which one is populated:
     - "series" (flat visuals): series = {key: {period: samples}} over every shared period (a
@@ -331,7 +361,17 @@ def build_confluence_payload(province, visual, keys, level, basis, expr):
     - "cities" (health-authority maps): cities = {"City, PR": {period: samples}}, sparse (absent
       = 0), undated = {ALL_KEY: samples with no date}."""
     block = visual_block(visual)
-    grain = detect_grain(block["facts"])
+    grains = available_grains(visual, block["facts"])
+    if not grains:
+        raise UnalignableVisualError("This visual has no data to overlay for this province.")
+    grain = grain or grains[0]
+    if grain not in grains:
+        raise UnalignableVisualError(f"This visual has no {grain} data to overlay.")
+    block["facts"] = facts_at_grain(block["facts"], grain)
+    # The keys must match their tag: a year-tagged "2025-06" would otherwise be binned as a year.
+    if detect_grain(block["facts"]) != grain:
+        raise UnalignableVisualError(
+            f"This visual's {grain} time frames can't be aligned with DAS.")
     coverage = das_coverage(basis)
     periods = overlapping_periods(visual_periods(block["facts"]), grain, coverage)
     period_set = set(periods)
@@ -368,6 +408,7 @@ def build_confluence_payload(province, visual, keys, level, basis, expr):
         "visual_label": visual.menu_name or visual.name,
         "visual_metric": visual.metric,
         "grain": grain,
+        "grains": grains,
         "periods": [{"key": p, "das_complete": period_complete(p, grain, coverage)} for p in periods],
         "das": das,
     }
@@ -376,21 +417,26 @@ def build_confluence_payload(province, visual, keys, level, basis, expr):
 def confluence_config(user):
     """Everything the confluence.jinja boot script needs: the viewer's provinces that have at
     least one pairable visual (with the substance keys each visual's dimension values resolve
-    to), plus the crosswalk's groups and families for the chip controls."""
+    to, and the time grains it can be overlaid at), plus the crosswalk's groups and families for
+    the chip controls."""
     data = load_substance_groups()
     accessible = accessible_provinces(user)
     provinces = {}
     for slug in PROVINCE_CODES:
         if slug not in accessible:
             continue
-        visuals = [{
-            "id": v.name,
-            "menu_name": v.menu_name or v.name,
-            "chart_type": v.chart_type,
-            "shape": v.data_shape,
-            "metric": v.metric,
-            "terms_resolved": keys_at_level(resolve_terms(visual_dimension_values(v), data), "group", data),
-        } for v in supported_visuals(user, slug)]
+        visuals = []
+        for v in supported_visuals(user, slug):
+            values, grains = visual_facets(v)
+            visuals.append({
+                "id": v.name,
+                "menu_name": v.menu_name or v.name,
+                "chart_type": v.chart_type,
+                "shape": v.data_shape,
+                "metric": v.metric,
+                "terms_resolved": keys_at_level(resolve_terms(values, data), "group", data),
+                "grains": available_grains(v, [{"g": g} for g in grains]),
+            })
         if visuals:
             provinces[slug] = {"label": PROVINCE_LABELS[slug], "code": PROVINCE_CODES[slug],
                                "visuals": visuals}

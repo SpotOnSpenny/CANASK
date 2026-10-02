@@ -2,7 +2,8 @@
 chosen visual's own visibility."""
 import pytest
 
-from tests.confluence_data import das_gate, seed_confluence
+from tests.confluence_data import (GRAIN_FRAMES, das_gate, seed_confluence, seed_grain_visuals,
+                                   seed_month_visuals)
 from tests.factories import (grant_visual, make_data_source, make_datapoint, make_group,
                              make_user, make_visual, make_visual_query)
 
@@ -76,7 +77,7 @@ class TestParams:
     @pytest.mark.parametrize("bad", [
         {"level": "nope"}, {"basis": "nope"}, {"groups": "unicorn"},
         {"groups": "fentanyl,nitazenes,other_opioids,cocaine,methamphetamine,mdma,benzos,xylazine,medetomidine"},
-        {"expr": "x" * 301},
+        {"expr": "x" * 301}, {"grain": "week"}, {"grain": "Year"},
     ])
     def test_bad_params_400(self, client, bad):
         response = client.get(url(**SK_FLAT, **bad))
@@ -125,7 +126,7 @@ class TestPayload:
     def test_series_shape(self, client):
         payload = client.get(url(**SK_FLAT, groups="fentanyl", level="group")).get_json()
         assert set(payload) == {"province", "visual", "visual_label", "visual_metric", "grain",
-                                "periods", "das"}
+                                "grains", "periods", "das"}
         assert payload["das"]["mode"] == "series"
         assert payload["das"]["series"]["fentanyl"] == {"2025": 2, "2026": 0}
 
@@ -133,6 +134,58 @@ class TestPayload:
         payload = client.get(url(province="saskatchewan", visual="drug_death_heatmap")).get_json()
         assert payload["das"]["mode"] == "cities"
         assert "Saskatoon, SK" in payload["das"]["cities"]
+
+
+class TestGrain:
+    @pytest.fixture(autouse=True)
+    def _seed(self, db_session):
+        seed_confluence()
+        seed_grain_visuals()
+
+    def test_bad_grain_400_says_so(self, client):
+        response = client.get(url(**SK_FLAT, grain="week"))
+        assert response.status_code == 400
+        assert "week" in response.get_json()["error"]
+
+    def test_grain_a_year_only_visual_lacks_400(self, client):
+        response = client.get(url(**SK_FLAT, grain="month"))
+        assert response.status_code == 400
+        assert "month" in response.get_json()["error"]
+
+    def test_year_only_visual_defaults_to_year(self, client):
+        payload = client.get(url(**SK_FLAT)).get_json()
+        assert payload["grain"] == "year" and payload["grains"] == ["year"]
+
+    @pytest.mark.parametrize("visual", ["grain_deaths", "grain_heatmap"])
+    @pytest.mark.parametrize("grain", ["year", "quarter", "month"])
+    def test_each_grain_ships_only_its_own_facts(self, client, visual, grain):
+        response = client.get(url(province="saskatchewan", visual=visual, grain=grain))
+        assert response.status_code == 200
+        payload = response.get_json()
+        assert payload["grain"] == grain
+        assert payload["grains"] == ["year", "quarter", "month"]
+        facts = payload["visual"]["facts"]
+        assert {f["g"] for f in facts} == {grain}
+        assert sorted({f["t"] for f in facts}) == GRAIN_FRAMES[grain]
+        assert all(p["key"] in GRAIN_FRAMES[grain] for p in payload["periods"])
+
+    def test_default_grain_is_year(self, client):
+        payload = client.get(url(province="saskatchewan", visual="grain_deaths")).get_json()
+        assert payload["grain"] == "year"
+        assert {f["t"] for f in payload["visual"]["facts"]} == {"2025", "2026"}
+
+    def test_undeclared_month_only_visual_defaults_to_month(self, client):
+        seed_month_visuals(months=["2025-04", "2025-05", "2025-06"])
+        response = client.get(url(province="saskatchewan", visual="monthly_deaths"))
+        assert response.status_code == 200
+        payload = response.get_json()
+        assert payload["grain"] == "month" and payload["grains"] == ["month"]
+        assert [p["key"] for p in payload["periods"]] == ["2025-04", "2025-05", "2025-06"]
+
+    def test_page_config_lists_each_visuals_grains(self, client):
+        page = client.get("/v1/national/confluence").data.decode()
+        assert '"grains": ["year", "quarter", "month"]' in page
+        assert '"grains": ["year"]' in page
 
 
 class TestUnalignableVisual:
@@ -159,8 +212,18 @@ class TestUnalignableVisual:
         assert "can't be aligned" in response.get_json()["error"]
 
     def test_mixed_grain_visual_400(self, client):
+        # Both facts tagged year (the factory default), but one key is a month: the grain filter
+        # keeps both and the key formats disagree.
         self._flat("mixed", ["2025", "2025-06"])
         assert client.get(url(province="saskatchewan", visual="mixed")).status_code == 400
+
+    def test_year_tagged_month_keys_400(self, client):
+        # Every fact tagged year (the factory default) but keyed YYYY-MM: the grain filter keeps
+        # them all and the keys don't match their tag, so they must not be binned as years.
+        self._flat("mistagged", ["2025-05", "2025-06"])
+        response = client.get(url(province="saskatchewan", visual="mistagged"))
+        assert response.status_code == 400
+        assert "year time frames can't be aligned" in response.get_json()["error"]
 
     def test_visual_without_data_for_the_province_is_not_pairable(self, client):
         # No geo predicate: a province-level visual this province has no facts for.

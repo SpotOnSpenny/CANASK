@@ -462,6 +462,30 @@ To find out more about drug checking, and the CCSA's Drug Checking working group
         _emit_drugcheck_expected_actual(v_expected, df)
 
 
+_BCCSU_GRAINS = ("year", "quarter", "month")
+
+
+def _period_keys(visit_dates, grain):
+    """Visit Date cells -> a Series of period keys at `grain`: "2025", "2025-Q2" or "2025-04".
+    Unparseable dates become NaN (callers drop them)."""
+    if grain not in _BCCSU_GRAINS:
+        raise ValueError(f"Unknown grain: {grain!r}")
+    parsed = pandas.to_datetime(visit_dates, errors="coerce")
+    if grain == "year":
+        return parsed.dt.strftime("%Y")
+    months = parsed.dt.strftime("%Y-%m")
+    if grain == "month":
+        return months
+    return months.map(lambda key: _quarter_of(key) if isinstance(key, str) else key)
+
+
+def _bccsu_buckets(df, grain):
+    """Split the visit frame into {period key: sub-frame} at `grain`, oldest period first. Rows with
+    an unparseable Visit Date fall in no bucket."""
+    keys = _period_keys(df["Visit Date"], grain)
+    return {period: df[keys == period] for period in sorted(keys.dropna().unique())}
+
+
 def v1_BCCSU_export_clean(writer, province):
     # BC Centre for Substance Use drug-checking data: one row per voluntarily submitted sample.
     # New-style cleaner -- emits the by-year line charts straight to the writer, no intermediate
@@ -471,12 +495,10 @@ def v1_BCCSU_export_clean(writer, province):
     # Visuals row via the writer -- cleaning supplies values only.
     pulled = pull_data(["bcDrugSense"])["bcDrugSense"]
     df = pulled["dataframe"].copy()
-    # Parse "Visit Date" (YYYY-MM-DD) to a year; drop rows we can't date, then iterate the years
-    # actually present (avoids a divide-by-zero on a year with no samples).
-    df["_year"] = pandas.to_datetime(df["Visit Date"], errors="coerce").dt.year
-    df = df[df["_year"].notna()]
-    years = [str(int(year)) for year in sorted(df["_year"].unique())]
-    by_year = {year: df[df["_year"] == int(year)] for year in years}
+    # Bucket the visits by year, quarter and month ("Visit Date" is YYYY-MM-DD); rows we can't date
+    # drop out, and only periods actually present are iterated (no divide-by-zero on an empty one).
+    # Percentages are recomputed per bucket from that bucket's own total -- never summed up a grain.
+    buckets_by_grain = {grain: _bccsu_buckets(df, grain) for grain in _BCCSU_GRAINS}
 
     source = {
         "name": "British Columbia Centre for Substance Use (BCCSU)",
@@ -491,62 +513,72 @@ For more information visit the BCCSU's Drug Sense website by clicking the button
     }
     geo = PROVINCE_DISPLAY[province]
 
+    def emit_all(v, emit):
+        for grain, buckets in buckets_by_grain.items():
+            for period, period_df in buckets.items():
+                emit(v, period, period_df, grain)
+
     # ----- Drug Supply by Year: sample counts/rates per drug Category -----
+    categories = df["Category"].dropna().unique()
+
+    def drug_supply(v, period, period_df, grain):
+        total = len(period_df)
+        for category in categories:
+            count = int((period_df["Category"] == category).sum())
+            v.fact(geo, period, count, dimension2=category, time_frame_type=grain)
+            v.fact(geo, period, round(count / total * 100, 2) if total else 0,
+                   data_type="rates", dimension2=category, time_frame_type=grain)
+        v.additional(geo, period, "Total Samples", total, time_frame_type=grain)
+
     v = writer.visual(province, "drug_supply_by_year")
     if v is not None:
         v.use_source(source)
-        categories = df["Category"].dropna().unique()
-        for year in years:
-            year_df = by_year[year]
-            total = len(year_df)
-            for category in categories:
-                count = int((year_df["Category"] == category).sum())
-                v.fact(geo, year, count, dimension2=category)
-                v.fact(geo, year, round(count / total * 100, 2) if total else 0,
-                       data_type="rates", dimension2=category)
-            v.additional(geo, year, "Total Samples", total)
+        emit_all(v, drug_supply)
 
     # ----- Presence of Fentanyl, Benzodiazepines and Medetomidine by Year (test strips) -----
+    strips = {
+        "Fentanyl": "Fentanyl Strip",
+        "Benzodiazepines": "Benzo Strip",
+        "Medetomidine": "Medetomidine Strip",
+    }
+
+    def strip_positives(v, period, period_df, grain):
+        total = len(period_df)
+        for label, column in strips.items():
+            count = int((period_df[column] == "Pos").sum())
+            v.fact(geo, period, count, dimension2=label, time_frame_type=grain)
+            v.fact(geo, period, round(count / total * 100, 2) if total else 0,
+                   data_type="rates", dimension2=label, time_frame_type=grain)
+        v.additional(geo, period, "Total Samples", total, time_frame_type=grain)
+
     v = writer.visual(province, "fent_benz_by_year")
     if v is not None:
         v.use_source(source)
-        strips = {
-            "Fentanyl": "Fentanyl Strip",
-            "Benzodiazepines": "Benzo Strip",
-            "Medetomidine": "Medetomidine Strip",
-        }
-        for year in years:
-            year_df = by_year[year]
-            total = len(year_df)
-            for label, column in strips.items():
-                count = int((year_df[column] == "Pos").sum())
-                v.fact(geo, year, count, dimension2=label)
-                v.fact(geo, year, round(count / total * 100, 2) if total else 0,
-                       data_type="rates", dimension2=label)
-            v.additional(geo, year, "Total Samples", total)
+        emit_all(v, strip_positives)
 
     # ----- Presence of Opioid Types by Year (parsed from the Spectrometer column) -----
+    opioid_categories = ["Codeine", "Fentanyl", "Heroin", "Hydrocodone", "Hydromorphone",
+                         "Methadone", "Morphine", "Oxycodone", "Buprenorphine"]
+
+    def opioid_types(v, period, period_df, grain):
+        opioid_df = period_df[period_df["Category"] == "Opioid"].fillna("No Data")
+        opioid_total = len(opioid_df)
+        for opioid in opioid_categories:
+            count = int(opioid_df["Spectrometer"].str.contains(opioid, case=False).sum())
+            v.fact(geo, period, count, dimension2=opioid, time_frame_type=grain)
+            v.fact(geo, period, round(count / opioid_total * 100, 2) if opioid_total else 0,
+                   data_type="rates", dimension2=opioid, time_frame_type=grain)
+        v.additional(geo, period, "Total Opioid Samples", opioid_total, time_frame_type=grain)
+        v.additional(geo, period, "Total Samples", len(period_df), time_frame_type=grain)
+
     v = writer.visual(province, "opioid_types_by_year")
     if v is not None:
         v.use_source(source)
-        opioid_categories = ["Codeine", "Fentanyl", "Heroin", "Hydrocodone", "Hydromorphone",
-                             "Methadone", "Morphine", "Oxycodone", "Buprenorphine"]
-        for year in years:
-            year_df = by_year[year]
-            opioid_df = year_df[year_df["Category"] == "Opioid"].fillna("No Data")
-            opioid_total = len(opioid_df)
-            for opioid in opioid_categories:
-                count = int(opioid_df["Spectrometer"].str.contains(opioid, case=False).sum())
-                v.fact(geo, year, count, dimension2=opioid)
-                v.fact(geo, year, round(count / opioid_total * 100, 2) if opioid_total else 0,
-                       data_type="rates", dimension2=opioid)
-            v.additional(geo, year, "Total Opioid Samples", opioid_total)
-            v.additional(geo, year, "Total Samples", len(year_df))
-
+        emit_all(v, opioid_types)
 
 
 # --------------------------------------------------------------------------------------- #
-# BC Coroners Service -- direct-write cleaner (yearly grain).
+# BC Coroners Service -- direct-write cleaner (yearly + monthly/quarterly grains).
 # --------------------------------------------------------------------------------------- #
 
 # Health authorities in heatmap/menu order, as they appear in the HA_Name column / sheet titles.
@@ -584,18 +616,51 @@ def _emit_fact(visual, geo, time_frame, value, **kw):
         visual.fact(geo, time_frame, value, **kw)
 
 
-def _read_coroners_workbook():
-    """Read the BC Coroners workbook, preserving duplicate-titled sheets that pull_data() collapses
-    (the file ships both a yearly and a last-13-months version of the heatmap / age tables under one
-    title; pull_data keys by title so only the last survives). Returns {date_updated, data_until,
-    frames} where frames maps each title -> [{grain: 'year'|'month', periods: [...], rows: {label: [values]}}]."""
-    output_dir = os.path.join(os.path.abspath(os.path.dirname(os.path.dirname(__file__))), "output")
-    match = next((f for f in os.listdir(output_dir) if "bcCoronersReport" in f), None)
-    if match is None:
-        raise FileNotFoundError("Data source bcCoronersReport not found in the output directory!")
-    date_updated = datetime.datetime.strptime(match.split("_")[0], "%Y%m%d").strftime("%B %d, %Y")
-    data_until = datetime.datetime.strptime(match.split("_")[1], "%Y%m%d").strftime("%B %d, %Y")
-    sheets = pandas.read_excel(os.path.join(output_dir, match), engine="calamine", sheet_name=None)
+_MONTH_NAMES = ["january", "february", "march", "april", "may", "june",
+                "july", "august", "september", "october", "november", "december"]
+# Full names, their 3-letter abbreviations and "sept" -- exact matches only (no prefix matching, so a
+# category header like "2023 Marginal" is not read as March).
+_MONTH_NUMBERS = {**{name: i for i, name in enumerate(_MONTH_NAMES, start=1)},
+                  **{name[:3]: i for i, name in enumerate(_MONTH_NAMES, start=1)}, "sept": 9}
+
+
+def _coroners_month_key(text):
+    """A coroners monthly column header ('2025 Apr', non-breaking spaces possible) -> the canonical
+    month key '2025-04'. Already-canonical keys pass through; anything else raises ValueError."""
+    cleaned = str(text).replace("\xa0", " ").strip()
+    canonical = re.fullmatch(r"(\d{4})-(\d{2})", cleaned)
+    if canonical:
+        if not 1 <= int(canonical.group(2)) <= 12:
+            raise ValueError(f"Not a month: {text!r}")
+        return cleaned
+    named = re.fullmatch(r"(\d{4})\s*([A-Za-z]+)", cleaned)
+    month = _MONTH_NUMBERS.get(named.group(2).lower()) if named else None
+    if month is None:
+        raise ValueError(f"Not a month: {text!r}")
+    return f"{named.group(1)}-{month:02d}"
+
+
+def _quarter_of(month_key):
+    """'2025-04' -> '2025-Q2'."""
+    year, month = month_key.split("-")
+    return f"{year}-Q{(int(month) - 1) // 3 + 1}"
+
+
+def _sum_complete_quarters(month_values):
+    """{'YYYY-MM': value} -> {'YYYY-Qn': sum}, for quarters whose three months are all present and
+    reported (not None). A missing / unreported month is a gap, never a partial sum."""
+    by_quarter = {}
+    for month, value in month_values.items():
+        by_quarter.setdefault(_quarter_of(month), []).append(value)
+    return {quarter: sum(values) for quarter, values in sorted(by_quarter.items())
+            if len(values) == 3 and all(v is not None for v in values)}
+
+
+def _coroners_frames_from_sheets(sheets):
+    """{sheet name: DataFrame} (read at header=0) -> {title: [{grain, periods, rows}]}. Duplicate titles
+    are preserved as a list (pull_data() would keep only the last). grain is 'year' (4-digit headers),
+    'month' (headers like '2025 Apr', normalised here to '2025-04'), or 'other' (anything else --
+    e.g. category-column tables, which no cleaner reads as a time series)."""
     frames = {}
     for sheet in sheets.values():
         titled = [c for c in sheet.columns if "Unnamed" not in str(c) and str(c) != "NaN"]
@@ -606,7 +671,21 @@ def _read_coroners_workbook():
         # periods); row 1 is a blank spacer; data begins at row 2.
         header = [str(cell).replace("\xa0", "").strip() for cell in sheet.iloc[0].tolist()]
         periods = header[2:]
-        grain = "year" if periods and re.fullmatch(r"\d{4}", periods[0]) else "month"
+        if periods and re.fullmatch(r"\d{4}", periods[0]):
+            grain = "year"
+        else:
+            try:
+                _coroners_month_key(periods[0] if periods else "")
+            except ValueError:
+                grain = "other"
+            else:
+                grain = "month"
+                # One bad header fails loudly (a strict rebuild must not publish partial data), naming
+                # the sheet so a format drift is traceable.
+                try:
+                    periods = [_coroners_month_key(p) for p in periods]
+                except ValueError as exc:
+                    raise ValueError(f"BC Coroners sheet {title!r}: unparseable month header ({exc})") from exc
         rows = {}
         for _, row in sheet.iloc[2:].iterrows():
             label = row.iloc[1]
@@ -616,7 +695,47 @@ def _read_coroners_workbook():
             if label:
                 rows[label] = row.iloc[2:].tolist()
         frames.setdefault(title, []).append({"grain": grain, "periods": periods, "rows": rows})
-    return {"date_updated": date_updated, "data_until": data_until, "frames": frames}
+    return frames
+
+
+def _coroners_month_series(frame, label):
+    """{'YYYY-MM': cleaned value} for row `label` of a month-grain frame (None = not reported, kept so
+    the quarter roll-up sees the gap). {} if the frame or the row is absent."""
+    if frame is None or label not in frame["rows"]:
+        return {}
+    return {period: _coroners_clean_cell(value)
+            for period, value in zip(frame["periods"], frame["rows"][label])}
+
+
+def _emit_month_and_quarter(v, geo, month_values, *, data_type="counts", dimension2=None):
+    """Emit a {'YYYY-MM': value} series as month facts, then its complete quarters as quarter facts
+    (month_values' gaps emit nothing). Quarters are SUMS: exact for counts, and for the age rates a
+    quarter's rate is deliberately the sum of its monthly per-100k-per-month rates. Quarter totals are
+    rounded to 2 decimals so float-summation noise (0.1+0.2+0.3 -> 0.6000000000000001) never reaches
+    the DB or the data table (source rates carry 1 decimal; counts are unaffected)."""
+    for month, value in sorted(month_values.items()):
+        _emit_fact(v, geo, month, value, data_type=data_type, dimension2=dimension2,
+                   time_frame_type="month")
+    for quarter, total in _sum_complete_quarters(month_values).items():
+        _emit_fact(v, geo, quarter, round(total, 2), data_type=data_type, dimension2=dimension2,
+                   time_frame_type="quarter")
+
+
+def _read_coroners_workbook():
+    """Read the BC Coroners workbook, preserving duplicate-titled sheets that pull_data() collapses
+    (the file ships both a yearly and a last-13-months version of the heatmap / age tables under one
+    title; pull_data keys by title so only the last survives). Returns {date_updated, data_until,
+    frames} where frames maps each title -> [{grain: 'year'|'month'|'other', periods: [...], rows: {label: [values]}}]
+    (see _coroners_frames_from_sheets; month periods are 'YYYY-MM')."""
+    output_dir = os.path.join(os.path.abspath(os.path.dirname(os.path.dirname(__file__))), "output")
+    match = next((f for f in os.listdir(output_dir) if "bcCoronersReport" in f), None)
+    if match is None:
+        raise FileNotFoundError("Data source bcCoronersReport not found in the output directory!")
+    date_updated = datetime.datetime.strptime(match.split("_")[0], "%Y%m%d").strftime("%B %d, %Y")
+    data_until = datetime.datetime.strptime(match.split("_")[1], "%Y%m%d").strftime("%B %d, %Y")
+    sheets = pandas.read_excel(os.path.join(output_dir, match), engine="calamine", sheet_name=None)
+    return {"date_updated": date_updated, "data_until": data_until,
+            "frames": _coroners_frames_from_sheets(sheets)}
 
 
 def _coroners_frame(workbook, title, grain="year"):
@@ -653,18 +772,26 @@ def v1_coroners_export_clean(writer, province):
 
     # ----- Heatmap: unregulated drug deaths by health authority, per year (counts only) -----
     bc_year_totals = {}   # year -> BC-wide deaths, reused by the drug-type counts derivation below
-    heat = _coroners_frame(workbook, "Unregulated Drug Deaths by Health Authority of Injury", "year")
-    if heat is not None:
+    heat_title = "Unregulated Drug Deaths by Health Authority of Injury"
+    heat = _coroners_frame(workbook, heat_title, "year")
+    heat_months = _coroners_frame(workbook, heat_title, "month")
+    if heat is not None or heat_months is not None:
         v = writer.visual(province, "drug_death_heatmap")
         if v is not None:
             v.use_source(source)
-        for ha, values in heat["rows"].items():
-            for period, value in zip(heat["periods"], values):
-                count = _coroners_clean_cell(value)
-                if ha == "British Columbia":
-                    bc_year_totals[period] = count
-                if v is not None:
-                    _emit_fact(v, ha, period, count)
+        if heat is not None:
+            for ha, values in heat["rows"].items():
+                for period, value in zip(heat["periods"], values):
+                    count = _coroners_clean_cell(value)
+                    if ha == "British Columbia":
+                        bc_year_totals[period] = count
+                    if v is not None:
+                        _emit_fact(v, ha, period, count)
+        # Month + quarter grains (the workbook's last-13-months table), every row incl. the
+        # province-wide "British Columbia" one; driven by the frame's own periods.
+        if v is not None and heat_months is not None:
+            for ha in heat_months["rows"]:
+                _emit_month_and_quarter(v, ha, _coroners_month_series(heat_months, ha))
 
     # ----- Deaths by sex, per health authority, per year (drill from the heatmap) -----
     v = writer.visual(province, "deaths_by_sex_line")
@@ -702,11 +829,16 @@ def v1_coroners_export_clean(writer, province):
                            data_type="rates", dimension2=drug)
 
     # ----- Unregulated drug toxicity deaths by age group, BC-wide, per year -----
-    age_counts = _coroners_frame(workbook, "Unregulated Drug Deaths by Age Group", "year")
-    age_rates = _coroners_frame(workbook, "Age-Specific Unregulated Drug Death Rates per 100,000", "year")
+    age_counts_title = "Unregulated Drug Deaths by Age Group"
+    age_rates_title = "Age-Specific Unregulated Drug Death Rates per 100,000"
+    age_counts = _coroners_frame(workbook, age_counts_title, "year")
+    age_rates = _coroners_frame(workbook, age_rates_title, "year")
+    age_counts_months = _coroners_frame(workbook, age_counts_title, "month")
+    age_rates_months = _coroners_frame(workbook, age_rates_title, "month")
     v = writer.visual(province, "drug_toxicity_deaths_by_age")
-    if v is not None and age_counts is not None:
+    if v is not None and (age_counts is not None or age_counts_months is not None):
         v.use_source(source)
+    if v is not None and age_counts is not None:
         for label, values in age_counts["rows"].items():
             for period, value in zip(age_counts["periods"], values):
                 number = _coroners_clean_cell(value)
@@ -722,6 +854,31 @@ def v1_coroners_export_clean(writer, province):
                 for period, value in zip(age_rates["periods"], values):
                     _emit_fact(v, geo_province, period, _coroners_clean_cell(value),
                                data_type="rates", dimension2=age_group)
+
+    # Month + quarter grains for the age chart. Counts: the monthly counts, quarters = summed months;
+    # the "Total" row feeds the table-only "Total Deaths" additional row at both grains.
+    if v is not None and age_counts_months is not None:
+        for label in age_counts_months["rows"]:
+            month_values = _coroners_month_series(age_counts_months, label)
+            if label == "Total":
+                for month, number in sorted(month_values.items()):
+                    if number is not None:
+                        v.additional(geo_province, month, "Total Deaths", number,
+                                     time_frame_type="month")
+                for quarter, total in _sum_complete_quarters(month_values).items():
+                    v.additional(geo_province, quarter, "Total Deaths", total,
+                                 time_frame_type="quarter")
+            else:
+                age_group = "Age Unavailable" if label == "Not available" else label
+                _emit_month_and_quarter(v, geo_province, month_values, dimension2=age_group)
+    # Rates: source monthly rates are per-100k-per-month over one population denominator, so a
+    # quarter's rate is the sum of its months; yearly rates come from the yearly table and are not
+    # derived.
+    if v is not None and age_rates_months is not None:
+        for label in age_rates_months["rows"]:
+            age_group = "Age Unavailable" if label == "Not available" else label
+            _emit_month_and_quarter(v, geo_province, _coroners_month_series(age_rates_months, label),
+                                    data_type="rates", dimension2=age_group)
 
 
 def v1_british_columbia_export_clean(writer, province):
@@ -1364,10 +1521,15 @@ class VisualWriter:
 
     def options(self, opts):
         """Set this visual's presentation options (titles / axis / table labels) at gen-visuals
-        time, overwriting the Visuals row's visual_options. Used when titles are province-
+        time, merged over the Visuals row's visual_options (so a gen-time title can't wipe
+        manifest-authored keys such as ``time_grains``). Used when titles are province-
         parameterized (so they can't live statically in the manifest); static options should be
-        declared in the manifest instead. Committed by FactWriter.finish() with the rest of the run."""
-        self.visual.visual_options = opts
+        declared in the manifest instead. The merge never drops keys. ``define-visuals`` resets
+        ``visual_options`` to the manifest value only for entries that declare ``visual_options``, so
+        gen-time keys survive a re-sync of entries that don't. Committed by FactWriter.finish() with
+        the rest of the run."""
+        # Assign a fresh dict: in-place mutation of a JSON column isn't change-tracked.
+        self.visual.visual_options = {**(self.visual.visual_options or {}), **opts}
         return self
 
     def _dim_type(self, dimension):

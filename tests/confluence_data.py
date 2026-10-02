@@ -74,7 +74,8 @@ def seed_confluence(visibility="public", gate_visibility=None):
 
 def seed_month_visuals(source=None, months=(), heat_months=None):
     """A Saskatchewan month-grain flat visual (one Fentanyl fact per month in `months`) and a
-    month-grain Saskatoon/Regina heatmap (over `heat_months`, default the same months)."""
+    month-grain Saskatoon/Regina heatmap (over `heat_months`, default the same months). Neither
+    declares time_grains, so their grains come from the facts' own tags."""
     source = source or make_data_source(name="SK Monthly", link="https://sk.example.org/m",
                                         about="monthly")
     flat = make_visual(province="saskatchewan", name="monthly_deaths", visibility="public",
@@ -85,7 +86,7 @@ def seed_month_visuals(source=None, months=(), heat_months=None):
     make_visual_query(flat, "geo", "Saskatchewan")
     for month in months:
         make_datapoint(source, geo="Saskatchewan", geo_type="province", time_frame=month,
-                       data_metric="deaths", data_value=1,
+                       time_frame_type="month", data_metric="deaths", data_value=1,
                        dimension2_type="drug_type", dimension2_value="Fentanyl")
     heat = make_visual(province="saskatchewan", name="monthly_heatmap", visibility="public",
                        data_source=source, vis_type="geo_series", data_shape="geo_series",
@@ -94,5 +95,43 @@ def seed_month_visuals(source=None, months=(), heat_months=None):
                        menu_parent="Deaths", menu_name="Monthly heatmap")
     for month in (months if heat_months is None else heat_months):
         make_datapoint(source, geo="Saskatoon", geo_type="health_authority", time_frame=month,
-                       data_metric="deaths", data_value=1)
+                       time_frame_type="month", data_metric="deaths", data_value=1)
+    return {"source": source, "flat": flat, "heat": heat}
+
+
+ALL_GRAINS = ["year", "quarter", "month"]
+# 2025-01 .. 2026-03 at each grain, keyed the way the cleaners write them.
+GRAIN_FRAMES = {
+    "year": ["2025", "2026"],
+    "quarter": ["2025-Q1", "2025-Q2", "2025-Q3", "2025-Q4", "2026-Q1"],
+    "month": [f"2025-{m:02d}" for m in range(1, 13)] + ["2026-01", "2026-02", "2026-03"],
+}
+
+
+def seed_grain_visuals(source=None, time_grains=ALL_GRAINS):
+    """A Saskatchewan flat visual and Saskatoon heatmap carrying facts at all three grains
+    (GRAIN_FRAMES, each tagged with its own time_frame_type) and declaring `time_grains`."""
+    source = source or make_data_source(name="SK Multi-grain", link="https://sk.example.org/g",
+                                        about="grains")
+    options = {"time_grains": list(time_grains)}
+    flat = make_visual(province="saskatchewan", name="grain_deaths", visibility="public",
+                       data_source=source, vis_type="flat_series", data_shape="flat_series",
+                       chart_type="line", metric="deaths", geo_type="province",
+                       dimension2_type="drug_type", key_kind="suffix_y", level="1",
+                       data_types="counts", menu_parent="Deaths", menu_name="Deaths by period",
+                       visual_options=options)
+    make_visual_query(flat, "geo", "Saskatchewan")
+    heat = make_visual(province="saskatchewan", name="grain_heatmap", visibility="public",
+                       data_source=source, vis_type="geo_series", data_shape="geo_series",
+                       chart_type="heatmap", metric="deaths", geo_type="health_authority",
+                       key_kind="constant", level="1", data_types="counts",
+                       menu_parent="Deaths", menu_name="Heatmap by period", visual_options=options)
+    for grain, frames in GRAIN_FRAMES.items():
+        for frame in frames:
+            make_datapoint(source, geo="Saskatchewan", geo_type="province", time_frame=frame,
+                           time_frame_type=grain, data_metric="deaths", data_value=1,
+                           dimension2_type="drug_type", dimension2_value="Fentanyl")
+            make_datapoint(source, geo="Saskatoon", geo_type="health_authority",
+                           time_frame=frame, time_frame_type=grain, data_metric="deaths",
+                           data_value=1)
     return {"source": source, "flat": flat, "heat": heat}

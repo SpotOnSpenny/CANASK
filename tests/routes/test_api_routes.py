@@ -38,7 +38,7 @@ class TestProvinceDataApi:
         block = payload["data"]["api_pub"]
         assert block["chart_type"] == "bar"
         assert block["facts"] == [
-            {"dt": "counts", "geo": "ontario", "t": "2024", "d": None, "d2": None, "v": 5}]
+            {"dt": "counts", "geo": "ontario", "t": "2024", "g": "year", "d": None, "d2": None, "v": 5}]
 
     def test_private_visual_hidden_from_anonymous(self, client, db_session):
         seed_ontario_visual("api_priv", visibility="private")
@@ -85,5 +85,5 @@ class TestProvinceDataApi:
         block = payload["data"]["expected_vs_actual_samples"]
         assert block["chart_type"] == "stacked_hbar"
         assert block["shape"] == "expected_actual_bar"
-        assert {"dt": "counts", "geo": "Alberta||QTHC", "t": "2026-02", "d": "Fentanyl",
+        assert {"dt": "counts", "geo": "Alberta||QTHC", "t": "2026-02", "g": "month", "d": "Fentanyl",
                 "d2": "expected_plus", "v": 7} in block["facts"]

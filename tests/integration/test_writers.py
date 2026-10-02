@@ -118,6 +118,31 @@ class TestVisualWriter:
         writer.finish()
         assert visual.visual_options == {"counts-title": "Deaths in Ontario"}
 
+    def test_options_merges_into_existing_visual_options(self, writer):
+        visual, _ = self._visual(visual_options={"time_grains": ["year", "month"],
+                                                 "counts-title": "old"})
+        vw = writer.visual(visual.province, visual.name)
+        vw.options({"counts-title": "Deaths in Ontario"})
+        vw.fact("ontario", "2024", 1)
+        writer.finish()
+        assert visual.visual_options == {"time_grains": ["year", "month"],
+                                         "counts-title": "Deaths in Ontario"}
+
+    def test_year_quarter_month_facts_round_trip_in_one_visual(self, writer):
+        visual, source = self._visual()
+        vw = writer.visual(visual.province, visual.name)
+        vw.fact("ontario", "2025", 12, time_frame_type="year")
+        vw.fact("ontario", "2025-Q2", 3, time_frame_type="quarter")
+        vw.fact("ontario", "2025-04", 1, time_frame_type="month")
+        vw.additional("ontario", "2025-04", "Total Deaths", 9, time_frame_type="month")
+        writer.finish()
+        got = {(p.time_frame, p.time_frame_type, p.data_type, p.data_value)
+               for p in _points_for(source.id)}
+        assert got == {("2025", "year", "counts", 12.0),
+                       ("2025-Q2", "quarter", "counts", 3.0),
+                       ("2025-04", "month", "counts", 1.0),
+                       ("2025-04", "month", "additional_rows", 9.0)}
+
 
 class TestScopedRewrite:
     def test_finish_replaces_only_reproduced_territory(self, db_session):
