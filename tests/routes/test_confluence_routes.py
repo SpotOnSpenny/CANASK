@@ -205,7 +205,8 @@ class TestUnalignableVisual:
             make_datapoint(source, geo="Saskatchewan", geo_type="province", time_frame=frame,
                            data_metric="deaths", data_value=1)
 
-    def test_quarterly_visual_400(self, client):
+    def test_noncanonical_quarter_keys_400(self, client):
+        # Canonical quarters ("2025-Q1", tagged quarter) are supported; "2025 Q1" tagged year is not.
         self._flat("quarterly", ["2025 Q1", "2025 Q2"])
         response = client.get(url(province="saskatchewan", visual="quarterly"))
         assert response.status_code == 400

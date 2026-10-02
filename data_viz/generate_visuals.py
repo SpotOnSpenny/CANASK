@@ -488,8 +488,8 @@ def _bccsu_buckets(df, grain):
 
 def v1_BCCSU_export_clean(writer, province):
     # BC Centre for Substance Use drug-checking data: one row per voluntarily submitted sample.
-    # New-style cleaner -- emits the by-year line charts straight to the writer, no intermediate
-    # block dict. The re-scraped feed dropped its Health Authority / Site columns, so the former
+    # New-style cleaner -- emits the line charts (ids keep their historical `_by_year` suffix, but each
+    # carries year, quarter and month facts) straight to the writer, no intermediate block dict. The re-scraped feed dropped its Health Authority / Site columns, so the former
     # geographic map / pie / regional drill chain and the site treemap are gone (pruned from the
     # manifest); only these province-level series remain. Types (metric/dimension*) come from each
     # Visuals row via the writer -- cleaning supplies values only.
@@ -518,7 +518,7 @@ For more information visit the BCCSU's Drug Sense website by clicking the button
             for period, period_df in buckets.items():
                 emit(v, period, period_df, grain)
 
-    # ----- Drug Supply by Year: sample counts/rates per drug Category -----
+    # ----- Drug Supply (per year / quarter / month): sample counts/rates per drug Category -----
     categories = df["Category"].dropna().unique()
 
     def drug_supply(v, period, period_df, grain):
@@ -535,7 +535,7 @@ For more information visit the BCCSU's Drug Sense website by clicking the button
         v.use_source(source)
         emit_all(v, drug_supply)
 
-    # ----- Presence of Fentanyl, Benzodiazepines and Medetomidine by Year (test strips) -----
+    # ----- Presence of Fentanyl, Benzodiazepines and Medetomidine per period (test strips) -----
     strips = {
         "Fentanyl": "Fentanyl Strip",
         "Benzodiazepines": "Benzo Strip",
@@ -556,7 +556,7 @@ For more information visit the BCCSU's Drug Sense website by clicking the button
         v.use_source(source)
         emit_all(v, strip_positives)
 
-    # ----- Presence of Opioid Types by Year (parsed from the Spectrometer column) -----
+    # ----- Presence of Opioid Types per period (parsed from the Spectrometer column) -----
     opioid_categories = ["Codeine", "Fentanyl", "Heroin", "Hydrocodone", "Hydromorphone",
                          "Methadone", "Morphine", "Oxycodone", "Buprenorphine"]
 
@@ -594,8 +594,9 @@ _BCCS_LINK = "https://app.powerbi.com/view?r=eyJrIjoiNjhiYjgxYzUtYjIyOC00ZGQ2LTh
 
 def _coroners_clean_cell(value):
     """A coroners cell -> a reported number (including a genuine 0), or None for a blank / non-numeric
-    cell (not reported). The coroners workbook has no suppression marker, so blanks are treated as
-    'not reported' (a gap) rather than fabricated as 0."""
+    cell. The workbook has no suppression marker; a blank inside a period column that reports other
+    rows is a 0 the dashboard leaves empty, and _coroners_frames_from_sheets fills those in before any
+    cleaning, so a None that reaches a cleaner means the whole period is unreported (a gap)."""
     if isinstance(value, str):
         text = value.replace("\xa0", "").replace("%", "").strip()
         if text == "":
@@ -656,11 +657,47 @@ def _sum_complete_quarters(month_values):
             if len(values) == 3 and all(v is not None for v in values)}
 
 
+def _coroners_is_blank(value):
+    """An empty coroners cell (None / NaN / whitespace incl. non-breaking spaces) -- as opposed to a
+    non-numeric text cell, which is never read as a number."""
+    if isinstance(value, str):
+        return value.replace("\xa0", "").strip() == ""
+    return value is None or (isinstance(value, float) and pandas.isna(value))
+
+
+# The dashboard's monthly tables are a rolling last-13-months window. Only those columns come straight
+# off the dashboard; older columns in a history-merged workbook (the scrape branch) can be blank because
+# a row wasn't seeded or was retired -- not because the count was 0.
+_CORONERS_LIVE_MONTHS = 13
+
+
+def _coroners_fill_reported_zeros(rows, first_col=0):
+    """Blank cells -> 0 in every period column (from `first_col` on) where some other row is reported.
+    The dashboard leaves a zero count/rate empty (in the monthly age table the non-blank bands sum
+    exactly to the Total row), so inside a reported column a blank is a genuine 0. A column with
+    nothing reported stays blank: that period is a true gap. Returns a new {label: [values]}."""
+    rows = {label: list(values) for label, values in rows.items()}
+    width = max((len(values) for values in rows.values()), default=0)
+    for col in range(first_col, width):
+        column = [values[col] for values in rows.values() if col < len(values)]
+        if not any(_coroners_clean_cell(cell) is not None for cell in column):
+            continue
+        for values in rows.values():
+            if col < len(values) and _coroners_is_blank(values[col]):
+                values[col] = 0
+    return rows
+
+
 def _coroners_frames_from_sheets(sheets):
     """{sheet name: DataFrame} (read at header=0) -> {title: [{grain, periods, rows}]}. Duplicate titles
-    are preserved as a list (pull_data() would keep only the last). grain is 'year' (4-digit headers),
-    'month' (headers like '2025 Apr', normalised here to '2025-04'), or 'other' (anything else --
-    e.g. category-column tables, which no cleaner reads as a time series)."""
+    are preserved as a list (pull_data() would keep only the last). grain is decided from the FIRST
+    period header: 'year' (4-digit headers), 'month' (headers like '2025 Apr', normalised here to
+    '2025-04'), or 'other' (anything else -- e.g. category-column tables, which no cleaner reads as a
+    time series). Cells are kept raw; _coroners_frame zero-fills the tables a cleaner reads.
+
+    Raises ValueError (naming the sheet) when the first header is a month but a later one isn't. A
+    table whose FIRST header drifts is tagged 'other'; the cleaner then raises because the month table
+    it requires is missing (_coroners_required_frame)."""
     frames = {}
     for sheet in sheets.values():
         titled = [c for c in sheet.columns if "Unnamed" not in str(c) and str(c) != "NaN"]
@@ -739,8 +776,26 @@ def _read_coroners_workbook():
 
 
 def _coroners_frame(workbook, title, grain="year"):
-    """The frame for `title` at the requested grain, or None if the workbook lacks it."""
-    return next((f for f in workbook["frames"].get(title, []) if f["grain"] == grain), None)
+    """The frame for `title` at the requested grain, or None if the workbook lacks it. Its rows come
+    zero-filled (_coroners_fill_reported_zeros): every column of a yearly table, and only the trailing
+    live-window columns of a monthly one (older months may be merged history, where a blank is a gap)."""
+    frame = next((f for f in workbook["frames"].get(title, []) if f["grain"] == grain), None)
+    if frame is None:
+        return None
+    first_col = max(0, len(frame["periods"]) - _CORONERS_LIVE_MONTHS) if grain == "month" else 0
+    return {**frame, "rows": _coroners_fill_reported_zeros(frame["rows"], first_col)}
+
+
+def _coroners_required_frame(workbook, title, grain):
+    """Like _coroners_frame, but a missing frame fails the BC build: the heatmap and age visuals
+    declare month/quarter grains, so publishing them without their monthly table would silently drop
+    those grains. The usual cause is a header format drift that tagged the table 'other'."""
+    frame = _coroners_frame(workbook, title, grain)
+    if frame is None:
+        found = [f["grain"] for f in workbook["frames"].get(title, [])]
+        raise ValueError(f"BC Coroners workbook: no {grain} table titled {title!r} "
+                         f"(found: {found or 'no table'}); a changed period-header format reads as 'other'")
+    return frame
 
 
 def _bc_population_by_year():
@@ -757,9 +812,9 @@ def _bc_population_by_year():
 
 
 def v1_coroners_export_clean(writer, province):
-    # BC Coroners Service deaths -> facts, straight to the writer (no block dict). Uses the YEARLY
-    # tables: the workbook also ships a last-13-months version of the heatmap/age tables under an
-    # identical title, so we read the workbook ourselves (pull_data shadows the yearly one).
+    # BC Coroners Service deaths -> facts, straight to the writer (no block dict). The workbook ships
+    # a yearly AND a last-13-months version of the heatmap/age tables under one title, so we read it
+    # ourselves (pull_data would shadow one); both are required (_coroners_required_frame).
     workbook = _read_coroners_workbook()
     source = {
         "name": "BC Coroners Service",
@@ -770,28 +825,26 @@ def v1_coroners_export_clean(writer, province):
     }
     geo_province = PROVINCE_DISPLAY[province]
 
-    # ----- Heatmap: unregulated drug deaths by health authority, per year (counts only) -----
+    # ----- Heatmap: unregulated drug deaths by health authority, per year / quarter / month (counts) -----
     bc_year_totals = {}   # year -> BC-wide deaths, reused by the drug-type counts derivation below
     heat_title = "Unregulated Drug Deaths by Health Authority of Injury"
-    heat = _coroners_frame(workbook, heat_title, "year")
-    heat_months = _coroners_frame(workbook, heat_title, "month")
-    if heat is not None or heat_months is not None:
-        v = writer.visual(province, "drug_death_heatmap")
-        if v is not None:
-            v.use_source(source)
-        if heat is not None:
-            for ha, values in heat["rows"].items():
-                for period, value in zip(heat["periods"], values):
-                    count = _coroners_clean_cell(value)
-                    if ha == "British Columbia":
-                        bc_year_totals[period] = count
-                    if v is not None:
-                        _emit_fact(v, ha, period, count)
-        # Month + quarter grains (the workbook's last-13-months table), every row incl. the
-        # province-wide "British Columbia" one; driven by the frame's own periods.
-        if v is not None and heat_months is not None:
-            for ha in heat_months["rows"]:
-                _emit_month_and_quarter(v, ha, _coroners_month_series(heat_months, ha))
+    heat = _coroners_required_frame(workbook, heat_title, "year")
+    heat_months = _coroners_required_frame(workbook, heat_title, "month")
+    v = writer.visual(province, "drug_death_heatmap")
+    if v is not None:
+        v.use_source(source)
+    for ha, values in heat["rows"].items():
+        for period, value in zip(heat["periods"], values):
+            count = _coroners_clean_cell(value)
+            if ha == "British Columbia":
+                bc_year_totals[period] = count
+            if v is not None:
+                _emit_fact(v, ha, period, count)
+    # Month + quarter grains (the workbook's last-13-months table), every row incl. the
+    # province-wide "British Columbia" one; driven by the frame's own periods.
+    if v is not None:
+        for ha in heat_months["rows"]:
+            _emit_month_and_quarter(v, ha, _coroners_month_series(heat_months, ha))
 
     # ----- Deaths by sex, per health authority, per year (drill from the heatmap) -----
     v = writer.visual(province, "deaths_by_sex_line")
@@ -828,57 +881,52 @@ def v1_coroners_export_clean(writer, province):
                 _emit_fact(v, geo_province, period, _derived_rate(count, bc_population.get(period)),
                            data_type="rates", dimension2=drug)
 
-    # ----- Unregulated drug toxicity deaths by age group, BC-wide, per year -----
+    # ----- Unregulated drug toxicity deaths by age group, BC-wide, per year / quarter / month -----
     age_counts_title = "Unregulated Drug Deaths by Age Group"
     age_rates_title = "Age-Specific Unregulated Drug Death Rates per 100,000"
-    age_counts = _coroners_frame(workbook, age_counts_title, "year")
-    age_rates = _coroners_frame(workbook, age_rates_title, "year")
-    age_counts_months = _coroners_frame(workbook, age_counts_title, "month")
-    age_rates_months = _coroners_frame(workbook, age_rates_title, "month")
+    age_counts = _coroners_required_frame(workbook, age_counts_title, "year")
+    age_rates = _coroners_required_frame(workbook, age_rates_title, "year")
+    age_counts_months = _coroners_required_frame(workbook, age_counts_title, "month")
+    age_rates_months = _coroners_required_frame(workbook, age_rates_title, "month")
     v = writer.visual(province, "drug_toxicity_deaths_by_age")
-    if v is not None and (age_counts is not None or age_counts_months is not None):
-        v.use_source(source)
-    if v is not None and age_counts is not None:
-        for label, values in age_counts["rows"].items():
-            for period, value in zip(age_counts["periods"], values):
-                number = _coroners_clean_cell(value)
-                if label == "Total":
-                    if number is not None:
-                        v.additional(geo_province, period, "Total Deaths", number)
-                else:
-                    age_group = "Age Unavailable" if label == "Not available" else label
-                    _emit_fact(v, geo_province, period, number, dimension2=age_group)
-        if age_rates is not None:
-            for label, values in age_rates["rows"].items():
+    if v is None:
+        return   # the last block of this cleaner
+    v.use_source(source)
+    for label, values in age_counts["rows"].items():
+        for period, value in zip(age_counts["periods"], values):
+            number = _coroners_clean_cell(value)
+            if label == "Total":
+                if number is not None:
+                    v.additional(geo_province, period, "Total Deaths", number)
+            else:
                 age_group = "Age Unavailable" if label == "Not available" else label
-                for period, value in zip(age_rates["periods"], values):
-                    _emit_fact(v, geo_province, period, _coroners_clean_cell(value),
-                               data_type="rates", dimension2=age_group)
+                _emit_fact(v, geo_province, period, number, dimension2=age_group)
+    for label, values in age_rates["rows"].items():
+        age_group = "Age Unavailable" if label == "Not available" else label
+        for period, value in zip(age_rates["periods"], values):
+            _emit_fact(v, geo_province, period, _coroners_clean_cell(value),
+                       data_type="rates", dimension2=age_group)
 
     # Month + quarter grains for the age chart. Counts: the monthly counts, quarters = summed months;
     # the "Total" row feeds the table-only "Total Deaths" additional row at both grains.
-    if v is not None and age_counts_months is not None:
-        for label in age_counts_months["rows"]:
-            month_values = _coroners_month_series(age_counts_months, label)
-            if label == "Total":
-                for month, number in sorted(month_values.items()):
-                    if number is not None:
-                        v.additional(geo_province, month, "Total Deaths", number,
-                                     time_frame_type="month")
-                for quarter, total in _sum_complete_quarters(month_values).items():
-                    v.additional(geo_province, quarter, "Total Deaths", total,
-                                 time_frame_type="quarter")
-            else:
-                age_group = "Age Unavailable" if label == "Not available" else label
-                _emit_month_and_quarter(v, geo_province, month_values, dimension2=age_group)
+    for label in age_counts_months["rows"]:
+        month_values = _coroners_month_series(age_counts_months, label)
+        if label == "Total":
+            for month, number in sorted(month_values.items()):
+                if number is not None:
+                    v.additional(geo_province, month, "Total Deaths", number, time_frame_type="month")
+            for quarter, total in _sum_complete_quarters(month_values).items():
+                v.additional(geo_province, quarter, "Total Deaths", total, time_frame_type="quarter")
+        else:
+            age_group = "Age Unavailable" if label == "Not available" else label
+            _emit_month_and_quarter(v, geo_province, month_values, dimension2=age_group)
     # Rates: source monthly rates are per-100k-per-month over one population denominator, so a
     # quarter's rate is the sum of its months; yearly rates come from the yearly table and are not
     # derived.
-    if v is not None and age_rates_months is not None:
-        for label in age_rates_months["rows"]:
-            age_group = "Age Unavailable" if label == "Not available" else label
-            _emit_month_and_quarter(v, geo_province, _coroners_month_series(age_rates_months, label),
-                                    data_type="rates", dimension2=age_group)
+    for label in age_rates_months["rows"]:
+        age_group = "Age Unavailable" if label == "Not available" else label
+        _emit_month_and_quarter(v, geo_province, _coroners_month_series(age_rates_months, label),
+                                data_type="rates", dimension2=age_group)
 
 
 def v1_british_columbia_export_clean(writer, province):
@@ -1389,6 +1437,14 @@ NATIONAL_PROVINCES = [
 ]
 
 TIME_FRAME_TYPE = "year"
+# The canonical period-key format per grain. FactWriter.point enforces it, so a key and its grain tag can
+# never disagree (a year-tagged "2025-04" would land in the province page's year bucket, interleaved
+# with the real years, while Confluence 400s on it).
+TIME_FRAME_PATTERNS = {
+    "year": re.compile(r"\d{4}"),
+    "quarter": re.compile(r"\d{4}-Q[1-4]"),
+    "month": re.compile(r"\d{4}-(0[1-9]|1[0-2])"),
+}
 ADDITIONAL_DIM_TYPE = "additional_label"   # tags a table-only total row in dimension2
 
 
@@ -1426,6 +1482,7 @@ class FactWriter:
         self._preds = {}          # (visual_id, type, value) -> buffered VisualQuery kwargs (dedup)
         self._territory = set()   # (data_source_id, geo) pairs this run reproduces -> delete scope
         self._visual_ids = set()  # visuals whose predicates this run reproduces -> delete scope
+        self._visual_grains = {}  # Visuals row -> grains of the facts emitted for it (checked in finish)
 
     def upsert_source(self, data_source):
         """Fetch/create the DataSources row by name, refresh its about/scrape-date strings, return id."""
@@ -1445,7 +1502,12 @@ class FactWriter:
     def point(self, source_id, geo_type, geo, time_frame, metric, data_type,
               dim_type=None, dim_val=None, dim2_type=None, dim2_val=None, value=None,
               time_frame_type=TIME_FRAME_TYPE):
-        """Buffer one DataPoints row (dedup by natural key) and record its (source, geo) territory."""
+        """Buffer one DataPoints row (dedup by natural key) and record its (source, geo) territory.
+        Raises ValueError when `time_frame` isn't the canonical key for `time_frame_type`
+        (TIME_FRAME_PATTERNS) -- a format drift fails the rebuild instead of mis-bucketing facts."""
+        pattern = TIME_FRAME_PATTERNS.get(time_frame_type)
+        if pattern is None or not pattern.fullmatch(str(time_frame)):
+            raise ValueError(f"time_frame {time_frame!r} is not a valid {time_frame_type!r} period key")
         key = (source_id, geo_type, geo, str(time_frame), metric, data_type,
                dim_type, dim_val, dim2_type, dim2_val)
         if key in self._points:
@@ -1477,9 +1539,32 @@ class FactWriter:
             return None
         return VisualWriter(self, row)
 
+    def record_grain(self, visual, grain):
+        self._visual_grains.setdefault(visual, set()).add(grain)
+
+    def check_declared_grains(self):
+        """Raise if a visual's facts span grains its manifest doesn't declare. The province page only
+        separates grains listed in visual_options.time_grains: an undeclared mix is drawn on one axis
+        ("2025", "2025-Q2", "2025-04" interleaved) and a declared list hides any grain it omits. A
+        visual whose facts are all one grain (e.g. the month-only drug-checking treemap) needs none."""
+        problems = []
+        for visual, grains in self._visual_grains.items():
+            declared = (visual.visual_options or {}).get("time_grains")
+            if declared is None:
+                if len(grains) > 1:
+                    problems.append(f"{visual.province}/{visual.name} emits {sorted(grains)} but declares "
+                                    f"no visual_options.time_grains")
+            elif grains - set(declared):
+                problems.append(f"{visual.province}/{visual.name} emits {sorted(grains - set(declared))} "
+                                f"missing from its time_grains {declared}")
+        if problems:
+            raise ValueError("Undeclared time grains: " + "; ".join(problems))
+
     def finish(self):
         """One transaction: drop only the reproduced (source, geo) territory + touched predicates,
-        then insert the buffered rows. Other sources/provinces are left untouched."""
+        then insert the buffered rows. Other sources/provinces are left untouched. Refuses (before
+        touching the DB) when a visual's facts span undeclared grains (check_declared_grains)."""
+        self.check_declared_grains()
         try:
             for source_id, geo in self._territory:
                 self.DataPoints.query.filter_by(data_source_id=source_id, geo=geo).delete()
@@ -1540,9 +1625,11 @@ class VisualWriter:
     def fact(self, geo, time_frame, value, *, data_type="counts",
              dimension=None, dimension2=None, time_frame_type=None):
         v = self.visual
+        grain = time_frame_type or TIME_FRAME_TYPE
         self.writer.point(self.source_id, v.geo_type, geo, time_frame, v.metric, data_type,
                           self._dim_type(dimension), dimension, v.dimension2_type, dimension2, value,
-                          time_frame_type=(time_frame_type or TIME_FRAME_TYPE))
+                          time_frame_type=grain)
+        self.writer.record_grain(v, grain)
         if v.geo_type == "province":
             self.writer.predicate(v.id, "geo", geo)   # province-shared facts scoped to this geo
         if dimension is not None:
@@ -1554,9 +1641,11 @@ class VisualWriter:
     def additional(self, geo, time_frame, label, value, *, time_frame_type=None):
         """A table-only total row: one additional_rows fact + its additional_metric predicate."""
         metric = additional_metric(label)
+        grain = time_frame_type or TIME_FRAME_TYPE
         self.writer.point(self.source_id, self.visual.geo_type, geo, time_frame, metric,
                           "additional_rows", ADDITIONAL_DIM_TYPE, label, None, None, value,
-                          time_frame_type=(time_frame_type or TIME_FRAME_TYPE))
+                          time_frame_type=grain)
+        self.writer.record_grain(self.visual, grain)
         self.writer.predicate(self.visual.id, "additional_metric", metric)
 
 

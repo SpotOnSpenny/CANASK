@@ -529,7 +529,7 @@ function confluenceRenderCities(d, chart) {
             locations: f.locations,
             z: f.z,
             zauto: false, zmin: zmin, zmax: zmax,
-            hoverinfo: "none",   // label drawn by attachGeoHoverTip (events still fire); bubbles keep Plotly's
+            hoverinfo: "none",   // label drawn by attachGeoHoverTip (events still fire); the DAS city bubbles keep Plotly's native label
             colorscale: t.dark ? "Cividis" : "YlOrRd",
             reversescale: !t.dark,
             marker: { line: { color: t.border, width: 0.5 } },

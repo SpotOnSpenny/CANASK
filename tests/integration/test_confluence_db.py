@@ -41,6 +41,11 @@ class TestVisualDimensionValues:
     def test_heatmap_without_dimensions_is_empty(self, seeded):
         assert visual_facets(seeded["heat"])[0] == set()
 
+    def test_grains_come_paired_with_their_data_type(self, seeded):
+        # The data type lets available_grains count only a heatmap's counts.
+        grain_types = visual_facets(seeded["flat"])[1]
+        assert grain_types and all(g == "year" and dt in ("counts", "rates") for g, dt in grain_types)
+
 
 class TestSupportedVisuals:
     def test_only_level_one_flat_and_geo_series(self, seeded, admin):

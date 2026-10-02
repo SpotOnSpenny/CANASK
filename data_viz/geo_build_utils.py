@@ -10,7 +10,12 @@ Only the standard library is used (the builders run locally, outside the contain
 """
 
 import json
+import os
+import pathlib
 import subprocess
+import tempfile
+import urllib.request
+import zipfile
 
 
 def ring_area(ring):
@@ -54,3 +59,47 @@ def run_mapshaper(args):
 def write_collection(path, features):
     path.write_text(json.dumps({"type": "FeatureCollection", "features": features}, separators=(",", ":")))
     print(f"wrote {path} ({path.stat().st_size / 1024:.0f} KB, {len(features)} features)")
+
+
+def check_geojson(path):
+    """Raise unless `path` is a GeoJSON FeatureCollection with features (not an error page served
+    with HTTP 200)."""
+    data = json.loads(pathlib.Path(path).read_text())
+    if not data.get("features"):
+        raise ValueError(f"{path} is not a GeoJSON FeatureCollection with features")
+
+
+def check_zip(path):
+    """Raise unless `path` is a complete, readable zip archive."""
+    with zipfile.ZipFile(path) as archive:
+        bad = archive.testzip()
+    if bad is not None:
+        raise ValueError(f"{path}: corrupt member {bad}")
+
+
+def download_cached(url, cache_path, check):
+    """Download `url` to `cache_path` once. The file lands in a temp file beside the cache and is
+    renamed into place only after `check(temp_path)` passes, so an interrupted download or an error
+    page never poisons the cache that every later run would reuse."""
+    cache_path = pathlib.Path(cache_path)
+    if cache_path.exists():
+        return
+    cache_path.parent.mkdir(exist_ok=True)
+    print(f"downloading {url}")
+    fd, tmp = tempfile.mkstemp(dir=cache_path.parent, prefix=f"{cache_path.name}.", suffix=".part")
+    os.close(fd)
+    tmp = pathlib.Path(tmp)
+    try:
+        urllib.request.urlretrieve(url, tmp)
+        check(tmp)
+        os.replace(tmp, cache_path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def check_names(features, expected, key="ENGNAME"):
+    """Exit unless the features carry exactly the `expected` names, one feature each (a duplicate
+    would pass a set comparison). An explicit check rather than `assert`, which `python -O` strips."""
+    names = sorted(f["properties"][key] for f in features)
+    if names != sorted(expected):
+        raise SystemExit(f"unexpected {key} values: got {names}, expected {sorted(expected)}")

@@ -58,8 +58,9 @@ function provinceGeoLayout(geojson) {
 // plotly_hover/plotly_unhover; only its label is suppressed) and this draws one shared tip div
 // beside the cursor instead, moving it with the mouse while a region is under it. `describe(point)`
 // returns {name, value} for a point this map wants a tip for, or null to leave the point to Plotly
-// (Confluence keeps the native label on its DAS city bubbles). Call after each Plotly.react; the
-// previous render's mousemove listener on the same div is replaced, not stacked.
+// (Confluence keeps the native label on its DAS city bubbles). Call after each Plotly.react: the
+// previous call's mousemove listener and plotly_hover/plotly_unhover handlers on the same div are
+// removed first, so a div re-rendered without Plotly.purge (Confluence's map) never stacks them.
 function attachGeoHoverTip(gd, describe) {
   let tip = document.getElementById("canask-geo-tip");
   if (!tip) {
@@ -83,7 +84,11 @@ function attachGeoHoverTip(gd, describe) {
   if (gd._canaskGeoTipMove) gd.removeEventListener("mousemove", gd._canaskGeoTipMove);
   gd._canaskGeoTipMove = (event) => { if (tip.style.display !== "none") place(event.clientX, event.clientY); };
   gd.addEventListener("mousemove", gd._canaskGeoTipMove);
-  gd.on("plotly_hover", (data) => {
+  if (gd._canaskGeoTipHover && gd.removeListener) {
+    gd.removeListener("plotly_hover", gd._canaskGeoTipHover);
+    gd.removeListener("plotly_unhover", gd._canaskGeoTipUnhover);
+  }
+  gd._canaskGeoTipHover = (data) => {
     const point = data.points && data.points[0];
     const info = point && describe(point);
     if (!info) { hide(); return; }
@@ -93,8 +98,10 @@ function attachGeoHoverTip(gd, describe) {
     valueEl.style.display = info.value == null ? "none" : "";
     tip.style.display = "block";
     if (data.event) place(data.event.clientX, data.event.clientY);
-  });
-  gd.on("plotly_unhover", hide);
+  };
+  gd._canaskGeoTipUnhover = hide;
+  gd.on("plotly_hover", gd._canaskGeoTipHover);
+  gd.on("plotly_unhover", gd._canaskGeoTipUnhover);
 }
 
 // ---- Deep-linkable URL state ----
@@ -237,9 +244,9 @@ function buildDataTypeToggles(container, dataTypes, currentDataType, onSelect) {
 }
 
 // The renderers size the chart from #viz-card's height, but the Measure group is only filled AFTER
-// the chart is drawn, so a visual whose only control is Measure measures the card with an empty
-// (collapsed) control bar and then the bar grows under it. Re-fit the chart to whatever height the
-// card body has once the bar settled; a no-op when nothing changed (the usual case).
+// the chart is drawn. masterLoop shows the control bar first and .vis-controls reserves one row
+// (min-height), so the usual case is a no-op; this re-fit is the fallback for a bar whose final height
+// differs from that row (e.g. its groups wrap onto a second line on a narrow card).
 function fitChartToCard() {
   const gd = document.getElementById("vis-div");
   if (!gd || !gd._fullLayout || gd.classList.contains("treemap-layout")) return;
@@ -271,8 +278,8 @@ function chartAreaHeight() {
   return Math.max(120, Math.floor(card - heading));
 }
 
-// Empty a grain / chart-type toggle group and hide it (the template ships both hidden; an empty
-// group would otherwise still take up its margin in the overlay).
+// Empty a grain / chart-type toggle group and drop its d-flex (the template ships both hidden). Its
+// .vis-control wrapper in the control bar hides itself via CSS :has once the group is empty.
 function clearToggleGroup(container) {
   if (!container) return;
   container.innerHTML = "";
@@ -514,8 +521,6 @@ function availableChartTypes(block, cfg) {
     return listed.filter(t => t === "heatmap" || t === "line");
 }
 
-// Re-word a yearly title for a finer grain: "by Year" -> "by Month", "Annual" -> "Monthly", else
-// append " (Monthly)". Yearly (and non-string) titles pass through untouched.
 // Month-grain axes get crowded fast (13+ "YYYY-MM" categories, and more as history accumulates), so
 // label only the quarter-start months (Jan / Apr / Jul / Oct); every month still has its point and
 // hover. Falls back to every period when there are fewer than two quarter starts to show.
@@ -533,19 +538,40 @@ function grainXAxis(grain, periods) {
   if (grain === "quarter") return { type: "category" };
   return { dtick: 1 };
 }
-// Slider step label for a period: month grain shows only quarter starts (the slider's current-value
-// readout always shows the exact period).
-function sliderStepLabel(period, grain, periods) {
-  if (grain !== "month") return period;
-  return quarterStartTicks(periods).includes(period) ? period : "";
-}
-
+// Re-word a yearly title for a finer grain: "by Year" -> "by Month", "Annual" -> "Monthly", else
+// append " (Monthly)". Yearly (and non-string) titles pass through untouched.
 function grainTitle(text, grain) {
     if (typeof text !== "string" || !grain || grain === "year") return text;
     const adjective = { quarter: "Quarterly", month: "Monthly" }[grain] || GRAIN_LABELS[grain];
     if (/\bby Year\b/.test(text)) return text.replace(/\bby Year\b/g, `by ${GRAIN_LABELS[grain]}`);
     if (/\bAnnual\b/.test(text)) return text.replace(/\bAnnual\b/g, adjective);
     return `${text} (${adjective})`;
+}
+
+// Areas a map visual's geojson and its facts disagree on: outlines with no data in any period (drawn
+// blank) and areas with data but no outline (not drawn on the map; legend-only in the Trend view). The
+// province-wide total (e.g. "British Columbia") never has an outline and isn't a mismatch. A geojson /
+// cleaner name drift otherwise renders silently as a blank region and a hidden line.
+function geoMismatch(geojson, facts, provinceSlug) {
+  const outlines = new Set(((geojson && geojson.features) || []).map(ft => ft.properties.ENGNAME));
+  const total = String(provinceSlug || "").replace(/-/g, " ").toTitleCase();
+  const geos = new Set(facts.filter(f => f.dt === "counts" && f.geo != null).map(f => f.geo));
+  return {
+    noData: Array.from(outlines).filter(name => !geos.has(name)).sort(),
+    noOutline: Array.from(geos).filter(geo => !outlines.has(geo) && geo !== total).sort(),
+  };
+}
+
+// Show (or clear, with null) the map/data mismatch note under the table caption, and log it.
+function setGeoMismatchNote(mismatch) {
+  const note = document.getElementById("vis-geo-note");
+  const parts = [];
+  if (mismatch && mismatch.noOutline.length) parts.push(`No map outline for: ${mismatch.noOutline.join("; ")} (shown in the table only).`);
+  if (mismatch && mismatch.noData.length) parts.push(`No data for: ${mismatch.noData.join("; ")} (drawn blank).`);
+  if (parts.length) console.warn("Map/data area mismatch:", mismatch);
+  if (!note) return;
+  note.textContent = parts.join(" ");
+  note.classList.toggle("d-none", parts.length === 0);
 }
 
 // Per-area trend lines for a geo_series map: {counts: {x, "<area>": [...]}}. geo_series' key_kind is
@@ -790,6 +816,8 @@ function masterLoop(location = null, year = null, category = null) {
   for (const key of ["heatmap-title", "counts-title", "rates-title", "percentages-title", "table-title"]) {
     if (key in opts) opts[key] = grainTitle(opts[key], activeGrain);
   }
+  // A map visual whose areas don't line up with its geojson says so (both the map and Trend views).
+  setGeoMismatchNote(cfg["type"] === "heatmap" && currentGeojson ? geoMismatch(currentGeojson, facts, province) : null);
   // Grain / chart-type toggles live at level 1 only (masterLoop re-runs with the new state).
   const grainToggle = document.getElementById("time-grain-toggle");
   const chartToggle = document.getElementById("chart-type-toggle");
@@ -1013,12 +1041,14 @@ async function createVisualHeatMap(province, visualToGen, geojson, mapData, mapS
     dataSlider.push(chartData);
   }
 
-  // Create the slider steps
+  // Create the slider steps. Every step carries its full period: Plotly reads the current-value
+  // readout from the active step's label, and already thins the tick labels to what fits (labelStride),
+  // so a long month axis stays legible without blanking any label.
   for (let i = 0; i < dataSlider.length; i++) {
     let step = {
       method: "restyle",
       args: ["visible", Array(dataSlider.length).fill(false)],
-      label: sliderStepLabel(periods[i], mapOptions["grain"], periods),
+      label: periods[i],
     };
     step.args[1][i] = true;
     steps.push(step);
@@ -1076,7 +1106,8 @@ async function createVisualHeatMap(province, visualToGen, geojson, mapData, mapS
       responsive: false,
     })
   ).then(() => {
-    // (Not read off the trace: Plotly rewrites a string colorbar title into {text} on gd.data.)
+    // The tip's "Number of deaths" label is spelled out rather than read from the colorbar title:
+    // Plotly rewrites a string colorbar title into {text} on gd.data.
     attachGeoHoverTip(visDiv, (point) => (point.location == null ? null
       : { name: point.location, value: `Number of deaths: ${point.z}` }));
     visDiv.on("plotly_click", function (data) {
@@ -1205,8 +1236,6 @@ async function createVisualMap(province, currentVisual, geojson, mapOptions) {
 
 // create line chart
 async function createVisualLine(province, lineData, currentVisual, dataType, lineSource, visualOptions, additionalRows = null, dataTypes = null){
-  // The title is the HTML heading above the figure; set it first so chartAreaHeight() can allow for it.
-  setVisualTitle(visualOptions[`${dataType}-title`].replace("replace_with_health_authority", visualOptions["location"] || "").replace("replace_with_category", visualOptions["category"] || ""));
   let dataTypeToggle = document.getElementById("data-type-toggle");
   let visDiv = document.getElementById("vis-div");
   let aboutDataDiv = document.getElementById("about-data");
@@ -1233,6 +1262,9 @@ async function createVisualLine(province, lineData, currentVisual, dataType, lin
   }
   dataType = (dataType !== null && available.includes(dataType)) ? dataType : available[0];
   traceData = lineData[dataType];
+  // The title is the HTML heading above the figure; set it (for the data type actually drawn) before
+  // the figure is sized so chartAreaHeight() can allow for it.
+  setVisualTitle(visualOptions[`${dataType}-title`].replace("replace_with_health_authority", visualOptions["location"] || "").replace("replace_with_category", visualOptions["category"] || ""));
 
   // check to see if we have a total
   totalPresent = !!("total" in traceData);
@@ -1415,8 +1447,6 @@ async function createVisualLine(province, lineData, currentVisual, dataType, lin
 
 // Function to generate a bar chart
 async function createVisualBar(province, barData, currentVisual, dataType, barSource, visualOptions, dataTypes = null) {
-  // The title is the HTML heading above the figure; set it first so chartAreaHeight() can allow for it.
-  setVisualTitle(visualOptions[`${dataType}-title`].replace("replace_with_health_authority", visualOptions["location"] || "").replace("replace_with_category", visualOptions["category"] || ""));
   let dataTypeToggle = document.getElementById("data-type-toggle");
   let visDiv = document.getElementById("vis-div");
   let aboutDataDiv = document.getElementById("about-data");
@@ -1440,6 +1470,9 @@ async function createVisualBar(province, barData, currentVisual, dataType, barSo
   }
   dataType = (dataType !== null && available.includes(dataType)) ? dataType : available[0];
   traceData = barData[dataType];
+  // The title is the HTML heading above the figure; set it (for the data type actually drawn) before
+  // the figure is sized so chartAreaHeight() can allow for it.
+  setVisualTitle(visualOptions[`${dataType}-title`].replace("replace_with_health_authority", visualOptions["location"] || "").replace("replace_with_category", visualOptions["category"] || ""));
 
   // Create a trace for each y value in the barData object entry. Each series
   // gets a distinct pattern fill + subtle theme-aware outline so bars are

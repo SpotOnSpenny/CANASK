@@ -94,7 +94,8 @@ class TestCoronersCleanCell:
 
     @pytest.mark.parametrize("raw", ["", "   ", "n/a", None, float("nan")])
     def test_blank_or_non_numeric_is_none(self, raw):
-        # No suppression marker in this workbook: blanks are gaps, never fabricated 0s.
+        # Cell-level: a blank is "no number". Whether it's a 0 depends on its column, which
+        # _coroners_frames_from_sheets decides (TestCoronersFramesFromSheets).
         assert _coroners_clean_cell(raw) is None
 
 
@@ -447,6 +448,49 @@ class TestCoronersFramesFromSheets:
         untitled = pandas.DataFrame([[None] * 3] * 3, columns=["Unnamed: 0", "Unnamed: 1", "Unnamed: 2"])
         assert _coroners_frames_from_sheets({"a": short, "b": untitled}) == {}
 
+    @staticmethod
+    def _read(sheets, title, grain):
+        from data_viz.generate_visuals import _coroners_frame
+        return _coroners_frame({"frames": _coroners_frames_from_sheets(sheets)}, title, grain)
+
+    def test_blank_in_a_reported_column_is_a_zero(self):
+        # The real monthly age table: 2025-09's 0-18 cell is blank and the other bands sum to Total.
+        sheets = {"T": _sheet("Age", ["2025 Aug", "2025 Sep"],
+                              [("0-18", [1, "\xa0"]), ("19-29", [16, 26]), ("80+", [None, float("nan")]),
+                               ("Total", [17, 26])])}
+        frame = self._read(sheets, "Age", "month")
+        assert frame["rows"] == {"0-18": [1, 0], "19-29": [16, 26], "80+": [0, 0], "Total": [17, 26]}
+
+    def test_reader_keeps_cells_raw(self):
+        # The fill happens on lookup, so a table no cleaner reads is never zero-filled.
+        sheets = {"T": _sheet("Age", ["2025 Aug"], [("0-18", ["\xa0"]), ("19-29", [16])])}
+        (frame,) = _coroners_frames_from_sheets(sheets)["Age"]
+        assert frame["rows"]["0-18"] == ["\xa0"]
+
+    def test_unreported_column_stays_blank(self):
+        sheets = {"T": _sheet("Deaths by HA", ["2024", "2025"], [("Fraser", [10, None]), ("Island", [1, "\xa0"])])}
+        frame = self._read(sheets, "Deaths by HA", "year")
+        assert pandas.isna(frame["rows"]["Fraser"][1]) and frame["rows"]["Island"][1] == "\xa0"
+
+    def test_non_numeric_text_is_not_zeroed(self):
+        sheets = {"T": _sheet("Deaths by HA", ["2024"], [("Fraser", [10]), ("Island", ["n/a"])])}
+        assert self._read(sheets, "Deaths by HA", "year")["rows"]["Island"] == ["n/a"]
+
+    def test_month_history_before_the_live_window_is_not_zero_filled(self):
+        # A history-merged workbook: 15 months, a row with no history before the 13-month window.
+        months = [f"2025 {m}" for m in ("Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov",
+                                        "Dec")] + [f"2026 {m}" for m in ("Jan", "Feb", "Mar", "Apr")]
+        sheets = {"T": _sheet("Age", months, [("19-29", list(range(1, 16))), ("80+", [None] * 15)])}
+        rows = self._read(sheets, "Age", "month")["rows"]["80+"]
+        assert all(pandas.isna(v) for v in rows[:2]) and rows[2:] == [0] * 13
+
+    def test_first_header_drift_is_tagged_other(self):
+        # Not a parse error here -- the cleaner refuses the missing month table instead
+        # (TestCoronersCleanerMonthQuarter.test_month_header_drift_fails_the_build).
+        sheets = {"T": _sheet("Deaths by HA", ["Apr 2025", "May 2025"], [("Fraser", [1, 2])])}
+        (frame,) = _coroners_frames_from_sheets(sheets)["Deaths by HA"]
+        assert frame["grain"] == "other"
+
     def test_coroners_frame_lookup_still_works(self):
         from data_viz.generate_visuals import _coroners_frame
         sheets = {"Table 4": _sheet("T", ["2025 Apr"], [("Fraser", [3])]),
@@ -550,8 +594,9 @@ class TestCoronersCleanerMonthQuarter:
             "frames": {
                 cls.HEAT: [
                     frame("year", ["2024"], {"Fraser": [10], "British Columbia": [40]}),
+                    # 2025-08 is wholly unreported (a true gap, unlike a blank beside reported cells)
                     frame("month", cls.MONTHS, {"Fraser": [1, 2, 3, 4, None, 6],
-                                                "British Columbia": [5, 5, 5, 6, 6, 6]}),
+                                                "British Columbia": [5, 5, 5, 6, None, 6]}),
                 ],
                 cls.AGE: [
                     frame("year", ["2024"], {"20-29": [7], "Not available": [1], "Total": [8]}),
@@ -584,12 +629,11 @@ class TestCoronersCleanerMonthQuarter:
             ("Fraser", "2024", 10, "year", "counts", None),
             ("British Columbia", "2024", 40, "year", "counts", None)]
         fraser_months = [(f[1], f[2]) for f in self._grain(facts, "month") if f[0] == "Fraser"]
-        # 2025-08 is None -> no fact (never a 0)
+        # 2025-08 is unreported in every row -> no fact (never a 0)
         assert fraser_months == [("2025-04", 1), ("2025-05", 2), ("2025-06", 3), ("2025-07", 4),
                                  ("2025-09", 6)]
         quarters = {(f[0], f[1]): f[2] for f in self._grain(facts, "quarter")}
-        assert quarters == {("Fraser", "2025-Q2"): 6, ("British Columbia", "2025-Q2"): 15,
-                            ("British Columbia", "2025-Q3"): 18}    # Fraser's Q3 has a gap -> none
+        assert quarters == {("Fraser", "2025-Q2"): 6, ("British Columbia", "2025-Q2"): 15}   # Q3 has a gap
 
     def test_age_counts_months_quarters_and_relabel(self, run):
         v = run["drug_toxicity_deaths_by_age"]
@@ -610,8 +654,11 @@ class TestCoronersCleanerMonthQuarter:
             ("British Columbia", "2025-05", "Total Deaths", 1, "month"),
             ("British Columbia", "2025-06", "Total Deaths", 2, "month"),
             ("British Columbia", "2025-07", "Total Deaths", 2, "month"),
-            ("British Columbia", "2025-08", "Total Deaths", 2, "month"),   # 2025-09 is None -> skipped
-            ("British Columbia", "2025-Q2", "Total Deaths", 4, "quarter"),  # Q3 incomplete -> no quarter
+            ("British Columbia", "2025-08", "Total Deaths", 2, "month"),
+            # Total's 2025-09 is blank beside reported age rows -> a 0, so Q3 is complete
+            ("British Columbia", "2025-09", "Total Deaths", 0, "month"),
+            ("British Columbia", "2025-Q2", "Total Deaths", 4, "quarter"),
+            ("British Columbia", "2025-Q3", "Total Deaths", 4, "quarter"),
         ]
 
     def test_age_rates_pass_through_monthly_and_sum_per_quarter(self, run):
@@ -624,6 +671,61 @@ class TestCoronersCleanerMonthQuarter:
         assert quarters[("2025-Q3", "20-29")] == 3
         assert ("2025-Q2", "Age Unavailable") in quarters
         assert self._grain(rates, "year")[0][5:] == ("20-29",) and self._grain(rates, "year")[0][2] == 30.5
+
+
+    @pytest.mark.parametrize("title,grain", [
+        (HEAT, "year"), (HEAT, "month"), (AGE, "year"), (AGE, "month"),
+        (AGE_RATES, "year"), (AGE_RATES, "month"),
+    ])
+    def test_missing_required_table_fails_the_build(self, monkeypatch, title, grain):
+        import data_viz.generate_visuals as gv
+        workbook = self._workbook()
+        workbook["frames"][title] = [f for f in workbook["frames"][title] if f["grain"] != grain]
+        monkeypatch.setattr(gv, "_read_coroners_workbook", lambda: workbook)
+        visuals = {"drug_death_heatmap": self._Visual(), "drug_toxicity_deaths_by_age": self._Visual()}
+        with pytest.raises(ValueError, match=f"no {grain} table titled {title!r}"):
+            gv.v1_coroners_export_clean(self._Writer(visuals), "british-columbia")
+
+    @classmethod
+    def _sheets(cls, month_header):
+        """The six required tables as the workbook reads them, monthly headers built by month_header."""
+        months = [month_header(m) for m in ("Apr", "May", "Jun")]
+        return {
+            "t1": _sheet(cls.HEAT, ["2024"], [("Fraser", [10]), ("British Columbia", [40])]),
+            "t4": _sheet(cls.HEAT, months, [("Fraser", [1, 2, 3]), ("British Columbia", [5, 5, 5])]),
+            "t5": _sheet(cls.AGE, ["2024"], [("20-29", [7]), ("80+", [1]), ("Total", [8])]),
+            "t6": _sheet(cls.AGE, months, [("20-29", [3, 4, 5]), ("80+", ["\xa0", 1, "\xa0"]),
+                                           ("Total", [3, 5, 5])]),
+            "t7": _sheet(cls.AGE_RATES, ["2024"], [("20-29", [30.5]), ("80+", [1.0])]),
+            "t8": _sheet(cls.AGE_RATES, months, [("20-29", [0.5, 0.5, 0.5]), ("80+", ["\xa0", 0.4, "\xa0"])]),
+        }
+
+    def _run_sheets(self, monkeypatch, sheets):
+        import data_viz.generate_visuals as gv
+        workbook = {"date_updated": "x", "data_until": "y", "frames": _coroners_frames_from_sheets(sheets)}
+        monkeypatch.setattr(gv, "_read_coroners_workbook", lambda: workbook)
+        visuals = {"drug_death_heatmap": self._Visual(), "drug_toxicity_deaths_by_age": self._Visual()}
+        gv.v1_coroners_export_clean(self._Writer(visuals), "british-columbia")
+        return visuals
+
+    def test_month_header_drift_fails_the_build(self, monkeypatch):
+        # "Apr 2025" instead of "2025 Apr": the table reads as 'other', and the build refuses to
+        # publish the heatmap/age visuals without their monthly grain.
+        with pytest.raises(ValueError, match="no month table"):
+            self._run_sheets(monkeypatch, self._sheets(lambda m: f"{m} 2025"))
+
+    def test_blank_age_cells_are_zeros_so_quarters_survive(self, monkeypatch):
+        # 80+ is blank in two of the three months (a 0 the dashboard leaves empty): its quarter must
+        # still be emitted, and the bands must add up to the quarterly Total.
+        v = self._run_sheets(monkeypatch, self._sheets(lambda m: f"2025 {m}"))["drug_toxicity_deaths_by_age"]
+        quarters = {(f[5], f[4]): f[2] for f in self._grain(v.facts, "quarter")}
+        assert quarters[("80+", "counts")] == 1 and quarters[("20-29", "counts")] == 12
+        assert quarters[("80+", "rates")] == 0.4
+        assert [a for a in v.additionals if a[4] == "quarter"] == [
+            ("British Columbia", "2025-Q2", "Total Deaths", 13, "quarter")]
+        assert quarters[("80+", "counts")] + quarters[("20-29", "counts")] == 13
+        months_80 = [(f[1], f[2]) for f in self._grain(v.facts, "month") if f[5] == "80+" and f[4] == "counts"]
+        assert months_80 == [("2025-04", 0), ("2025-05", 1), ("2025-06", 0)]
 
 
 class TestBccsuPeriodKeys:

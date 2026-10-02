@@ -15,7 +15,8 @@ fetched as GeoJSON in EPSG:4326. The original hand-drawn asset had ~150 vertices
 authority and turned Vancouver Island into a blob fused to the mainland; this keeps the
 real coastline at a web-friendly size. Output schema per feature:
 
-    properties: {"ENGNAME": "Interior"}   # exactly _BC_HEALTH_AUTHORITIES in generate_visuals
+    properties: {"ENGNAME": "Interior"}   # _BC_HEALTH_AUTHORITIES in generate_visuals, minus the
+                                          # province-wide "British Columbia" row (no polygon)
 
 "Vancouver Island" in the source is renamed to "Island" to match the Coroners data. Tiny
 islets are dropped (they add bytes, not meaning, at province scale), rings are rewound to
@@ -25,9 +26,9 @@ decimals (~110 m).
 
 import sys
 
-# Running this file directly puts data_viz/ first on sys.path, where email.py would
-# shadow the stdlib email package that urllib.request imports. Drop it — this script
-# only uses the standard library.
+# Running this file directly puts data_viz/ first on sys.path, where email.py would shadow the
+# stdlib email package that urllib.request imports. Drop it before the stdlib imports; it is put back
+# below, once urllib.request has loaded the real email package, so geo_build_utils can be imported.
 sys.path.pop(0)
 
 import json
@@ -36,7 +37,8 @@ import tempfile
 import urllib.request
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from geo_build_utils import normalize_geometry, run_mapshaper, write_collection  # noqa: E402
+from geo_build_utils import (check_geojson, check_names, download_cached,  # noqa: E402
+                             normalize_geometry, run_mapshaper, write_collection)
 
 LAYER = "WHSE_ADMIN_BOUNDARIES.BCHA_HEALTH_AUTHORITY_BNDRY_SP"
 WFS_URL = (
@@ -55,10 +57,7 @@ EXPECTED_NAMES = {"Interior", "Fraser", "Vancouver Coastal", "Island", "Northern
 
 
 def main():
-    CACHE_RAW.parent.mkdir(exist_ok=True)
-    if not CACHE_RAW.exists():
-        print(f"downloading {WFS_URL}")
-        urllib.request.urlretrieve(WFS_URL, CACHE_RAW)
+    download_cached(WFS_URL, CACHE_RAW, check_geojson)
 
     with tempfile.TemporaryDirectory() as tmp:
         simplified = pathlib.Path(tmp) / "bc.geojson"
@@ -82,8 +81,7 @@ def main():
         })
     features.sort(key=lambda f: f["properties"]["ENGNAME"])
 
-    names = {f["properties"]["ENGNAME"] for f in features}
-    assert names == EXPECTED_NAMES, f"unexpected names: {names ^ EXPECTED_NAMES}"
+    check_names(features, EXPECTED_NAMES)
 
     write_collection(OUT_PATH, features)
 

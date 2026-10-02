@@ -414,7 +414,7 @@ a { text-decoration: none; }
 }
 @media (max-width: 768px) {
   /* Phones: use the width (the back/reset overlay only exists on drilled visuals, so reserve room
-     for it only then) and give the card enough height for a map plus its slider. */
+     for it only then). The card's phone height is set on #viz-card further down. */
   .vis-title { font-size: 1.0625rem; max-width: 100%; padding: 0 0.5rem; }
   #viz-card:has(#back-button:not(.d-none)) .vis-title { padding: 0 2.75rem; }
 }

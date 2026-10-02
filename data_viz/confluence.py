@@ -192,16 +192,24 @@ def _fact_grain(fact):
 
 
 def facts_at_grain(facts, grain):
-    """The facts a visual shows at one grain: its main facts tagged with that grain (untagged =
-    year), plus every additional row (table-only extras, never aligned)."""
-    return [f for f in facts if f.get("dt") == "additional_rows" or _fact_grain(f) == grain]
+    """The facts a visual shows at one grain: those tagged with that grain (untagged = year),
+    additional rows included -- the same narrowing the province page applies (factsAtGrain)."""
+    return [f for f in facts if _fact_grain(f) == grain]
+
+
+def _drawn(visual, fact):
+    """Whether a fact is drawn (and so can make a grain available): never an additional row, and only
+    counts on a heatmap, which draws counts alone (the province page's availableGrains rule)."""
+    if fact.get("dt") == "additional_rows":
+        return False
+    return visual.chart_type != "heatmap" or fact.get("dt") == "counts"
 
 
 def available_grains(visual, facts):
-    """The grains this visual can be overlaid at, in GRAINS order: every grain its main facts
-    carry, narrowed to the manifest's visual_options.time_grains when it declares them."""
+    """The grains this visual can be overlaid at, in GRAINS order: every grain its drawn facts
+    carry (_drawn), narrowed to the manifest's visual_options.time_grains when it declares them."""
     declared = (visual.visual_options or {}).get("time_grains")
-    present = {_fact_grain(f) for f in facts if f.get("dt") != "additional_rows"}
+    present = {_fact_grain(f) for f in facts if _drawn(visual, f)}
     return [g for g in GRAINS if g in present and (declared is None or g in declared)]
 
 
@@ -352,7 +360,8 @@ def build_confluence_payload(province, visual, keys, level, basis, expr, grain=N
     (keys_at_level). Raises UnalignableVisualError for a grain the visual doesn't offer or whose
     time frames can't be aligned, and FilterSyntaxError for a bad `expr`.
 
-    `visual` is the province API's block with its facts narrowed to the grain (facts_at_grain);
+    The payload's `visual` key is the province API's block with its facts narrowed to the grain
+    (facts_at_grain);
     `grains` lists every grain the visual offers, so the client can switch between them.
 
     `das` always carries both `series` and `cities`; `mode` says which one is populated:
@@ -427,7 +436,7 @@ def confluence_config(user):
             continue
         visuals = []
         for v in supported_visuals(user, slug):
-            values, grains = visual_facets(v)
+            values, grain_types = visual_facets(v)
             visuals.append({
                 "id": v.name,
                 "menu_name": v.menu_name or v.name,
@@ -435,7 +444,7 @@ def confluence_config(user):
                 "shape": v.data_shape,
                 "metric": v.metric,
                 "terms_resolved": keys_at_level(resolve_terms(values, data), "group", data),
-                "grains": available_grains(v, [{"g": g} for g in grains]),
+                "grains": available_grains(v, [{"g": g, "dt": dt} for g, dt in grain_types]),
             })
         if visuals:
             provinces[slug] = {"label": PROVINCE_LABELS[slug], "code": PROVINCE_CODES[slug],

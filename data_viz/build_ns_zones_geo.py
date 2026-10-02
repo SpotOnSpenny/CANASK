@@ -18,7 +18,8 @@ turned Cape Breton into a blob). Output schema per feature: properties {"ENGNAME
 import sys
 
 # Running this file directly puts data_viz/ first on sys.path, where email.py would shadow the
-# stdlib email package that urllib.request imports. Drop it before the stdlib imports.
+# stdlib email package that urllib.request imports. Drop it before the stdlib imports; it is put back
+# below, once urllib.request has loaded the real email package, so geo_build_utils can be imported.
 sys.path.pop(0)
 
 import json
@@ -27,7 +28,8 @@ import tempfile
 import urllib.request
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from geo_build_utils import normalize_geometry, run_mapshaper, write_collection  # noqa: E402
+from geo_build_utils import (check_geojson, check_names, download_cached,  # noqa: E402
+                             normalize_geometry, run_mapshaper, write_collection)
 
 SOURCE_URL = "https://data.novascotia.ca/api/geospatial/s3ax-gi3m?method=export&format=GeoJSON"
 SIMPLIFY = "20%"            # mapshaper retention of the 60k-vertex source; see the printed size
@@ -40,10 +42,7 @@ EXPECTED_ZONES = {"Western", "Northern", "Eastern", "Central"}
 
 
 def main():
-    CACHE_RAW.parent.mkdir(exist_ok=True)
-    if not CACHE_RAW.exists():
-        print(f"downloading {SOURCE_URL}")
-        urllib.request.urlretrieve(SOURCE_URL, CACHE_RAW)
+    download_cached(SOURCE_URL, CACHE_RAW, check_geojson)
 
     with tempfile.TemporaryDirectory() as tmp:
         simplified = pathlib.Path(tmp) / "ns.geojson"
@@ -61,8 +60,7 @@ def main():
     } for feature in data["features"]]
     features.sort(key=lambda f: f["properties"]["ENGNAME"])
 
-    names = {f["properties"]["ENGNAME"] for f in features}
-    assert names == EXPECTED_ZONES, f"unexpected zone names: {names ^ EXPECTED_ZONES}"
+    check_names(features, EXPECTED_ZONES)
     write_collection(OUT_PATH, features)
 
 

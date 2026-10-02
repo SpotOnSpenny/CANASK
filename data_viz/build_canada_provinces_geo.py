@@ -23,9 +23,9 @@ the payload small.
 
 import sys
 
-# Running this file directly puts data_viz/ first on sys.path, where email.py would
-# shadow the stdlib email package that urllib.request imports. Drop it — this script
-# only uses the standard library.
+# Running this file directly puts data_viz/ first on sys.path, where email.py would shadow the
+# stdlib email package that urllib.request imports. Drop it before the stdlib imports; it is put back
+# below, once urllib.request has loaded the real email package, so geo_build_utils can be imported.
 sys.path.pop(0)
 
 import json
@@ -35,7 +35,8 @@ import urllib.request
 import zipfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from geo_build_utils import normalize_geometry, run_mapshaper, write_collection  # noqa: E402
+from geo_build_utils import (check_names, check_zip, download_cached,  # noqa: E402
+                             normalize_geometry, run_mapshaper, write_collection)
 
 NE_URL = "https://naciscdn.org/naturalearth/50m/cultural/ne_50m_admin_1_states_provinces.zip"
 SIMPLIFY = "35%"  # mapshaper retention; ~60 KB output. Raise for fidelity, lower for size.
@@ -48,10 +49,7 @@ EXPECTED_CODES = {"AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "Q
 
 
 def main():
-    CACHE_ZIP.parent.mkdir(exist_ok=True)
-    if not CACHE_ZIP.exists():
-        print(f"downloading {NE_URL}")
-        urllib.request.urlretrieve(NE_URL, CACHE_ZIP)
+    download_cached(NE_URL, CACHE_ZIP, check_zip)
 
     with tempfile.TemporaryDirectory() as tmp:
         zipfile.ZipFile(CACHE_ZIP).extractall(tmp)
@@ -77,8 +75,7 @@ def main():
         })
     features.sort(key=lambda f: f["properties"]["code"])
 
-    codes = {f["properties"]["code"] for f in features}
-    assert codes == EXPECTED_CODES, f"unexpected codes: {codes ^ EXPECTED_CODES}"
+    check_names(features, EXPECTED_CODES, key="code")
 
     write_collection(OUT_PATH, features)
 

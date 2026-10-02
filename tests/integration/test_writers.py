@@ -129,7 +129,7 @@ class TestVisualWriter:
                                          "counts-title": "Deaths in Ontario"}
 
     def test_year_quarter_month_facts_round_trip_in_one_visual(self, writer):
-        visual, source = self._visual()
+        visual, source = self._visual(visual_options={"time_grains": ["year", "quarter", "month"]})
         vw = writer.visual(visual.province, visual.name)
         vw.fact("ontario", "2025", 12, time_frame_type="year")
         vw.fact("ontario", "2025-Q2", 3, time_frame_type="quarter")
@@ -143,6 +143,52 @@ class TestVisualWriter:
                        ("2025-04", "month", "counts", 1.0),
                        ("2025-04", "month", "additional_rows", 9.0)}
 
+
+class TestGrainContract:
+    """A fact's period key must match its grain, and a visual's grains must be declared before the
+    province page could mis-draw them (all checked before finish() touches the DB)."""
+
+    def _vw(self, writer, **kw):
+        visual = make_visual(metric="deaths", geo_type="province", data_shape="flat_series",
+                             data_source=make_data_source(), **kw)
+        return writer.visual(visual.province, visual.name), visual
+
+    @pytest.mark.parametrize("time_frame,grain", [
+        ("2025-04", "year"), ("2025", "month"), ("2025-Q2", "month"), ("2025-13", "month"),
+        ("2025 Q2", "quarter"), ("2025-Q5", "quarter"), ("2025.0", "year"), ("2025", "week"),
+    ])
+    def test_key_must_match_its_grain(self, writer, time_frame, grain):
+        vw, _ = self._vw(writer)
+        with pytest.raises(ValueError, match="period key"):
+            vw.fact("ontario", time_frame, 1, time_frame_type=grain)
+
+    def test_additional_row_key_checked_too(self, writer):
+        vw, _ = self._vw(writer)
+        with pytest.raises(ValueError, match="period key"):
+            vw.additional("ontario", "2025-04", "Total Deaths", 9)   # default grain is year
+
+    def test_undeclared_mix_of_grains_refused_before_any_write(self, writer):
+        vw, visual = self._vw(writer)
+        vw.fact("ontario", "2025", 12)
+        vw.fact("ontario", "2025-04", 1, time_frame_type="month")
+        with pytest.raises(ValueError, match="declares no visual_options.time_grains"):
+            writer.finish()
+        assert DataPoints.query.filter_by(data_source_id=visual.data_source_id).count() == 0
+
+    def test_grain_missing_from_declared_list_refused(self, writer):
+        vw, _ = self._vw(writer, visual_options={"time_grains": ["year", "quarter"]})
+        vw.fact("ontario", "2025", 12)
+        vw.additional("ontario", "2025-04", "Total Deaths", 9, time_frame_type="month")
+        with pytest.raises(ValueError, match=r"\['month'\] missing from its time_grains"):
+            writer.finish()
+
+    def test_single_non_year_grain_needs_no_declaration(self, writer):
+        # The month-only drug-checking treemap / expected-vs-actual visuals: one grain, nothing to mix.
+        vw, visual = self._vw(writer)
+        vw.fact("ontario", "2025-04", 1, time_frame_type="month")
+        vw.fact("ontario", "2025-05", 2, time_frame_type="month")
+        writer.finish()
+        assert DataPoints.query.filter_by(data_source_id=visual.data_source_id).count() == 2
 
 class TestScopedRewrite:
     def test_finish_replaces_only_reproduced_territory(self, db_session):
@@ -178,8 +224,8 @@ class TestScopedRewrite:
                              data_source=source, province=unique("prov"))
         first = FactWriter(db, MODELS)
         vw = first.visual(visual.province, visual.name)
-        vw.fact("Sask||Old Spelling", "2024-01", 5)
-        vw.fact("Sask||Other Site", "2024-01", 7)
+        vw.fact("Sask||Old Spelling", "2024-01", 5, time_frame_type="month")
+        vw.fact("Sask||Other Site", "2024-01", 7, time_frame_type="month")
         first.finish()
 
         second = FactWriter(db, MODELS)
@@ -187,7 +233,7 @@ class TestScopedRewrite:
         vw.use_source({"name": source.name, "link": None, "about": None,
                        "last_updated": None, "data_until": None})
         vw.retire_geo("Sask||Old Spelling")
-        vw.fact("Sask||New Spelling", "2024-01", 5)
+        vw.fact("Sask||New Spelling", "2024-01", 5, time_frame_type="month")
         second.finish()
 
         by_geo = {p.geo: p.data_value for p in _points_for(source.id)}
@@ -198,7 +244,7 @@ class TestScopedRewrite:
         vw.use_source({"name": source.name, "link": None, "about": None,
                        "last_updated": None, "data_until": None})
         vw.retire_geo("Sask||Old Spelling")   # nothing left to delete -- harmless
-        vw.fact("Sask||New Spelling", "2024-01", 6)
+        vw.fact("Sask||New Spelling", "2024-01", 6, time_frame_type="month")
         third.finish()
         by_geo = {p.geo: p.data_value for p in _points_for(source.id)}
         assert by_geo == {"Sask||New Spelling": 6.0, "Sask||Other Site": 7.0}
@@ -219,3 +265,27 @@ class TestScopedRewrite:
                  for p in VisualQuery.query.filter_by(for_visual_id=visual.id)}
         # Old dimension predicate replaced, not accumulated.
         assert preds == {("geo", "ontario"), ("dimension", "stimulants")}
+
+
+class TestExportFailsLoudly:
+    def test_cleaner_error_propagates_and_keeps_existing_rows(self, db_session, monkeypatch):
+        """export_data_to_db skips only a MISSING scrape: any other cleaner error (e.g. the BC
+        Coroners month-header guard) must fail the run before finish(), leaving the live rows and
+        dropping whatever the run had already buffered."""
+        import data_viz.generate_visuals as gv
+        source = make_data_source()
+        visual = make_visual(metric="deaths", geo_type="province", data_source=source,
+                             province=unique("prov"))
+        live = DataPoints(data_source_id=source.id, geo_type="province", geo="BC", time_frame="2024",
+                          time_frame_type="year", data_metric="deaths", data_type="counts", data_value=5)
+        db.session.add(live)
+        db.session.flush()
+
+        def failing_builder(writer, province):
+            writer.visual(visual.province, visual.name).fact("BC", "2025", 99)
+            raise ValueError("BC Coroners sheet 'X': unparseable month header")
+
+        monkeypatch.setattr(gv, "V1_DIRECT", {visual.province: failing_builder})
+        with pytest.raises(ValueError, match="unparseable month header"):
+            gv.export_data_to_db()
+        assert [(p.time_frame, p.data_value) for p in _points_for(source.id)] == [("2024", 5.0)]

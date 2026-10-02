@@ -37,22 +37,23 @@ def visual_block(visual):
 
 
 def visual_facets(visual):
-    """(dimension values, time_frame_types) of a visual's main facts, from ONE distinct query
-    and without loading the facts: the dimension / dimension2 values as one set of strings
-    (Confluence's substance crosswalk input) and the set of grains its facts carry (its grain
-    toggle). Both empty for a metric-less visual or a province with no data for it."""
+    """(dimension values, (time_frame_type, data_type) pairs) of a visual's main facts, from ONE
+    distinct query and without loading the facts: the dimension / dimension2 values as one set of
+    strings (Confluence's substance crosswalk input) and the (grain, data type) pairs its facts
+    carry (its grain toggle; the data type lets a heatmap count only its counts). Both empty for a
+    metric-less visual or a province with no data for it."""
     if not visual.metric:
         return set(), set()
     query = _main_query(visual, _predicates(visual.id))
     if query is None:
         return set(), set()
-    values, grains = set(), set()
+    values, grain_types = set(), set()
     rows = query.with_entities(DataPoints.dimension_value, DataPoints.dimension2_value,
-                               DataPoints.time_frame_type).distinct()
-    for dimension, dimension2, grain in rows:
+                               DataPoints.time_frame_type, DataPoints.data_type).distinct()
+    for dimension, dimension2, grain, data_type in rows:
         values.update(v for v in (dimension, dimension2) if v is not None)
-        grains.add(grain)
-    return values, grains
+        grain_types.add((grain, data_type))
+    return values, grain_types
 
 
 def _visual_facts(visual):

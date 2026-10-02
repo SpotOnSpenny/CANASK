@@ -286,8 +286,9 @@ class TestOverlappingPeriods:
 
 
 class _Visual:
-    def __init__(self, visual_options=None):
+    def __init__(self, visual_options=None, chart_type="line"):
         self.visual_options = visual_options
+        self.chart_type = chart_type
 
 
 MIXED = [{"dt": "counts", "t": "2025", "g": "year"},
@@ -306,8 +307,10 @@ class TestFactsAtGrain:
         assert cf.facts_at_grain(facts, "year") == facts
         assert cf.facts_at_grain(facts, "month") == []
 
-    def test_additional_rows_are_kept(self):
-        assert MIXED[3] in cf.facts_at_grain(MIXED, "year")
+    def test_additional_rows_narrowed_by_grain_too(self):
+        # Same meaning as the province page's factsAtGrain: "the block at grain G" holds only G.
+        assert MIXED[3] not in cf.facts_at_grain(MIXED, "year")
+        assert MIXED[3] in cf.facts_at_grain(MIXED, "month")
 
 
 class TestAvailableGrains:
@@ -336,6 +339,13 @@ class TestAvailableGrains:
         facts = [{"dt": "counts", "t": "2025", "g": "year"},
                  {"dt": "additional_rows", "t": "2025-04", "g": "month"}]
         assert cf.available_grains(_Visual(self.ALL), facts) == ["year"]
+
+    def test_heatmap_grains_come_from_its_counts_only(self):
+        # A heatmap draws counts alone: a grain carried only by its rates would draw an empty map.
+        facts = [{"dt": "counts", "t": "2025", "g": "year"},
+                 {"dt": "rates", "t": "2025-04", "g": "month"}]
+        assert cf.available_grains(_Visual(chart_type="heatmap"), facts) == ["year"]
+        assert cf.available_grains(_Visual(chart_type="line"), facts) == ["year", "month"]
 
     def test_unknown_declared_grain_ignored(self):
         facts = [{"dt": "counts", "t": "2025-W01", "g": "week"}]

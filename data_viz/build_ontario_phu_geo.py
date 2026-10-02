@@ -23,7 +23,8 @@ over by HR_UID from the previous asset via PHU_NAMES below. StatCan renumbered H
 import sys
 
 # Running this file directly puts data_viz/ first on sys.path, where email.py would shadow the
-# stdlib email package that urllib.request imports. Drop it before the stdlib imports.
+# stdlib email package that urllib.request imports. Drop it before the stdlib imports; it is put back
+# below, once urllib.request has loaded the real email package, so geo_build_utils can be imported.
 sys.path.pop(0)
 
 import json
@@ -33,7 +34,8 @@ import urllib.request
 import zipfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from geo_build_utils import normalize_geometry, run_mapshaper, write_collection  # noqa: E402
+from geo_build_utils import (check_names, check_zip, download_cached,  # noqa: E402
+                             normalize_geometry, run_mapshaper, write_collection)
 
 SOURCE_URL = "https://www150.statcan.gc.ca/pub/82-402-x/2024001/hrbf-flrs/carto/ArcGIS/HR_035b23a_e.zip"
 SIMPLIFY = "1%"             # mapshaper retention of the 3.9M-vertex source; see the printed size
@@ -82,10 +84,7 @@ PHU_NAMES = {
 
 
 def main():
-    CACHE_ZIP.parent.mkdir(exist_ok=True)
-    if not CACHE_ZIP.exists():
-        print(f"downloading {SOURCE_URL}")
-        urllib.request.urlretrieve(SOURCE_URL, CACHE_ZIP)
+    download_cached(SOURCE_URL, CACHE_ZIP, check_zip)
 
     with tempfile.TemporaryDirectory() as tmp:
         zipfile.ZipFile(CACHE_ZIP).extractall(tmp)
@@ -108,8 +107,7 @@ def main():
         })
     features.sort(key=lambda f: f["properties"]["ENGNAME"])
 
-    names = {f["properties"]["ENGNAME"] for f in features}
-    assert names == set(PHU_NAMES.values()), f"unexpected names: {names ^ set(PHU_NAMES.values())}"
+    check_names(features, PHU_NAMES.values())
     write_collection(OUT_PATH, features)
 
 
