@@ -3,7 +3,7 @@ chosen visual's own visibility."""
 import pytest
 
 from tests.confluence_data import (GRAIN_FRAMES, das_gate, seed_confluence, seed_grain_visuals,
-                                   seed_month_visuals)
+                                   seed_month_visuals, seed_rates_heatmap)
 from tests.factories import (grant_visual, make_data_source, make_datapoint, make_group,
                              make_user, make_visual, make_visual_query)
 
@@ -126,7 +126,8 @@ class TestPayload:
     def test_series_shape(self, client):
         payload = client.get(url(**SK_FLAT, groups="fentanyl", level="group")).get_json()
         assert set(payload) == {"province", "visual", "visual_label", "visual_metric", "grain",
-                                "grains", "periods", "das"}
+                                "grains", "measure", "measures", "periods", "das"}
+        assert payload["measure"] is None and payload["measures"] == []
         assert payload["das"]["mode"] == "series"
         assert payload["das"]["series"]["fentanyl"] == {"2025": 2, "2026": 0}
 
@@ -186,6 +187,59 @@ class TestGrain:
         page = client.get("/v1/national/confluence").data.decode()
         assert '"grains": ["year", "quarter", "month"]' in page
         assert '"grains": ["year"]' in page
+
+
+class TestMeasure:
+    RATES = {"province": "saskatchewan", "visual": "rates_heatmap"}
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, db_session):
+        seed_confluence()
+        seed_rates_heatmap()
+
+    def test_unknown_measure_400_says_so(self, client):
+        response = client.get(url(**self.RATES, measure="weight"))
+        assert response.status_code == 400
+        assert "weight" in response.get_json()["error"]
+
+    def test_measure_a_counts_only_heatmap_lacks_400(self, client):
+        response = client.get(url(province="saskatchewan", visual="drug_death_heatmap", measure="rates"))
+        assert response.status_code == 400
+        assert "rates" in response.get_json()["error"]
+
+    def test_flat_visual_offers_no_measure(self, client):
+        response = client.get(url(**SK_FLAT, measure="counts"))
+        assert response.status_code == 400
+        payload = client.get(url(**SK_FLAT)).get_json()
+        assert payload["measure"] is None and payload["measures"] == []
+
+    def test_counts_only_heatmap_reports_counts(self, client):
+        payload = client.get(url(province="saskatchewan", visual="drug_death_heatmap")).get_json()
+        assert payload["measure"] == "counts" and payload["measures"] == ["counts"]
+
+    def test_opens_on_the_first_declared_measure(self, client):
+        # data_types "rates,counts": rates first, like the BC / NS maps on the province page.
+        payload = client.get(url(**self.RATES)).get_json()
+        assert payload["measure"] == "rates"
+        assert payload["measures"] == ["rates", "counts"]
+        # Rates exist at year only, so that's the only grain on offer for them...
+        assert payload["grain"] == "year" and payload["grains"] == ["year"]
+        # ...and the block still ships both measures' facts (the client narrows, as on the page).
+        assert {f["dt"] for f in payload["visual"]["facts"]} == {"rates", "counts"}
+
+    def test_grains_follow_the_measure(self, client):
+        payload = client.get(url(**self.RATES, measure="counts")).get_json()
+        assert payload["measure"] == "counts" and payload["grains"] == ["year", "month"]
+        assert client.get(url(**self.RATES, measure="counts", grain="month")).status_code == 200
+        response = client.get(url(**self.RATES, measure="rates", grain="month"))
+        assert response.status_code == 400
+        assert "month" in response.get_json()["error"]
+
+    def test_page_config_lists_measures_and_their_grains(self, client):
+        page = client.get("/v1/national/confluence").data.decode()
+        assert '"measures": ["rates", "counts"]' in page
+        assert '"measure_grains": {"counts": ["year", "month"], "rates": ["year"]}' in page   # tojson sorts keys
+        assert '"measures": []' in page   # the flat visual
 
 
 class TestUnalignableVisual:

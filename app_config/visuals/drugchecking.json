@@ -64,6 +64,37 @@
         "time": {"label": "Date checked"},
         "note": "Noteworthy substances include benzodiazepines, xylazine, medetomidine, nitazenes, and other substances of public health concern. Samples with no usable test results are excluded."
       }
+    },
+    {
+      "province": "canada",
+      "visual_id": "substances_found_by_expected_drug",
+      "shape": "found_substance_series",
+      "metric": "substances_found",
+      "geo_type": "site",
+      "dimension_type": "expected_drug",
+      "dimension2_type": "found_substance",
+      "key_kind": null,
+      "chart_type": "found_substance_lines",
+      "data_types": ["counts"],
+      "menu_parent": "Drug Supply",
+      "menu_name": "What's in the Sample?",
+      "level": 1,
+      "vis_parent": null,
+      "next_vis": null,
+      "is_default": false,
+      "visual_options": {
+        "title": "Substances found in samples expected to be replace_expected",
+        "subtitle": "Of samples people expected to be replace_expected, how often was each substance actually found? Each line is one substance, tracked replace_period. The bold grey line shows how many samples contained anything from the selected group. A single sample often contains several substances, so lines can add up to more than 100%. Substances were identified by FTIR unless a test strip is noted.",
+        "y_axis_title": "% of samples checked",
+        "x_axis_title": "Date checked",
+        "geo_levels": ["Province", "Site"],
+        "time_grains": ["quarter", "month"],
+        "default_grain": "month",
+        "default_expected": "Fentanyl",
+        "min_n": 5,
+        "max_lines": 10,
+        "note": "Test strips for fentanyl, benzodiazepines, nitazenes, xylazine and medetomidine are not run on every sample. Periods with fewer than 5 samples are drawn with hollow markers. The most recent period may be incomplete."
+      }
     }
   ]
 }

@@ -38,6 +38,16 @@
                                 <label class="btn btn-outline-secondary" for="confluence-grain-month">Month</label>
                             </div>
                         </div>
+                        <div id="confluence-measure-wrap" class="d-none">
+                            <span class="form-label mb-1 small d-block" id="confluence-measure-label">Measure</span>
+                            <!-- confluence.js shows this only for a map whose source publishes rates beside counts -->
+                            <div class="btn-group btn-group-sm" id="confluence-measure" role="group" aria-labelledby="confluence-measure-label">
+                                <input type="radio" class="btn-check" name="confluence-measure" id="confluence-measure-counts" value="counts" autocomplete="off" checked>
+                                <label class="btn btn-outline-secondary" for="confluence-measure-counts">Counts</label>
+                                <input type="radio" class="btn-check" name="confluence-measure" id="confluence-measure-rates" value="rates" autocomplete="off">
+                                <label class="btn btn-outline-secondary" for="confluence-measure-rates">Rates</label>
+                            </div>
+                        </div>
                         <div>
                             <label class="form-label mb-1 small" for="confluence-basis">DAS date</label>
                             <select class="form-select form-select-sm" id="confluence-basis">
@@ -69,7 +79,9 @@
                     </div>
                     <p class="table-caption mt-2 mb-0">
                         The DAS half is aligned to the visual's time periods (years, quarters or months;
-                        pick with Period where the visual offers more than one) and to the chosen province. Substance chips pre-select from the visual's own drug
+                        pick with Period where the visual offers more than one) and to the chosen province.
+                        A map whose source publishes rates opens on deaths per 100,000 population; Measure
+                        switches it to raw counts. Substance chips pre-select from the visual's own drug
                         categories where a match is known. Any period DAS doesn't fully cover is
                         marked incomplete: on the received-date basis that includes the first and last
                         couple of months, since results reach the data a month or two after a sample

@@ -775,26 +775,58 @@ function attachGeoHoverTip(gd, describe) {
 // `suppressInitialPush` makes the very first render replaceState (canonicalize) instead of pushState.
 let isReplaying = false;
 let suppressInitialPush = true;
-// The treemap is self-contained (it doesn't drill through masterLoop), so its filter selection rides
-// the URL as query params instead of path segments. createVisualTreemap keeps this string current
-// ("t.g0=bc&t.f0=opioids&...") and buildVisualUrl appends it whenever the active visual is a treemap,
-// so the existing syncUrl push/replace + Back/Forward machinery deep-links the filters for free.
-let activeTreemapParams = "";
+// Self-contained renderers (the treemap, the found-substance lines) don't drill through masterLoop,
+// so their selection rides the URL as query params instead of path segments. Each keeps this string
+// current on every render ("t.g0=bc&t.f0=opioids&..." / "fs.e=fentanyl&fs.g=..."), and buildVisualUrl
+// appends it whenever the active visual is one of them, so the existing syncUrl push/replace +
+// Back/Forward machinery deep-links the selection for free.
+let activeRendererParams = "";
+const SELF_CONTAINED_URL_TYPES = new Set(["treemap", "found_substance_lines", "stacked_hbar"]);
 // Time grain + alternate chart type for grain-capable visuals (manifest visual_options.time_grains /
 // chart_types). Module state like the treemap params: masterLoop clamps both to what the current
 // visual offers, the toggles set them and re-run masterLoop, and buildVisualUrl serializes them as
 // ?grain= / ?chart= (omitted at their defaults) so deep links and Back/Forward restore the view.
 let activeGrain = "year";
 let activeChartType = null;   // null = the visual's own chart_type
+// A heatmap's Measure (counts / rates) -- module state like the grain, so it survives the grain and
+// Map/Trend toggles and carries into the drilled child. null = the visual's first data type; rides
+// the URL as ?measure= (omitted at that default).
+let activeMeasure = null;
 const GRAIN_ORDER = ["year", "quarter", "month"];
 const GRAIN_LABELS = { year: "Year", quarter: "Quarter", month: "Month" };
 const CHART_TYPE_LABELS = { heatmap: "Map", line: "Trend" };
+// Colorbar title + hover label per measure a heatmap can draw (visual_definitions.HEATMAP_DATA_TYPES).
+const HEATMAP_MEASURE_LABELS = {
+  counts: { colorbar: "Number<br>of Deaths", hover: "Number of deaths" },
+  rates: { colorbar: "Deaths per<br>100,000", hover: "Deaths per 100,000" },
+};
 
 // Slugify a display name into the DOM-id form used for menu dropdowns ("Drug Supply" -> "drug-supply").
 // Collapse every run of non-alphanumeric characters to a single hyphen so names with punctuation
 // (e.g. "Hospitalizations & Other Harms") yield a valid CSS id / URL segment, not "...-&-...".
 function slugify(str) {
   return String(str).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+// Reverse a slug (a deep-link query value) back to the live value it came from: the first
+// slug-equal candidate wins; null for an absent param or no match. Shared by every self-contained
+// renderer that round-trips its selection through the URL.
+function matchSlug(candidates, raw) {
+  if (!raw) return null;
+  const hit = candidates.find(c => slugify(c) === raw);
+  return hit == null ? null : hit;
+}
+
+// Province / site picker options for the drug-checking renderers, whose facts carry geo =
+// "Province||Site" (parsed rows with .prov / .site): the distinct provinces, the sites of one
+// province (every site when null) and the two level labels (visual_options.geo_levels).
+function geoPickerOptions(parsed, cfg) {
+  const distinctSorted = (fn, pred) => Array.from(new Set(parsed.filter(pred || (() => true)).map(fn).filter(v => v))).sort();
+  return {
+    provinces: distinctSorted(p => p.prov),
+    sitesFor: prov => distinctSorted(p => p.site, p => prov == null || p.prov === prov),
+    levels: Array.isArray(cfg.geo_levels) && cfg.geo_levels.length === 2 ? cfg.geo_levels : ["Province", "Site/Organization"],
+  };
 }
 
 // URL-safe slug for a path segment: slugify, then percent-encode so values containing / # ? % (e.g. a
@@ -820,15 +852,20 @@ function buildVisualUrl(location, year, category) {
   // year rides as ?y=; a treemap's filter state rides as its own t.* params (no location/category path).
   const query = [];
   if (year != null) query.push("y=" + encodeURIComponent(year));
-  if (rootCfg && rootCfg["type"] === "treemap" && activeTreemapParams) query.push(activeTreemapParams);
+  if (rootCfg && SELF_CONTAINED_URL_TYPES.has(rootCfg["type"]) && activeRendererParams) query.push(activeRendererParams);
   // grain / chart ride only on a grain-capable root, and only away from their defaults.
   const rootBlock = currentData && currentData[rootVid];
-  if (rootBlock && activeGrain !== "year" && availableGrains(rootBlock).includes(activeGrain)) {
+  if (rootBlock && activeGrain !== defaultGrain(rootBlock) && availableGrains(rootBlock).includes(activeGrain)) {
     query.push("grain=" + encodeURIComponent(activeGrain));
   }
   if (rootBlock && activeChartType && activeChartType !== rootCfg["type"]
       && availableChartTypes(rootBlock, rootCfg).includes(activeChartType)) {
     query.push("chart=" + encodeURIComponent(activeChartType));
+  }
+  const rootTypes = (rootCfg && rootCfg["data-types"]) || [];
+  if (rootCfg && rootCfg["type"] === "heatmap" && activeMeasure && activeMeasure !== rootTypes[0]
+      && rootTypes.includes(activeMeasure)) {
+    query.push("measure=" + encodeURIComponent(activeMeasure));
   }
   return path + (query.length ? "?" + query.join("&") : "");
 }
@@ -956,6 +993,14 @@ function clearToggleGroup(container) {
 function setVisControlsVisible(shown) {
   const bar = document.getElementById("vis-controls");
   if (bar) bar.classList.toggle("d-none", !shown);
+}
+
+// Renderers that put their own filter dropdowns in the control bar's #vis-renderer-controls slot (on
+// the same line as Measure / Period / View), so masterLoop shows the bar for them regardless of toggles.
+const BAR_CONTROL_TYPES = new Set(["found_substance_lines"]);
+function clearRendererControls() {
+  const slot = document.getElementById("vis-renderer-controls");
+  if (slot) slot.innerHTML = "";
 }
 
 // Shared radio-group builder for the grain / chart-type toggles (same markup as the data-type group,
@@ -1086,6 +1131,7 @@ function renderEmptyVisual(message) {
   if (visDiv) { Plotly.purge(visDiv); visDiv.className = ""; visDiv.innerHTML = `<p class="text-muted text-center py-5">${message}</p>`; }
   if (tableDiv) tableDiv.innerHTML = "";
   if (toggle) toggle.innerHTML = "";
+  clearRendererControls();
   setVisualTitle(null);
   setVisControlsVisible(false);
   if (aboutDiv) aboutDiv.innerHTML = "";
@@ -1138,13 +1184,14 @@ function factsToSeries(facts, kind, geo = null) {
     return data;
 }
 
-// Heatmap data: {geo: {x:[periods], y:[values]}} from the counts facts (single value series per area).
-// Every area shares ONE period axis (the union of all areas' periods; a period an area has no fact
-// for is null), so the slider's step i is the same period for every area.
-function factsToHeatmap(facts, kind) {
+// Heatmap data: {geo: {x:[periods], y:[values]}} from one data type's facts (counts unless asked;
+// a single value series per area). Every area shares ONE period axis (the union of all areas'
+// periods; a period an area has no fact for is null), so the slider's step i is the same period for
+// every area.
+function factsToHeatmap(facts, kind, dataType = "counts") {
     const byGeo = {}, years = new Set();
     for (const f of facts) {
-        if (f.dt !== "counts") continue;
+        if (f.dt !== dataType) continue;
         const key = seriesKey(kind, f.d, f.d2);
         (byGeo[f.geo] = byGeo[f.geo] || {})[key] = byGeo[f.geo][key] || {}; byGeo[f.geo][key][f.t] = f.v;
         years.add(f.t);
@@ -1174,6 +1221,14 @@ function availableGrains(block) {
     const present = new Set();
     for (const f of (block.facts || [])) if (drawn(f)) present.add(factGrain(f));
     return GRAIN_ORDER.filter(g => listed.includes(g) && present.has(g));
+}
+
+// The grain a grain-capable visual opens on: visual_options.default_grain (validated by define-visuals
+// against time_grains) else year -- the finest-first order of GRAIN_ORDER would otherwise open a
+// quarter+month visual on quarters.
+function defaultGrain(block) {
+    const preferred = block && block.visual_options && block.visual_options.default_grain;
+    return GRAIN_ORDER.includes(preferred) ? preferred : "year";
 }
 
 // Chart types a level-1 geo_series visual can switch between (visual_options.chart_types, limited to
@@ -1238,10 +1293,10 @@ function setGeoMismatchNote(mismatch) {
   note.classList.toggle("d-none", parts.length === 0);
 }
 
-// Per-area trend lines for a geo_series map: {counts: {x, "<area>": [...]}}. geo_series' key_kind is
-// "constant", which would collapse every area into one series, so key each fact by its geo instead.
+// Per-area trend lines for a geo_series map: {counts|rates: {x, "<area>": [...]}}. geo_series' key_kind
+// is "constant", which would collapse every area into one series, so key each fact by its geo instead.
 function factsToGeoSeries(facts) {
-    return factsToSeries(facts.filter(f => f.dt === "counts").map(f => Object.assign({}, f, { d2: f.geo })), "plain");
+    return factsToSeries(facts.map(f => Object.assign({}, f, { d2: f.geo })), "plain");
 }
 
 // Table-only "additional" rows for a flat line/bar: {label: [values aligned to the year axis]}.
@@ -1461,24 +1516,25 @@ function masterLoop(location = null, year = null, category = null) {
   // Time grain: clamp to what this visual offers (a visual without time_grains -- e.g. the yearly
   // drill-down line -- resets it to year and keeps every fact, exactly as before grains existed).
   const grains = availableGrains(block);
-  if (!grains.includes(activeGrain)) activeGrain = grains.includes("year") || grains.length === 0 ? "year" : grains[0];
+  if (!grains.includes(activeGrain)) activeGrain = grains.includes(defaultGrain(block)) ? defaultGrain(block) : (grains.includes("year") || grains.length === 0 ? "year" : grains[0]);
   const gFacts = grains.length ? factsAtGrain(facts, activeGrain) : facts;
   opts["grain"] = activeGrain;
   // Chart type: a level-1 geo_series map can also be drawn as per-area trend lines.
   const chartTypes = availableChartTypes(block, cfg);
   if (!chartTypes.includes(activeChartType)) activeChartType = null;
   const effectiveType = activeChartType || cfg["type"];
+  for (const key of ["heatmap-title", "heatmap-rates-title", "counts-title", "rates-title", "percentages-title", "table-title"]) {
+    if (key in opts) opts[key] = grainTitle(opts[key], activeGrain);
+  }
   if (effectiveType === "line" && cfg["type"] === "heatmap") {
-    // The heatmap's table-title is a drill placeholder; the trend view's table mirrors its title.
-    opts["table-title"] = opts["counts-title"];
+    // The heatmap's table-title is a drill placeholder; the trend view's table mirrors the chart title
+    // of whichever measure is drawn.
+    for (const dt of cfg["data-types"] || []) opts[`table-${dt}-title`] = opts[`${dt}-title`];
     // Series key verbatim (area names are proper nouns), and the province total -- the area with no
     // polygon on the map -- starts legend-only so it doesn't dwarf the health-authority lines.
     opts["series-names-verbatim"] = true;
     const mapped = new Set(((currentGeojson && currentGeojson.features) || []).map(ft => ft.properties.ENGNAME));
     opts["legend-only"] = Array.from(new Set(gFacts.map(f => f.geo))).filter(g => g != null && !mapped.has(g));
-  }
-  for (const key of ["heatmap-title", "counts-title", "rates-title", "percentages-title", "table-title"]) {
-    if (key in opts) opts[key] = grainTitle(opts[key], activeGrain);
   }
   // A map visual whose areas don't line up with its geojson says so (both the map and Trend views).
   setGeoMismatchNote(cfg["type"] === "heatmap" && currentGeojson ? geoMismatch(currentGeojson, facts, province) : null);
@@ -1487,6 +1543,7 @@ function masterLoop(location = null, year = null, category = null) {
   const chartToggle = document.getElementById("chart-type-toggle");
   clearToggleGroup(grainToggle);
   clearToggleGroup(chartToggle);
+  clearRendererControls();
   if (level === 1) {
     buildTimeGrainToggles(grainToggle, grains, activeGrain, (g) => { activeGrain = g; masterLoop(); });
     buildChartTypeToggles(chartToggle, chartTypes, effectiveType, (t) => { activeChartType = t; masterLoop(); });
@@ -1495,10 +1552,21 @@ function masterLoop(location = null, year = null, category = null) {
   // chart's height already accounts for it. The data-type group itself is filled by the renderer
   // (only the types with data), hence the decision is made from the declared data types here.
   const offersChoice = (level === 1 && (grains.length > 1 || chartTypes.length > 1))
+    || BAR_CONTROL_TYPES.has(cfg["type"])
     || ((cfg["data-types"] || []).length > 1 && cfg["type"] !== "treemap" && cfg["type"] !== "stacked_bar" && cfg["type"] !== "expected_actual_bar");
   setVisControlsVisible(offersChoice);
 
-  const dataType = cfg["type"] !== "map" ? cfg["data-types"][0] : null;
+  // Measure: a heatmap (both its views) and its drilled children open on the active measure when they
+  // offer it; the heatmap's Measure toggle sets it and re-runs masterLoop, so it survives the grain /
+  // Map-Trend toggles. Any other level-1 visual drops it (its own toggle stays renderer-local).
+  if (level === 1 && cfg["type"] !== "heatmap") activeMeasure = null;
+  const declaredTypes = cfg["data-types"] || [];
+  const dataType = cfg["type"] === "map" ? null
+    : (activeMeasure && declaredTypes.includes(activeMeasure) ? activeMeasure : declaredTypes[0]);
+  if (cfg["type"] === "heatmap") {
+    activeMeasure = dataType;   // pin the default too, so a drill from the map keeps what it showed
+    opts["on-data-type"] = (t) => { activeMeasure = t; masterLoop(); };
+  }
 
   // The map/heatmap renderers dereference geojson.features; if this province ships no geojson, show an
   // empty state instead of crashing (shouldn't happen for a correctly-configured province, but keeps a
@@ -1517,7 +1585,8 @@ function masterLoop(location = null, year = null, category = null) {
         // Trend view of the map: one line per area (no click-drill here -- the map view drills).
         createVisualLine(province, factsToGeoSeries(gFacts), currentVisual, dataType, source, opts, null);
       } else {
-        createVisualHeatMap(province, currentVisual, currentGeojson, factsToHeatmap(gFacts, kind), source, opts);
+        const heat = Object.fromEntries(declaredTypes.map(dt => [dt, factsToHeatmap(gFacts, kind, dt)]));
+        createVisualHeatMap(province, currentVisual, currentGeojson, heat, source, opts, dataType, declaredTypes);
       }
       break;
     case "line":
@@ -1556,6 +1625,11 @@ function masterLoop(location = null, year = null, category = null) {
       // Self-contained: horizontal 100%-stacked bars with a client-side "Date checked" filter,
       // re-rendering in place like the treemap.
       createVisualExpectedActual(province, block, currentVisual, source);
+      break;
+    case "found_substance_lines":
+      // Self-contained (expected drug / substance group / geo pickers), but the Period toggle is
+      // masterLoop's: it gets only the active grain's facts and re-renders through masterLoop.
+      createVisualFoundSubstances(province, Object.assign({}, block, { facts: gFacts }), currentVisual, source, opts);
       break;
   }
 
@@ -1634,8 +1708,7 @@ function makeSortableTable(table) {
         if (h !== th) { h._ascending = true; const i = h.querySelector(".sort-icon"); if (i) i.textContent = "↕"; }
       });
       const numeric = Array.from(body.rows).some(r => canaskCellNumericValue(r.cells[colIndex].innerText) !== null);
-      const rows = Array.from(body.rows);
-      rows.sort((a, b) => {
+      const compare = (a, b) => {
         const aCell = a.cells[colIndex].innerText, bCell = b.cells[colIndex].innerText;
         let cmp;
         if (numeric) {
@@ -1645,7 +1718,23 @@ function makeSortableTable(table) {
           cmp = aCell.trim().toLowerCase().localeCompare(bCell.trim().toLowerCase());
         }
         return ascending ? cmp : -cmp;
-      });
+      };
+      // Grouped tables (rows tagged data-group-head / data-group, e.g. the treemap's category
+      // headings) sort the headings among themselves and each heading's children beneath it, so a
+      // child never floats away from its group.
+      const heads = Array.from(body.rows).filter(r => r.dataset.groupHead);
+      let rows;
+      if (heads.length) {
+        const children = {};
+        Array.from(body.rows).forEach(r => {
+          if (r.dataset.group) (children[r.dataset.group] = children[r.dataset.group] || []).push(r);
+        });
+        heads.sort(compare);
+        rows = [];
+        heads.forEach(h => { rows.push(h); rows.push(...(children[h.dataset.groupHead] || []).sort(compare)); });
+      } else {
+        rows = Array.from(body.rows).sort(compare);
+      }
       th._ascending = !ascending;
       icon.textContent = ascending ? "↓" : "↑";
       rows.forEach(row => body.appendChild(row));
@@ -1655,9 +1744,12 @@ function makeSortableTable(table) {
   });
 }
 
-// Function to generate heatmaps
-async function createVisualHeatMap(province, visualToGen, geojson, mapData, mapSource, mapOptions){
+// Function to generate heatmaps. heatByType = {dataType: factsToHeatmap(...)}; the Measure toggle offers
+// the declared types that have any value at this grain, and hands the choice to
+// mapOptions["on-data-type"] (masterLoop, so the grain / chart toggles keep it).
+async function createVisualHeatMap(province, visualToGen, geojson, heatByType, mapSource, mapOptions, dataType, dataTypes){
   // Setup the map container and other elements
+  let dataTypeToggle = document.getElementById("data-type-toggle");
   let visDiv = document.getElementById("vis-div");
   let aboutDataDiv = document.getElementById("about-data");
   let tableDiv = document.getElementById("data-table");
@@ -1669,12 +1761,21 @@ async function createVisualHeatMap(province, visualToGen, geojson, mapData, mapS
   // remove the active class from other visuals and add it to the current visual
   setActiveVisual(province, visualToGen);
 
-  // Every area shares one period axis (factsToHeatmap); no periods at all -> empty state.
-  const periods = (Object.values(mapData)[0] || {}).x || [];
-  if (periods.length === 0) {
+  // Every area shares one period axis (factsToHeatmap); no value in any declared measure -> empty state.
+  const hasValues = (byGeo) => Object.values(byGeo || {}).some(o => o.y.some(v => v != null));
+  const available = (dataTypes || []).filter(dt => hasValues(heatByType[dt]));
+  if (available.length === 0) {
     renderEmptyVisual("No data is available for this visual.");
     return;
   }
+  dataType = available.includes(dataType) ? dataType : available[0];
+  // The measure drawn is the measure the grain / Map-Trend toggles, a drill and ?measure= carry
+  // forward -- not the one asked for when this grain lacks it.
+  activeMeasure = dataType;
+  const mapData = heatByType[dataType];
+  const periods = (Object.values(mapData)[0] || {}).x || [];
+  const measure = HEATMAP_MEASURE_LABELS[dataType] || HEATMAP_MEASURE_LABELS.counts;
+  const mapTitle = dataType === "counts" ? mapOptions["heatmap-title"] : mapOptions[`heatmap-${dataType}-title`];
 
   // Create the map using the provided data and options and push them into the slider
   for (let year_index = 0; year_index < periods.length; year_index++) {
@@ -1693,7 +1794,7 @@ async function createVisualHeatMap(province, visualToGen, geojson, mapData, mapS
       z: Object.values(values),
       autocolorscale: true,
       colorbar: {
-        title: "Number<br>of Deaths",
+        title: measure.colorbar,
         thickness: 15,
         // On a phone the chart is short and the title sits snug above the map, so a full-height
         // colorbar would put its own label up against the chart title: centre a shorter bar.
@@ -1719,7 +1820,7 @@ async function createVisualHeatMap(province, visualToGen, geojson, mapData, mapS
   }
 
   // Create the layout for the map from the mapOptions object (the title is the HTML heading above)
-  setVisualTitle(mapOptions["heatmap-title"]);
+  setVisualTitle(mapTitle);
   let layout = {
     geo: {
       ...provinceGeoLayout(geojson),
@@ -1770,10 +1871,10 @@ async function createVisualHeatMap(province, visualToGen, geojson, mapData, mapS
       responsive: false,
     })
   ).then(() => {
-    // The tip's "Number of deaths" label is spelled out rather than read from the colorbar title:
-    // Plotly rewrites a string colorbar title into {text} on gd.data.
+    // The tip's measure label is spelled out rather than read from the colorbar title: Plotly
+    // rewrites a string colorbar title into {text} on gd.data.
     attachGeoHoverTip(visDiv, (point) => (point.location == null ? null
-      : { name: point.location, value: `Number of deaths: ${point.z}` }));
+      : { name: point.location, value: `${measure.hover}: ${point.z}` }));
     visDiv.on("plotly_click", function (data) {
       if (!canDrill(province, visualToGen)) {
         console.warn("No accessible next-level visual for this visual");
@@ -1804,7 +1905,7 @@ async function createVisualHeatMap(province, visualToGen, geojson, mapData, mapS
   });
   tableDiv.innerHTML = "";
   tableDiv.appendChild(table);
-  tableTitle.innerText = mapOptions["heatmap-title"];
+  tableTitle.innerText = mapTitle;
   for (const [key, value] of Object.entries(mapData)) {
     if (key != "data last updated") {
       let tr = table.insertRow(-1);
@@ -1818,6 +1919,8 @@ async function createVisualHeatMap(province, visualToGen, geojson, mapData, mapS
     }
   }
   makeSortableTable(table);
+
+  buildDataTypeToggles(dataTypeToggle, available, dataType, (type) => mapOptions["on-data-type"](type));
 }
 
 // Function to generate interactive maps
@@ -2069,7 +2172,8 @@ async function createVisualLine(province, lineData, currentVisual, dataType, lin
   });
   tableDiv.innerHTML = "";
   tableDiv.appendChild(table);
-  tableTitle.innerText = visualOptions["table-title"].replace("replace_with_health_authority", location);
+  tableTitle.innerText = (visualOptions[`table-${dataType}-title`] || visualOptions["table-title"])
+    .replace("replace_with_health_authority", location);
   // Only render the data type currently shown in the visual (counts / rates /
   // percentages). The whole function re-runs when the toggle changes, so the
   // table stays in sync with the chart.
@@ -2101,9 +2205,11 @@ async function createVisualLine(province, lineData, currentVisual, dataType, lin
   }
   makeSortableTable(table);
 
-  // Toggle only between the data types that actually have data (computed above).
-  buildDataTypeToggles(dataTypeToggle, available, dataType, (type) =>
-    createVisualLine(province, lineData, currentVisual, type, lineSource, visualOptions, additionalRows, dataTypes));
+  // Toggle only between the data types that actually have data (computed above). A heatmap's Trend view
+  // routes the choice through masterLoop instead (on-data-type), so its measure outlives this render.
+  buildDataTypeToggles(dataTypeToggle, available, dataType, (type) => visualOptions["on-data-type"]
+    ? visualOptions["on-data-type"](type)
+    : createVisualLine(province, lineData, currentVisual, type, lineSource, visualOptions, additionalRows, dataTypes));
 
   // Generate the About these Data section and insert the html
   aboutDataDiv.innerHTML = buildAboutDataHTML(lineSource);
@@ -2529,11 +2635,7 @@ async function createVisualTreemap(province, block, currentVisual, source) {
 
   // ---- URL <-> selection (deep-linkable filters) ----
   // Values travel as slugs (the same slugify used for the path), so the query string stays readable and
-  // round-trips through reverse-matching against the live facts. First slug-equal candidate wins.
-  function matchSlug(candidates, raw) {
-    for (const c of candidates) { if (slugify(c) === raw) return c; }
-    return null;
-  }
+  // round-trips through reverse-matching against the live facts (matchSlug).
 
   // Serialize the current selection into a query string: geo levels -> t.g<i>, filters -> t.f<i>
   // (index into cfg.filters), time -> t.u (unit) + t.b (bucket). Defaults ("All"/all-time) are omitted
@@ -2579,9 +2681,9 @@ async function createVisualTreemap(province, block, currentVisual, source) {
   }
 
   // Push the current selection onto the address bar through the shared syncUrl (which handles the
-  // first-render replaceState + isReplaying guard). buildVisualUrl reads activeTreemapParams.
+  // first-render replaceState + isReplaying guard). buildVisualUrl reads activeRendererParams.
   function syncTreemapUrl() {
-    activeTreemapParams = treemapSelToParams();
+    activeRendererParams = treemapSelToParams();
     syncUrl(null, null, null);
   }
 
@@ -2705,22 +2807,77 @@ async function createVisualTreemap(province, block, currentVisual, source) {
     controlHost.appendChild(resetWrap);
   }
 
+  // Share of the shown total as a percentage at two significant digits, matching the tiles'
+  // "%{percentRoot:.2p}" (Number() strips toPrecision's exponent form for 100).
+  function sigPercent(fraction) {
+    return Number((fraction * 100).toPrecision(2)) + "%";
+  }
+
   function renderTable(data) {
     aboutDataDiv.innerHTML = buildAboutDataHTML(source);
-    tableTitle.innerText = (cfg.title || "Checked Samples") + " — totals for the current view";
+    tableTitle.innerText = (cfg.title || "Checked Samples") + ": totals for the current view";
     const table = document.createElement("table");
     table.setAttribute("class", "mb-0 table table-striped table-bordered table-hover");
-    const headerCols = hierarchy.map(function (h) { return h.label || h.axis; }).concat(["Count", "% of shown"]);
+    // One label column: category heading rows with the drugs indented beneath them (see below)
+    // instead of a mostly-empty Category column repeated down every row.
+    const grouped = hierarchy.length > 1;
+    const labelHeader = hierarchy.map(function (h) { return h.label || h.axis; }).join(" / ");
+    const headerCols = [labelHeader, "Count", "% of area shown"];
     const headRow = table.insertRow(-1);
     headerCols.forEach(function (h) {
       const th = document.createElement("th"); th.innerText = h; headRow.appendChild(th);
     });
+    // Group the leaves under a heading row per top-level node (the category) carrying that node's
+    // own count / share, so "all stimulants" and "speed" each get a row; a one-level hierarchy
+    // stays flat. The sorter keeps children under their heading (see makeSortableTable).
+    const groups = new Map();   // first path value -> {value, rows} in largest-first order
     data.rows.forEach(function (row) {
-      const tr = table.insertRow(-1);
-      tr.setAttribute("class", "align-middle");
-      row.path.forEach(function (p) { tr.insertCell(-1).innerText = p; });
-      tr.insertCell(-1).innerText = row.value;
-      tr.insertCell(-1).innerText = data.total ? ((row.value / data.total) * 100).toFixed(1) + "%" : "0%";
+      const key = grouped ? row.path[0] : "";
+      const g = groups.get(key) || { value: 0, rows: [] };
+      g.value += row.value;
+      g.rows.push(row);
+      groups.set(key, g);
+    });
+    const order = Array.from(groups.entries()).sort(function (a, b) { return b[1].value - a[1].value; });
+    const pct = function (value) { return data.total ? sigPercent(value / data.total) : "0%"; };
+    let groupIndex = 0;
+    order.forEach(function (entry) {
+      const key = entry[0], g = entry[1];
+      const gid = "g" + (groupIndex++);
+      if (grouped) {
+        const head = table.insertRow(-1);
+        head.className = "align-middle vis-group-row";
+        head.dataset.groupHead = gid;
+        const label = head.insertCell(-1);
+        const chevron = document.createElement("i");
+        chevron.className = "bi bi-chevron-down vis-group-chevron";
+        label.appendChild(chevron);
+        label.appendChild(document.createTextNode(key));
+        const n = document.createElement("span");
+        n.className = "vis-group-n";
+        n.innerText = g.rows.length + (g.rows.length === 1 ? " drug" : " drugs");
+        label.appendChild(n);
+        head.insertCell(-1).innerText = g.value;
+        head.insertCell(-1).innerText = pct(g.value);
+        // The heading toggles its members. State lives on the rows themselves (a class), so the
+        // sorter's re-appending keeps collapsed groups collapsed.
+        head.setAttribute("role", "button");
+        head.tabIndex = 0;
+        head.setAttribute("aria-expanded", "true");
+        const toggle = function () { setGroupCollapsed(table, head, head.getAttribute("aria-expanded") === "true"); };
+        head.addEventListener("click", toggle);
+        head.addEventListener("keydown", function (ev) {
+          if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); toggle(); }
+        });
+      }
+      g.rows.forEach(function (row) {
+        const tr = table.insertRow(-1);
+        tr.className = grouped ? "align-middle vis-group-child" : "align-middle";
+        if (grouped) tr.dataset.group = gid;
+        tr.insertCell(-1).innerText = (grouped ? row.path.slice(1) : row.path).join(" \u203a ");
+        tr.insertCell(-1).innerText = row.value;
+        tr.insertCell(-1).innerText = pct(row.value);
+      });
     });
     // Total row so the sample count backing the current (filtered) view is visible at a glance,
     // without having to sum the Count column by hand.
@@ -2729,12 +2886,38 @@ async function createVisualTreemap(province, block, currentVisual, source) {
     totalRow.className = "fw-bold table-group-divider";
     const totalLabel = totalRow.insertCell(-1);
     totalLabel.innerText = "Total";
-    totalLabel.colSpan = hierarchy.length;
     totalRow.insertCell(-1).innerText = data.total;
     totalRow.insertCell(-1).innerText = "100%";
     makeSortableTable(table);
+    if (grouped && table.caption) {
+      // Collapse all / Expand all beside the sorter's Reset sort control.
+      const allBtn = document.createElement("button");
+      allBtn.type = "button";
+      allBtn.className = "btn btn-link btn-sm p-0 text-decoration-none me-3";
+      const syncAll = function () {
+        const heads = Array.from(table.querySelectorAll("tr[data-group-head]"));
+        const anyOpen = heads.some(function (h) { return h.getAttribute("aria-expanded") === "true"; });
+        allBtn.innerHTML = anyOpen ? '<i class="bi bi-chevron-contract"></i> Collapse all'
+                                   : '<i class="bi bi-chevron-expand"></i> Expand all';
+        allBtn.onclick = function () {
+          heads.forEach(function (h) { setGroupCollapsed(table, h, anyOpen); });
+        };
+      };
+      table.addEventListener("vis-group-toggle", syncAll);
+      syncAll();
+      table.caption.insertBefore(allBtn, table.caption.firstChild);
+    }
     tableDiv.innerHTML = "";
     tableDiv.appendChild(table);
+  }
+
+  function setGroupCollapsed(table, head, collapsed) {
+    head.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    head.classList.toggle("vis-group-collapsed", collapsed);
+    table.querySelectorAll('tr[data-group="' + head.dataset.groupHead + '"]').forEach(function (r) {
+      r.classList.toggle("d-none", collapsed);
+    });
+    table.dispatchEvent(new CustomEvent("vis-group-toggle"));
   }
 
   function render() {
@@ -2748,8 +2931,10 @@ async function createVisualTreemap(province, block, currentVisual, source) {
       values: data.values,
       tiling: { packing: "squarify", pad: 1 },
       marker: { line: { width: 1, color: canaskMarkerLineColor() } },
-      texttemplate: "<b>%{label}</b><br>%{percentRoot} (%{value})",
-      hovertemplate: "<b>%{label}</b><br>%{value} samples<br>%{percentRoot} of shown<extra></extra>",
+      // d3 ".2p": fraction -> percent at two significant digits ("12%", "4.6%", "0.45%"); the bare
+      // %{percentRoot} renders the raw fraction ("0.12").
+      texttemplate: "<b>%{label}</b><br>%{percentRoot:.2p} (%{value})",
+      hovertemplate: "<b>%{label}</b><br>%{value} samples<br>%{percentRoot:.2p} of area shown<extra></extra>",
       pathbar: { visible: true },
     };
     // Title (header) and filters (footer) are HTML stacked around the chart; size the treemap to the
@@ -2768,10 +2953,10 @@ async function createVisualTreemap(province, block, currentVisual, source) {
   }
 
   // Seed the selection from the URL (deep link / Back-Forward) before building the controls, and prime
-  // activeTreemapParams so masterLoop's trailing syncUrl canonicalizes the address bar with these filters
+  // activeRendererParams so masterLoop's trailing syncUrl canonicalizes the address bar with these filters
   // (replaceState on first load, otherwise a no-op since the URL already matches).
   seedSelFromUrl();
-  activeTreemapParams = treemapSelToParams();
+  activeRendererParams = treemapSelToParams();
   buildControls();
   render();
 }
@@ -2946,16 +3131,35 @@ async function createVisualExpectedActual(province, block, currentVisual, source
   const parsed = [];
   for (const f of facts) {
     if (f.dt !== "counts" || typeof f.v !== "number") continue;
-    parsed.push({ drug: f.d, outcome: f.d2, t: String(f.t), v: f.v });
+    const geoBits = String(f.geo == null ? "" : f.geo).split("||");
+    parsed.push({ drug: f.d, outcome: f.d2, t: String(f.t), v: f.v, prov: geoBits[0] || "", site: geoBits[1] || "" });
   }
   if (parsed.length === 0) { renderEmptyVisual("No data is available for this visual."); return; }
+  // Province / site options (geo = "Province||Site"), cascading like the treemap's geo levels.
+  const { provinces, sitesFor, levels: geoLevels } = geoPickerOptions(parsed, cfg);
 
   const segments = (cfg.segments && cfg.segments.length) ? cfg.segments : [
     { key: "expected_only", label: "Only expected substance", color: "success" },
     { key: "expected_plus", label: "Expected substance + other noteworthy substances", color: "warning" },
     { key: "not_expected", label: "Did not contain expected substance", color: "danger" },
   ];
-  const sel = { unit: "all", bucket: null };
+  const sel = { unit: "all", bucket: null, prov: null, site: null };
+  // Deep link / Back-Forward: ea.p / ea.s (geo slugs), ea.u / ea.b (date unit + bucket slug, applied
+  // once the date control has built its buckets below).
+  const urlParams = new URLSearchParams(window.location.search || "");
+  sel.prov = matchSlug(provinces, urlParams.get("ea.p"));
+  sel.site = matchSlug(sitesFor(sel.prov), urlParams.get("ea.s"));
+  if (["year", "month"].includes(urlParams.get("ea.u"))) sel.unit = urlParams.get("ea.u");
+  function selToParams() {
+    const p = new URLSearchParams();
+    if (sel.prov != null) p.set("ea.p", slugify(sel.prov));
+    if (sel.site != null) p.set("ea.s", slugify(sel.site));
+    if (sel.unit !== "all") { p.set("ea.u", sel.unit); if (sel.bucket != null) p.set("ea.b", slugify(sel.bucket)); }
+    return p.toString();
+  }
+  function syncEaUrl() { activeRendererParams = selToParams(); syncUrl(null, null, null); }
+  function filtersActive() { return sel.prov != null || sel.site != null || sel.unit !== "all"; }
+  let resetBtn = null;
 
   // Layout: title + subtitle (header), chart, controls + note (footer) -- all inside #vis-div so the
   // next visual's render tears the whole stack down (auto-cleanup), reusing the treemap layout CSS.
@@ -2975,6 +3179,10 @@ async function createVisualExpectedActual(province, block, currentVisual, source
   }
   const chartDiv = document.createElement("div"); chartDiv.className = "treemap-chart";
   const footerEl = document.createElement("div"); footerEl.className = "treemap-footer";
+  // The key is plain HTML (not Plotly's legend) so it wraps on narrow cards instead of overlapping
+  // the axis, and the figure's height budget can include it.
+  const legendEl = document.createElement("div"); legendEl.className = "ea-legend";
+  footerEl.appendChild(legendEl);
   const controlHost = document.createElement("div"); controlHost.className = "treemap-controls-row";
   controlHost.style.alignItems = "center";
   footerEl.appendChild(controlHost);
@@ -2991,6 +3199,8 @@ async function createVisualExpectedActual(province, block, currentVisual, source
     const totals = {};    // drug -> n samples in the current view
     const bySeg = {};     // outcome key -> {drug -> count}
     for (const p of parsed) {
+      if (sel.prov != null && p.prov !== sel.prov) continue;
+      if (sel.site != null && p.site !== sel.site) continue;
       if (sel.unit !== "all" && sel.bucket != null && timeBucketOf(p, sel.unit) !== sel.bucket) continue;
       totals[p.drug] = (totals[p.drug] || 0) + p.v;
       if (!bySeg[p.outcome]) bySeg[p.outcome] = {};
@@ -3002,19 +3212,29 @@ async function createVisualExpectedActual(province, block, currentVisual, source
     const ordered = (cfg.row_order && cfg.row_order.length) ? cfg.row_order : Object.keys(totals).sort();
     const rows = ordered.filter(d => totals[d] > 0)
       .concat(Object.keys(totals).filter(d => totals[d] > 0 && !ordered.includes(d)));
+    if (resetBtn) resetBtn.disabled = !filtersActive();
     if (rows.length === 0) {
       Plotly.purge(chartDiv);
-      chartDiv.innerHTML = '<p class="text-muted text-center py-5">No samples were checked in this period.</p>';
+      chartDiv.innerHTML = '<p class="text-muted text-center py-5">No samples were checked for this selection.</p>';
       tableTitle.innerText = ""; tableDiv.innerHTML = "";
       aboutDataDiv.innerHTML = buildAboutDataHTML(source);
       return;
     }
     chartDiv.innerHTML = "";
-    const rowLabels = rows.map(d => `${d}<br>(${totals[d]})`);
+    // One line per row ("Ketamine (159)") so each label sits level with its bar.
+    const rowLabels = rows.map(d => `${d} (${totals[d]})`);
     const segCount = (seg, drug) => (bySeg[seg.key] && bySeg[seg.key][drug]) || 0;
     const segPct = (seg, drug) => totals[drug] ? (100 * segCount(seg, drug)) / totals[drug] : 0;
 
     const colors = canaskSemanticColors();
+    legendEl.innerHTML = "";
+    segments.forEach(seg => {
+      const item = document.createElement("span"); item.className = "ea-legend-item";
+      const swatch = document.createElement("span"); swatch.className = "ea-legend-swatch";
+      swatch.style.background = colors[seg.color] || colors.success;
+      item.appendChild(swatch); item.appendChild(document.createTextNode(seg.label));
+      legendEl.appendChild(item);
+    });
     const traces = segments.map(seg => {
       const pcts = rows.map(d => segPct(seg, d));
       return {
@@ -3035,27 +3255,22 @@ async function createVisualExpectedActual(province, block, currentVisual, source
     });
 
     const cardW = $("#viz-card").width(), cardH = $("#viz-card").height();
+    // The figure never exceeds what the card has left after the header and footer (key + controls),
+    // or it spills out of the card; bargap widens the gutters between the bars within that budget.
+    const budget = cardH - headerEl.offsetHeight - footerEl.offsetHeight - 6;
     Plotly.purge(chartDiv);
     Plotly.react(chartDiv, traces, themeChartLayout({
       barmode: "stack",
+      bargap: 0.42,
       width: cardW,
-      height: Math.max(260, cardH - headerEl.offsetHeight - footerEl.offsetHeight - 6),
+      height: Math.max(240, budget),
       xaxis: { range: [0, 100], ticksuffix: "%", title: { text: cfg.x_axis_title || "% of drug samples checked", standoff: 5 }, fixedrange: true },
       // Reversed so row_order[0] renders at the top (Plotly stacks category axes bottom-up).
       yaxis: { title: { text: cfg.y_axis_title || "Expected drug", standoff: 10 }, autorange: "reversed", automargin: true, fixedrange: true },
-      // On wide screens, run the legend below the plot (not the default right-hand column) so the
-      // bars get the full card width -- these segment labels are long, and a side legend was eating
-      // a third of the chart's width that the bars (and their inside percentage labels) could
-      // otherwise use. The chart's height budget on narrow screens is already tight (title/subtitle
-      // and the date-control footer both wrap to several lines there, leaving little of the card's
-      // height for the plot itself), with no room to spare for a legend below the axis without
-      // overlapping it -- so mobile keeps the original side/wrapped legend behavior unchanged.
-      // traceorder "normal" keeps it reading green -> yellow -> red (Plotly reverses it for
-      // stacked bars by default).
-      legend: window.innerWidth > 768
-        ? { orientation: "h", traceorder: "normal", x: 0.5, xanchor: "center", y: -0.3, yanchor: "top" }
-        : Object.assign(responsiveLegend(), { traceorder: "normal" }),
-      margin: window.innerWidth > 768 ? Object.assign({ b: 110 }, responsiveMargin()) : responsiveMargin(),
+      // The key is the HTML legendEl in the footer (see above), so the bars get the full card width
+      // and the figure's bottom margin only needs the axis.
+      showlegend: false,
+      margin: Object.assign(responsiveMargin(), { b: 52 }),
     }), { displaylogo: false, responsive: false });
 
     // Table: one row per expected drug -- sample count plus each segment as "count (share%)".
@@ -3093,9 +3308,38 @@ async function createVisualExpectedActual(province, block, currentVisual, source
     aboutDataDiv.innerHTML = buildAboutDataHTML(source);
   }
 
+  // Province / site dropdowns first in the footer row, cascading (a province narrows the sites),
+  // mirroring the treemap's geo controls so the two visuals filter the same way.
+  const geoSelects = {};
+  function makeGeoSelect(name, labelText, options, current, onChange) {
+    const wrap = document.createElement("div");
+    wrap.className = "treemap-control text-start";
+    const lab = document.createElement("label");
+    lab.className = "form-label mb-0 small fw-semibold";
+    lab.innerText = labelText;
+    const select = document.createElement("select");
+    select.className = "form-select form-select-sm";
+    select.id = `ea-${name}-select`; lab.htmlFor = select.id;
+    const fill = (opts, cur) => {
+      select.innerHTML = "";
+      [{ value: "", label: "All" }].concat(opts.map(v => ({ value: v, label: v }))).forEach(o => {
+        const opt = document.createElement("option"); opt.value = o.value; opt.innerText = o.label; select.appendChild(opt);
+      });
+      select.value = cur == null ? "" : cur;
+    };
+    fill(options, current);
+    select.onchange = () => { onChange(select.value === "" ? null : select.value); render(); syncEaUrl(); };
+    wrap.appendChild(lab); wrap.appendChild(select); controlHost.appendChild(wrap);
+    geoSelects[name] = { select, fill };
+  }
+  makeGeoSelect("prov", geoLevels[0], provinces, sel.prov,
+                v => { sel.prov = v; sel.site = null; geoSelects.site.fill(sitesFor(sel.prov), null); });
+  makeGeoSelect("site", geoLevels[1], sitesFor(sel.prov), sel.site, v => { sel.site = v; });
+
   // "Date checked" control: unit select + period slider, mirroring the treemap's time control (the
   // sibling visual on this dashboard) so the two filters read as one pattern. No seasonal unit here
   // -- a season row would mix years and misread as a period.
+  let dateCtl = null;
   (function buildDateControl() {
     const wrap = document.createElement("div");
     wrap.className = "treemap-control text-start";
@@ -3133,16 +3377,445 @@ async function createVisualExpectedActual(province, block, currentVisual, source
         sliderWrap.style.display = "";
         slider.max = buckets.length - 1;
         slider.value = buckets.length - 1;   // default to the most recent period
+        // A deep-linked bucket (ea.b) wins over "latest" the first time the buckets are built.
+        const seeded = urlParams.get("ea.b");
+        if (seeded) {
+          const idx = buckets.findIndex(bk => slugify(bk.value) === seeded);
+          if (idx >= 0) slider.value = idx;
+          urlParams.delete("ea.b");
+        }
         applyBucket();
       }
     }
-    unitSelect.onchange = () => { sel.unit = unitSelect.value; sel.bucket = null; rebuildBuckets(); render(); };
+    unitSelect.onchange = () => { sel.unit = unitSelect.value; sel.bucket = null; rebuildBuckets(); render(); syncEaUrl(); };
     slider.oninput = () => { applyBucket(); render(); };
+    slider.onchange = () => { syncEaUrl(); };
     wrap.appendChild(lab); wrap.appendChild(unitSelect); wrap.appendChild(sliderWrap);
     controlHost.appendChild(wrap);
     rebuildBuckets();
+    dateCtl = { unitSelect, rebuildBuckets };
   })();
 
+  // Reset filters: all provinces / sites, all time. Disabled when nothing is filtered.
+  const resetWrap = document.createElement("div");
+  resetWrap.className = "treemap-control treemap-reset text-start d-flex align-items-end";
+  resetBtn = document.createElement("button");
+  resetBtn.type = "button";
+  resetBtn.className = "btn btn-outline-secondary btn-sm";
+  resetBtn.innerHTML = '<i class="bi bi-arrow-counterclockwise"></i> Reset filters';
+  resetBtn.onclick = () => {
+    sel.prov = null; sel.site = null; sel.unit = "all"; sel.bucket = null;
+    geoSelects.prov.select.value = "";
+    geoSelects.site.fill(sitesFor(null), null);
+    dateCtl.unitSelect.value = "all";
+    dateCtl.rebuildBuckets();
+    render(); syncEaUrl();
+  };
+  resetWrap.appendChild(resetBtn);
+  controlHost.appendChild(resetWrap);
+
+  // Prime the URL params before the first render so masterLoop's trailing syncUrl canonicalizes a
+  // deep link (replaceState) instead of dropping the seeded selection.
+  activeRendererParams = selToParams();
+  render();
+}
+
+
+// ---- Found substances (found_substance_series): what was in samples expected to be X -------------
+// Facts (counts, month AND quarter grain -- masterLoop hands us the active grain's facts): d = expected
+// drug, d2 = "__total__" (samples checked) | "<group>|__any__" (samples with ANY substance of the
+// group) | "<group>|<label>" (samples with that substance), geo = "Province||Site", v = sample count.
+// Self-contained like the treemap: the viewer picks the expected drug (dropdown), a substance group
+// (clickable list beside the chart; a dropdown on phones) and province/site (cascading dropdowns);
+// counts are summed over the selected geos FIRST, then turned into % of the samples checked, so one
+// line per substance + a bold "Any <group>" line. Group order/labels come from visual_options.
+// found_groups (published by gen-visuals from the crosswalk; a group only in the facts falls back to
+// its key). Selection rides the URL as fs.e / fs.g / fs.p / fs.s via activeRendererParams.
+const FOUND_TOTAL_KEY = "__total__";
+const FOUND_ANY_LABEL = "__any__";
+// "Fentanyl & analogues" -> "fentanyl & analogues" for mid-sentence use, but "MDMA & analogues" /
+// "GHB & other sedatives" keep their acronym (a first word with 2+ capitals is left alone).
+function sentenceCaseGroup(label) {
+  const text = String(label || "");
+  const first = text.split(/\s/)[0];
+  return (first.replace(/[^A-Z]/g, "").length >= 2) ? text : text.charAt(0).toLowerCase() + text.slice(1);
+}
+
+async function createVisualFoundSubstances(province, block, currentVisual, source, opts) {
+  setVisualTitle(null);   // draws its own header inside #vis-div
+  const cfg = (block && block.visual_options) || {};
+  const facts = (block && block.facts) || [];
+  const grain = (opts && opts.grain) || "month";
+  const visDiv = document.getElementById("vis-div");
+  const aboutDataDiv = document.getElementById("about-data");
+  const tableDiv = document.getElementById("data-table");
+  const tableTitle = document.getElementById("table-title");
+  const toggle = document.getElementById("data-type-toggle");
+
+  setActiveVisual(province, currentVisual);
+  if (toggle) toggle.innerHTML = "";   // single data type (counts) -> no Measure toggle
+
+  // Parse once: {prov, site, t, expected, group, sub, v}. The total row has group null.
+  const parsed = [];
+  for (const f of facts) {
+    if (f.dt !== "counts" || typeof f.v !== "number" || f.d == null || f.d2 == null) continue;
+    const geoBits = String(f.geo == null ? "" : f.geo).split("||");
+    const d2 = String(f.d2);
+    let group = null, sub = FOUND_TOTAL_KEY, method = null;
+    if (d2 !== FOUND_TOTAL_KEY) {
+      const cut = d2.indexOf("|");
+      if (cut < 0) continue;
+      group = d2.slice(0, cut); sub = d2.slice(cut + 1);
+      // "<group>|<label>|ftir" / "|strip": how many of the samples containing <label> each method
+      // found it in (a sample both methods found counts in both -- a breakdown, not a sum).
+      const m = sub.match(/^(.*)\|(ftir|strip)$/);
+      if (m) { sub = m[1]; method = m[2]; }
+    }
+    parsed.push({ prov: geoBits[0] || "", site: geoBits[1] || "", t: String(f.t), expected: String(f.d), group, sub, method, v: f.v });
+  }
+  if (parsed.length === 0) { renderEmptyVisual("No data is available for this visual."); return; }
+
+  const minN = Number.isFinite(cfg.min_n) ? cfg.min_n : 5;
+  const maxLines = Number.isFinite(cfg.max_lines) ? cfg.max_lines : 10;
+
+  // Groups in crosswalk order (+ any the facts carry that the option doesn't, so new data surfaces).
+  const groupLabel = {};
+  const groupKeys = [];
+  (Array.isArray(cfg.found_groups) ? cfg.found_groups : []).forEach(g => {
+    if (g && g.key && !(g.key in groupLabel)) { groupKeys.push(g.key); groupLabel[g.key] = g.label || g.key; }
+  });
+  for (const p of parsed) if (p.group && !(p.group in groupLabel)) { groupKeys.push(p.group); groupLabel[p.group] = p.group; }
+
+  // Expected drugs, most-sampled first (all geos, all periods at this grain).
+  const expectedTotals = {};
+  for (const p of parsed) if (p.sub === FOUND_TOTAL_KEY) expectedTotals[p.expected] = (expectedTotals[p.expected] || 0) + p.v;
+  const expectedList = Object.keys(expectedTotals).sort((a, b) => (expectedTotals[b] - expectedTotals[a]) || a.localeCompare(b));
+  if (expectedList.length === 0) { renderEmptyVisual("No data is available for this visual."); return; }
+
+  const { provinces, sitesFor, levels: geoLevels } = geoPickerOptions(parsed, cfg);
+
+  const sel = { expected: null, group: null, prov: null, site: null };
+
+  // ---- aggregation for the current selection ----
+  const inSelection = p => p.expected === sel.expected && (sel.prov == null || p.prov === sel.prov) && (sel.site == null || p.site === sel.site);
+  function aggregate() {
+    const totals = {};             // period -> samples checked
+    const hits = {};               // group -> sub -> period -> samples
+    const methods = {};            // group -> sub -> method -> period -> samples
+    for (const p of parsed) {
+      if (!inSelection(p)) continue;
+      if (p.sub === FOUND_TOTAL_KEY) { totals[p.t] = (totals[p.t] || 0) + p.v; continue; }
+      if (p.method) {
+        const mg = methods[p.group] || (methods[p.group] = {});
+        const ms = mg[p.sub] || (mg[p.sub] = {});
+        const mm = ms[p.method] || (ms[p.method] = {});
+        mm[p.t] = (mm[p.t] || 0) + p.v;
+        continue;
+      }
+      const g = hits[p.group] || (hits[p.group] = {});
+      const s = g[p.sub] || (g[p.sub] = {});
+      s[p.t] = (s[p.t] || 0) + p.v;
+    }
+    const periods = Object.keys(totals).sort();   // "YYYY-MM" / "YYYY-Qn" sort lexically
+    const grand = periods.reduce((sum, t) => sum + totals[t], 0);
+    const sumOf = series => periods.reduce((sum, t) => sum + ((series && series[t]) || 0), 0);
+    return { totals, hits, methods, periods, grand, sumOf };
+  }
+
+  // ---- selection seed: URL (deep link / Back-Forward) -> manifest default -> most sampled ----
+  (function seedSelFromUrl() {
+    const params = new URLSearchParams(window.location.search || "");
+    sel.expected = matchSlug(expectedList, params.get("fs.e"))
+      || (expectedList.includes(cfg.default_expected) ? cfg.default_expected : expectedList[0]);
+    sel.prov = matchSlug(provinces, params.get("fs.p"));
+    sel.site = matchSlug(sitesFor(sel.prov), params.get("fs.s"));
+    sel.group = matchSlug(groupKeys, params.get("fs.g"));
+  })();
+  // The first group with any hit for the current expected drug + geos (`agg` = their aggregate,
+  // computed here when the caller hasn't already).
+  function defaultGroup(agg = aggregate()) {
+    return groupKeys.find(g => agg.sumOf(agg.hits[g] && agg.hits[g][FOUND_ANY_LABEL]) > 0) || groupKeys[0] || null;
+  }
+  if (sel.group == null) sel.group = defaultGroup();
+
+  function selToParams() {
+    const p = new URLSearchParams();
+    if (sel.expected != null) p.set("fs.e", slugify(sel.expected));
+    if (sel.group != null) p.set("fs.g", slugify(sel.group));
+    if (sel.prov != null) p.set("fs.p", slugify(sel.prov));
+    if (sel.site != null) p.set("fs.s", slugify(sel.site));
+    return p.toString();
+  }
+  function syncFoundUrl() { activeRendererParams = selToParams(); syncUrl(null, null, null); }
+
+  // ---- layout: header / (group list + chart) / controls + note, all inside #vis-div ----
+  visDiv.className = "treemap-layout found-layout";
+  visDiv.innerHTML = "";
+  const headerEl = document.createElement("div"); headerEl.className = "treemap-header";
+  const titleEl = document.createElement("div"); titleEl.className = "treemap-title";
+  headerEl.appendChild(titleEl);
+  // The subtitle carries the expected drug and the period grain (replace_expected / replace_period),
+  // so it is (re)filled on every render alongside the title.
+  let subEl = null;
+  if (cfg.subtitle) {
+    subEl = document.createElement("div"); subEl.className = "small";
+    subEl.style.color = "var(--c-muted)";
+    headerEl.appendChild(subEl);
+  }
+  const bodyEl = document.createElement("div"); bodyEl.className = "found-body";
+  const listEl = document.createElement("div"); listEl.className = "found-groups";
+  listEl.setAttribute("role", "listbox"); listEl.setAttribute("aria-label", "Substance group");
+  const chartDiv = document.createElement("div"); chartDiv.className = "treemap-chart found-chart";
+  bodyEl.appendChild(listEl); bodyEl.appendChild(chartDiv);
+  const footerEl = document.createElement("div"); footerEl.className = "treemap-footer";
+  // Always occupies its line (visibility, not display): the height budget below is measured once,
+  // so a line that appeared later would push the chart out of the card.
+  const moreEl = document.createElement("div"); moreEl.className = "small";
+  moreEl.style.color = "var(--c-muted)"; moreEl.style.visibility = "hidden"; moreEl.innerText = "\u00a0";
+  footerEl.appendChild(moreEl);
+  visDiv.appendChild(headerEl); visDiv.appendChild(bodyEl); visDiv.appendChild(footerEl);
+  // The filters live in the control bar under the card (#vis-controls), on the same line as the
+  // Period toggle, so the chart keeps the whole card. masterLoop empties the slot before each render.
+  const controlHost = document.getElementById("vis-renderer-controls");
+  controlHost.innerHTML = "";
+
+  const selects = {};   // name -> <select>, so a change elsewhere (group list click, province cascade) refreshes them
+  function makeSelect(name, labelText, options, current, onChange, extraClass) {
+    const wrap = document.createElement("div"); wrap.className = "vis-control" + (extraClass ? " " + extraClass : "");
+    const lab = document.createElement("label"); lab.className = "vis-control-label mb-0";
+    lab.innerText = labelText;
+    const select = document.createElement("select"); select.className = "form-select form-select-sm";
+    select.id = `found-${name}-select`; lab.htmlFor = select.id;
+    const fill = (opts, cur) => {
+      select.innerHTML = "";
+      opts.forEach(o => { const opt = document.createElement("option"); opt.value = o.value; opt.innerText = o.label; select.appendChild(opt); });
+      select.value = cur == null ? "" : cur;
+    };
+    fill(options, current);
+    select.onchange = () => { onChange(select.value === "" ? null : select.value); render(); syncFoundUrl(); };
+    wrap.appendChild(lab); wrap.appendChild(select); controlHost.appendChild(wrap);
+    selects[name] = { select, fill };
+  }
+  const withAll = (values, allLabel) => [{ value: "", label: allLabel }].concat(values.map(v => ({ value: v, label: v })));
+  const expectedOption = e => ({
+    value: e,
+    label: expectedTotals[e] < 10 ? `${e} (n=${expectedTotals[e]}, small sample)` : `${e} (n=${expectedTotals[e]})`,
+  });
+
+  makeSelect("expected", cfg.expected_label || "Expected drug", expectedList.map(expectedOption), sel.expected,
+             v => { sel.expected = v; if (sel.group == null) sel.group = defaultGroup(); });
+  makeSelect("group", cfg.group_label || "Substances found", groupKeys.map(g => ({ value: g, label: groupLabel[g] })), sel.group,
+             v => { sel.group = v; }, "found-group-select");
+  makeSelect("prov", geoLevels[0], withAll(provinces, "All"), sel.prov,
+             v => { sel.prov = v; sel.site = null; selects.site.fill(withAll(sitesFor(sel.prov), "All"), null); });
+  makeSelect("site", geoLevels[1], withAll(sitesFor(sel.prov), "All"), sel.site, v => { sel.site = v; });
+
+  // ---- Reset filters: back to the manifest's default expected drug, its first non-empty group, all geos ----
+  const defaultExpected = expectedList.includes(cfg.default_expected) ? cfg.default_expected : expectedList[0];
+  function filtersActive(agg) {
+    if (sel.prov != null || sel.site != null || sel.expected !== defaultExpected) return true;
+    return sel.group !== defaultGroup(agg);   // the selection IS the default expected + geos here, so its aggregate serves
+  }
+  function resetFilters() {
+    sel.prov = null; sel.site = null; sel.expected = defaultExpected;
+    sel.group = defaultGroup();
+    selects.expected.select.value = sel.expected;
+    selects.prov.select.value = "";
+    selects.site.fill(withAll(sitesFor(null), "All"), null);
+    selects.group.select.value = sel.group == null ? "" : sel.group;
+    render(); syncFoundUrl();
+  }
+  const resetWrap = document.createElement("div");
+  resetWrap.className = "vis-control treemap-reset";
+  const resetBtn = document.createElement("button");
+  resetBtn.type = "button";
+  resetBtn.className = "btn btn-outline-secondary btn-sm";
+  resetBtn.innerHTML = '<i class="bi bi-arrow-counterclockwise"></i> Reset filters';
+  resetBtn.onclick = resetFilters;
+  resetWrap.appendChild(resetBtn);
+  controlHost.appendChild(resetWrap);
+
+  // ---- the clickable group list beside the chart ----
+  function renderGroupList(agg) {
+    listEl.innerHTML = "";
+    const head = document.createElement("div"); head.className = "found-groups-head";
+    head.innerText = `${sel.expected} · ${agg.grand} sample${agg.grand === 1 ? "" : "s"}`;
+    listEl.appendChild(head);
+    groupKeys.forEach(g => {
+      const any = agg.sumOf(agg.hits[g] && agg.hits[g][FOUND_ANY_LABEL]);
+      const pct = agg.grand ? (100 * any) / agg.grand : 0;
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "found-group" + (g === sel.group ? " active" : "") + (any === 0 ? " empty" : "");
+      row.setAttribute("role", "option"); row.setAttribute("aria-selected", g === sel.group ? "true" : "false");
+      row.title = `${groupLabel[g]}: ${any} of ${agg.grand} samples`;
+      const name = document.createElement("span"); name.className = "found-group-name"; name.innerText = groupLabel[g];
+      const val = document.createElement("span"); val.className = "found-group-pct"; val.innerText = any === 0 ? "–" : `${Math.round(pct)}%`;
+      row.appendChild(name); row.appendChild(val);
+      row.onclick = () => { if (sel.group === g) return; sel.group = g; selects.group.select.value = g; render(); syncFoundUrl(); };
+      listEl.appendChild(row);
+    });
+  }
+
+  // Height budget for the list + chart row, measured ONCE while the row is still empty (the card is
+  // content-sized, so measuring after the 16-row list is in would just report the list's own height
+  // and the card would outgrow its 80vh row). Pinning the row to it makes the list scroll instead.
+  let bodyBudget = null;
+  function settleBodyBudget() {
+    if (bodyBudget != null) return;
+    const cardH = $("#viz-card").height();
+    bodyBudget = Math.max(260, cardH - headerEl.offsetHeight - footerEl.offsetHeight - 6);
+    bodyEl.style.height = bodyBudget + "px";
+  }
+
+  function render() {
+    const agg = aggregate();
+    resetBtn.disabled = !filtersActive(agg);   // disabled at the default view so it can't read as live
+    const periodWords = grain === "quarter" ? "quarter by quarter" : "month by month";
+    const fillTokens = s => String(s || "").replace(/replace_expected/g, sel.expected).replace(/replace_period/g, periodWords);
+    titleEl.innerText = fillTokens(cfg.title || "Substances found in samples expected to be replace_expected");
+    if (subEl) subEl.innerText = fillTokens(cfg.subtitle);
+    settleBodyBudget();
+    renderGroupList(agg);
+    aboutDataDiv.innerHTML = buildAboutDataHTML(source);
+
+    if (agg.periods.length === 0 || sel.group == null) {
+      Plotly.purge(chartDiv);
+      chartDiv.innerHTML = '<p class="text-muted text-center py-5">No samples were checked for this selection.</p>';
+      tableTitle.innerText = ""; tableDiv.innerHTML = ""; moreEl.style.visibility = "hidden"; moreEl.innerText = "\u00a0";
+      return;
+    }
+    chartDiv.innerHTML = "";
+
+    // Series: "Any <group>" first, then substances by overall share (desc); the top maxLines get lines.
+    const groupHits = agg.hits[sel.group] || {};
+    const subs = Object.keys(groupHits).filter(s => s !== FOUND_ANY_LABEL)
+      .sort((a, b) => (agg.sumOf(groupHits[b]) - agg.sumOf(groupHits[a])) || a.localeCompare(b));
+    const drawn = subs.slice(0, maxLines);
+    const hidden = subs.length - drawn.length;
+    moreEl.style.visibility = hidden > 0 ? "visible" : "hidden";
+    moreEl.innerText = hidden > 0 ? `${hidden} more substance${hidden === 1 ? "" : "s"} in the table below.` : "\u00a0";
+
+    const pctOf = (series, t) => agg.totals[t] ? (100 * ((series && series[t]) || 0)) / agg.totals[t] : null;
+    const hover = "%{y:.0f}% (%{customdata[0]} of %{customdata[1]} samples%{customdata[2]})%{customdata[3]}<extra>%{fullData.name}</extra>";
+    // Method of detection, per substance: the per-method counts ride the hover ("found by FTIR in
+    // 30, by test strip in 25") and tag the legend name; the FTIR-only default needs no tag beyond
+    // the subtitle's "Detected by FTIR or test strip".
+    const methodsOf = s => (agg.methods[sel.group] && agg.methods[sel.group][s]) || {};
+    const methodTag = s => {
+      if (/test strip/i.test(s)) return "";
+      const m = methodsOf(s), ftir = agg.sumOf(m.ftir) > 0, strip = agg.sumOf(m.strip) > 0;
+      return strip ? (ftir ? " (FTIR + test strip)" : " (test strip)") : "";
+    };
+    const methodText = (s, t) => {
+      const m = methodsOf(s), ftir = (m.ftir && m.ftir[t]) || 0, strip = (m.strip && m.strip[t]) || 0;
+      if (!ftir && !strip) return "";
+      const parts = [];
+      if (ftir) parts.push(`FTIR ${ftir}`);
+      if (strip) parts.push(`test strip ${strip}`);
+      return `<br>found by ${parts.join(", ")}`;
+    };
+    const customdata = (series, s) => agg.periods.map(t => [(series && series[t]) || 0, agg.totals[t],
+                                                            agg.totals[t] < minN ? " · small sample" : "", s ? methodText(s, t) : ""]);
+    // The samples checked per period, written across the top of the plot so every percentage reads
+    // against its n at a glance (thinned when there are many periods; the last period always shows).
+    const nStep = Math.max(1, Math.ceil(agg.periods.length / 14));
+    const nRow = agg.periods.map((t, i) => ((i % nStep === 0 || i === agg.periods.length - 1) ? {
+      x: t, y: 107, xref: "x", yref: "y", text: (i === 0 ? "n = " : "") + agg.totals[t], showarrow: false,
+      font: { size: 10, color: canaskMarkerLineColor() }, xanchor: "center", yanchor: "middle",
+    } : null)).filter(Boolean);
+    const colorway = canaskColorway();
+    const anyLabel = `Any ${sentenceCaseGroup(groupLabel[sel.group])}`;
+    // Series that coincide at EVERY period (two substances always found together, or a group's only
+    // substance tracking its own "Any" line) would hide one another. The second, third, ... of each
+    // identical set get a dash pattern and a different marker shape so both stay visible; the first
+    // (the "Any" line when it is one of them) keeps the solid style.
+    const DUP_STYLES = [
+      { dash: "solid", symbol: "circle" }, { dash: "dash", symbol: "diamond" },
+      { dash: "dot", symbol: "square" }, { dash: "dashdot", symbol: "triangle-up" },
+    ];
+    const seenShapes = new Map();   // y-signature -> how many series already drawn with it
+    const styleFor = series => {
+      const sig = JSON.stringify(agg.periods.map(t => pctOf(series, t)));
+      const n = seenShapes.get(sig) || 0;
+      seenShapes.set(sig, n + 1);
+      const st = DUP_STYLES[Math.min(n, DUP_STYLES.length - 1)];
+      return { dash: st.dash, symbols: agg.periods.map(t => (agg.totals[t] < minN ? st.symbol + "-open" : st.symbol)) };
+    };
+    const anyStyle = styleFor(groupHits[FOUND_ANY_LABEL]);
+    const traces = [{
+      type: "scatter", mode: "lines+markers", name: anyLabel,
+      x: agg.periods, y: agg.periods.map(t => pctOf(groupHits[FOUND_ANY_LABEL], t)),
+      customdata: customdata(groupHits[FOUND_ANY_LABEL], null), hovertemplate: hover,
+      line: { width: 3.5, color: canaskMarkerLineColor(), dash: anyStyle.dash },
+      marker: { size: 8, symbol: anyStyle.symbols, color: canaskMarkerLineColor() },
+    }].concat(drawn.map((s, i) => {
+      const st = styleFor(groupHits[s]);
+      return {
+        type: "scatter", mode: "lines+markers", name: s + methodTag(s),
+        x: agg.periods, y: agg.periods.map(t => pctOf(groupHits[s], t)),
+        customdata: customdata(groupHits[s], s), hovertemplate: hover,
+        line: { width: 2, color: colorway[i % colorway.length], dash: st.dash },
+        marker: { size: st.dash === "solid" ? 6 : 7, symbol: st.symbols, color: colorway[i % colorway.length] },
+      };
+    }));
+
+    const cardW = $("#viz-card").width();
+    const listW = listEl.offsetParent ? listEl.offsetWidth : 0;   // 0 when the list is hidden (phones)
+    Plotly.purge(chartDiv);
+    Plotly.react(chartDiv, traces, themeChartLayout({
+      width: Math.max(240, (chartDiv.clientWidth || (cardW - listW)) - 2),
+      height: bodyBudget - 2,
+      xaxis: Object.assign({ title: { text: cfg.x_axis_title || "Date checked", standoff: 12 }, automargin: true, fixedrange: true },
+                           grainXAxis(grain, agg.periods)),
+      // Headroom above 100% holds the n row (annotations at y=107); ticks stop at 100.
+      yaxis: { range: [0, 114], tickvals: [0, 20, 40, 60, 80, 100], ticksuffix: "%",
+               title: { text: cfg.y_axis_title || "% of samples checked", standoff: 10 }, fixedrange: true },
+      annotations: nRow,
+      hovermode: "closest",
+      hoverlabel: { namelength: -1 },
+      legend: responsiveLegend(),
+      margin: responsiveMargin(),
+    }), { displaylogo: false, responsive: false });
+
+    // Table: samples checked, the group total, then EVERY substance (not just the drawn ones).
+    tableTitle.innerText = fillTokens(cfg.table_title || cfg.title || "What's in the Sample?") + `: ${groupLabel[sel.group]}`;
+    const table = document.createElement("table");
+    table.setAttribute("class", "mb-0 table table-striped table-bordered table-hover");
+    const head = table.insertRow(-1);
+    [""].concat(agg.periods).forEach(h => { const th = document.createElement("th"); th.innerText = h; head.appendChild(th); });
+    const addRow = (label, series, bold, s) => {
+      const tr = table.insertRow(-1); tr.setAttribute("class", "align-middle" + (bold ? " fw-bold" : ""));
+      tr.insertCell(-1).innerText = s ? s + methodTag(s) : label;
+      agg.periods.forEach(t => {
+        const n = (series && series[t]) || 0;
+        const pct = pctOf(series, t);
+        const cell = tr.insertCell(-1);
+        cell.innerText = pct == null ? "–" : `${n} (${pct.toFixed(1)}%)`;
+        if (s) {
+          const m = methodsOf(s), ftir = (m.ftir && m.ftir[t]) || 0, strip = (m.strip && m.strip[t]) || 0;
+          if (ftir && strip) cell.title = `FTIR ${ftir}, test strip ${strip}`;
+        }
+      });
+    };
+    const totalsRow = table.insertRow(-1); totalsRow.setAttribute("class", "align-middle fw-bold");
+    totalsRow.insertCell(-1).innerText = "Samples checked";
+    agg.periods.forEach(t => { totalsRow.insertCell(-1).innerText = String(agg.totals[t]); });
+    addRow(anyLabel, groupHits[FOUND_ANY_LABEL], true);
+    subs.forEach(s => addRow(s, groupHits[s], false, s));
+    makeSortableTable(table);
+    tableDiv.innerHTML = "";
+    if (cfg.note) {   // the methods footnote sits with the table, so the chart keeps the whole card
+      const noteEl = document.createElement("p"); noteEl.className = "table-caption text-start";
+      noteEl.innerText = cfg.note;
+      tableDiv.appendChild(noteEl);
+    }
+    tableDiv.appendChild(table);
+  }
+
+  // Prime the URL params so masterLoop's trailing syncUrl canonicalizes the address bar (replaceState
+  // on first load; a no-op when it already matches), then draw.
+  activeRendererParams = selToParams();
   render();
 }
 
@@ -3264,14 +3937,17 @@ function replayFromPath(entryVid, locationSlug, categorySlug, yearParam) {
   masterLoop(location, year, category);                              // level 3
 }
 
-// Seed the time grain + chart type from ?grain= / ?chart= (deep link or Back/Forward). Absent or
-// unknown values reset to the defaults; masterLoop then clamps them to what the visual offers.
+// Seed the time grain, chart type and heatmap measure from ?grain= / ?chart= / ?measure= (deep link
+// or Back/Forward). Absent or unknown values reset to the defaults; masterLoop then clamps them to
+// what the visual offers.
 function seedGrainFromUrl() {
   const params = new URLSearchParams(window.location.search || "");
   const grain = params.get("grain");
   activeGrain = GRAIN_ORDER.includes(grain) ? grain : "year";
   const chart = params.get("chart");
   activeChartType = Object.prototype.hasOwnProperty.call(CHART_TYPE_LABELS, chart) ? chart : null;
+  const measure = params.get("measure");
+  activeMeasure = Object.prototype.hasOwnProperty.call(HEATMAP_MEASURE_LABELS, measure) ? measure : null;
 }
 
 // Back/Forward: re-derive state from the URL without pushing history or reloading (data is already
@@ -3296,6 +3972,7 @@ function resetVisualControl() {
   // and the time-grain / chart-type toggles (masterLoop rebuilds them for a grain-capable visual)
   clearToggleGroup(document.getElementById("time-grain-toggle"));
   clearToggleGroup(document.getElementById("chart-type-toggle"));
+  clearRendererControls();
   // clear any treemap stratifier dropdowns so they don't linger on a non-treemap visual
   let stratifiers = document.getElementById("vis-stratifiers");
   if (stratifiers) stratifiers.innerHTML = "";
@@ -4120,7 +4797,9 @@ window.dasRedrawPivot = function () {
 // (/api/v1/confluence/data, data_viz/confluence.py) returns one pre-aligned
 // payload: the visual's own fact block, the shared period list, and the DAS
 // half cut to match (a series per substance key for flat charts, or counts per
-// city for health-authority maps). This file only draws. It is bundled after
+// city for health-authority maps). A map draws one measure at a time (the
+// payload's `measure`: counts, or the source's own per-100k rates). This file
+// only draws. It is bundled after
 // visualGeneration.js and dasExplorer.js in one shared script scope, so it
 // reuses their fact selectors (factsToSeries / factsToHeatmap), map helpers
 // (dasMapLayout / dasFitMapHeight / dasEnsureGeoAssets) and theme helpers.
@@ -4146,11 +4825,12 @@ function initConfluence(cfg) {
         return;
     }
     slugs.forEach(slug => provinceSelect.appendChild(new Option(cfg.provinces[slug].label, slug)));
+    // Measure before Period: a map's grains on offer depend on its measure (measure_grains).
     provinceSelect.onchange = function () {
-        confluenceFillVisuals(); confluenceSyncChips(null); confluenceSyncGrains(null);
+        confluenceFillVisuals(); confluenceSyncChips(null); confluenceSyncMeasures(null); confluenceSyncGrains(null);
     };
     document.getElementById("confluence-visual").onchange = function () {
-        confluenceSyncChips(null); confluenceSyncGrains(null);
+        confluenceSyncChips(null); confluenceSyncMeasures(null); confluenceSyncGrains(null);
     };
     document.querySelectorAll('input[name="confluence-level"]').forEach(radio => {
         radio.onchange = function () { confluenceSyncChips(confluenceCheckedKeys(), radio.value); };
@@ -4159,6 +4839,11 @@ function initConfluence(cfg) {
     // payload: re-request it straight away.
     document.querySelectorAll('input[name="confluence-grain"]').forEach(radio => {
         radio.onchange = confluenceUserApply;
+    });
+    // Likewise the measure: the map is redrawn from the same facts, but the grains on offer (and
+    // so possibly the period) change with it, so re-request rather than re-render.
+    document.querySelectorAll('input[name="confluence-measure"]').forEach(radio => {
+        radio.onchange = function () { confluenceSyncGrains(null); confluenceUserApply(); };
     });
     const expr = document.getElementById("confluence-expr");
     expr.oninput = function () {
@@ -4170,6 +4855,7 @@ function initConfluence(cfg) {
     confluenceFillVisuals();
     if (!confluenceReplayFromUrl()) {
         confluenceSyncChips(null);
+        confluenceSyncMeasures(null);
         confluenceSyncGrains(null);
     }
 }
@@ -4195,13 +4881,51 @@ function confluenceGrain() {
     return checked ? checked.value : "year";
 }
 
-// Offer only the grains the chosen visual has (cfg ...visuals[i].grains, year/quarter/month order):
-// the rest are disabled and hidden, and the whole group hides when there's nothing to choose.
-// Keeps `preferred` (or the current pick) when the visual has it, else falls back to its first
-// grain. Returns the grain left selected.
+// The chosen measure, or null for a visual that offers none (a flat chart): only a map whose
+// source publishes rates beside counts has a choice, and only then is the group shown.
+function confluenceMeasure() {
+    const visual = confluenceVisualCfg();
+    if (!visual || !visual.measures || !visual.measures.length) return null;
+    const checked = document.querySelector('input[name="confluence-measure"]:checked');
+    return checked && visual.measures.includes(checked.value) ? checked.value : visual.measures[0];
+}
+
+// Offer only the measures the chosen visual has (cfg ...visuals[i].measures, in the order its
+// manifest declares them -- the first is what the province page opens on). Keeps `preferred` (or
+// the current pick) when the visual has it, else falls back to its first. Returns the measure
+// left selected (null when there's none to choose).
+function confluenceSyncMeasures(preferred) {
+    const visual = confluenceVisualCfg();
+    const measures = visual && visual.measures ? visual.measures : [];
+    const wrap = document.getElementById("confluence-measure-wrap");
+    const checked = document.querySelector('input[name="confluence-measure"]:checked');
+    // The current pick counts only while a choice is on offer: the template's default-checked
+    // radio must not pre-empt a visual's own opening measure (rates for the BC / NS maps).
+    const current = checked && !wrap.classList.contains("d-none") ? checked.value : null;
+    const wanted = preferred || current;
+    const pick = measures.includes(wanted) ? wanted : (measures[0] || null);
+    document.querySelectorAll('input[name="confluence-measure"]').forEach(radio => {
+        const offered = measures.includes(radio.value);
+        radio.disabled = !offered;
+        radio.checked = radio.value === pick;
+        const label = document.querySelector(`label[for="${radio.id}"]`);
+        if (label) label.classList.toggle("d-none", !offered);
+    });
+    wrap.classList.toggle("d-none", measures.length < 2);
+    return pick;
+}
+
+// Offer only the grains the chosen visual has at its chosen measure (cfg ...visuals[i]
+// .measure_grains[measure], else .grains; year/quarter/month order): the rest are disabled and
+// hidden, and the whole group hides when there's nothing to choose. Keeps `preferred` (or the
+// current pick) when the visual has it, else falls back to its first grain. Returns the grain
+// left selected.
 function confluenceSyncGrains(preferred) {
     const visual = confluenceVisualCfg();
-    const grains = visual && visual.grains && visual.grains.length ? visual.grains : ["year"];
+    const measure = confluenceMeasure();
+    const byMeasure = visual && measure && visual.measure_grains ? visual.measure_grains[measure] : null;
+    const onOffer = byMeasure || (visual && visual.grains) || [];
+    const grains = onOffer.length ? onOffer : ["year"];
     const wanted = preferred || confluenceGrain();
     const pick = grains.includes(wanted) ? wanted : grains[0];
     document.querySelectorAll('input[name="confluence-grain"]').forEach(radio => {
@@ -4270,7 +4994,8 @@ function confluenceCheckedKeys() {
     return Array.from(document.querySelectorAll("#confluence-chips input:checked")).map(i => i.value);
 }
 
-// Deep links: ?province=&visual=&grain=&groups=&level=&basis=&expr= (written by confluenceApply).
+// Deep links: ?province=&visual=&measure=&grain=&groups=&level=&basis=&expr= (written by
+// confluenceApply; `measure` only for a map that offers one).
 // Returns true when it found a valid pairing and kicked off the fetch. A link that no longer
 // resolves (or names unknown substances) says so rather than quietly showing something else.
 function confluenceReplayFromUrl() {
@@ -4290,6 +5015,13 @@ function confluenceReplayFromUrl() {
         return false;
     }
     document.getElementById("confluence-visual").value = visual;
+    const linkedMeasure = params.get("measure");
+    const measure = confluenceSyncMeasures(linkedMeasure);
+    if (linkedMeasure && linkedMeasure !== measure) {
+        confluenceSetNote("confluence-link-note", measure
+            ? `The linked measure (${linkedMeasure}) isn't available for this visual, so it's shown as ${measure} instead.`
+            : `This visual has no measure to choose, so the linked one (${linkedMeasure}) was ignored.`);
+    }
     const linkedGrain = params.get("grain");
     const grain = confluenceSyncGrains(linkedGrain);
     if (linkedGrain && linkedGrain !== grain) {
@@ -4372,6 +5104,8 @@ async function confluenceApply() {
         province: province, visual: visual.id, grain: confluenceGrain(), level: level,
         basis: document.getElementById("confluence-basis").value,
     });
+    const measure = confluenceMeasure();
+    if (measure) params.set("measure", measure);
     if (keys.length) params.set("groups", keys.join(","));
     if (expr) params.set("expr", expr);
 
@@ -4477,12 +5211,28 @@ function confluenceHeatValue(heat, geo, period) {
     return idx >= 0 ? heat[geo].y[idx] : null;
 }
 
+// A map pairing's facts at the payload's measure (counts unless the source publishes rates and
+// rates were asked for), through the province page's own selector so the two can't drift.
+function confluenceHeat(d) {
+    return factsToHeatmap(d.visual.facts, d.visual.key_kind, d.measure || "counts");
+}
+
+// What a map's values are: {label: "deaths per 100,000", colorbar: "Deaths per<br>100,000"}.
+function confluenceMeasureLabels(d) {
+    const metric = d.visual_metric || "count";
+    const capital = metric.charAt(0).toUpperCase() + metric.slice(1);
+    return d.measure === "rates"
+        ? { label: `${metric} per 100,000`, colorbar: `${capital} per<br>100,000` }
+        : { label: metric, colorbar: capital };
+}
+
 function confluenceRender() {
     const state = confluenceState;
     const d = state && state.data;
     const chart = document.getElementById("confluence-chart");
     if (!d || !chart) return;
-    const title = `${d.visual_label} · DAS samples (${d.das.basis} date, ${d.province.label})`;
+    const perCapita = d.measure === "rates" ? " per 100,000 population" : "";
+    const title = `${d.visual_label}${perCapita} · DAS samples (${d.das.basis} date, ${d.province.label})`;
     document.getElementById("confluence-chart-title").textContent = title;
 
     const incomplete = d.periods.filter(p => !p.das_complete).map(p => p.key);
@@ -4597,8 +5347,9 @@ function confluenceRenderSeries(d, chart) {
     Plotly.react(chart, traces, themeChartLayout(layout), { displaylogo: false, responsive: true });
 }
 
-// Health-authority map + DAS bubbles: per period one choropleth (the visual's counts) and one
-// scattergeo (DAS samples by city), only the active period's pair visible; the slider steps both.
+// Health-authority map + DAS bubbles: per period one choropleth (the visual's counts or rates,
+// per the payload's measure) and one scattergeo (DAS samples by city), only the active period's
+// pair visible; the slider steps both.
 function confluenceRenderCities(d, chart) {
     const geojson = confluenceState.geojson;
     if (!geojson || !Array.isArray(geojson.features) || !geojson.features.length) {
@@ -4607,7 +5358,7 @@ function confluenceRenderCities(d, chart) {
     }
     const t = canaskChartTheme();
     const periods = d.periods.map(p => p.key);
-    const heat = factsToHeatmap(d.visual.facts, d.visual.key_kind);
+    const heat = confluenceHeat(d);
     const names = new Set(geojson.features.map(f => f.properties.ENGNAME));
     const unmatchedAreas = Object.keys(heat).filter(geo => !names.has(geo)).sort();
     const frames = periods.map(p => {
@@ -4630,7 +5381,7 @@ function confluenceRenderCities(d, chart) {
     const maxValue = Math.max(0, ...allValues);
     const sizeref = maxValue > 0 ? (2 * maxValue) / (30 ** 2) : 1;
     const bubble = confluenceDasColor(0, t);
-    const metricLabel = d.visual_metric || "count";
+    const measure = confluenceMeasureLabels(d);
 
     const traces = [];
     frames.forEach((f, j) => {
@@ -4648,7 +5399,7 @@ function confluenceRenderCities(d, chart) {
             colorscale: t.dark ? "Cividis" : "YlOrRd",
             reversescale: !t.dark,
             marker: { line: { color: t.border, width: 0.5 } },
-            colorbar: dasMapColorbar({ measure: metricLabel.charAt(0).toUpperCase() + metricLabel.slice(1) }, t),
+            colorbar: dasMapColorbar({ measure: measure.colorbar }, t),
             showlegend: false,
         });
         const keys = known.filter(c => d.das.cities[c][f.label] != null);
@@ -4699,7 +5450,7 @@ function confluenceRenderCities(d, chart) {
         .then(() => {
             dasFitMapHeight(chart);
             attachGeoHoverTip(chart, (point) => (point.location == null ? null
-                : { name: point.location, value: `${point.z} ${metricLabel}` }));
+                : { name: point.location, value: `${point.z} ${measure.label}` }));
         })
         .catch(error => {
             console.error("Confluence map render failed:", error);
@@ -4714,7 +5465,7 @@ function confluenceRenderTable(d) {
     const periods = d.periods.map(p => p.key);
     const columns = [], rows = periods.map(p => [p]);
     if (d.das.mode === "cities") {
-        const heat = factsToHeatmap(d.visual.facts, d.visual.key_kind);
+        const heat = confluenceHeat(d);
         Object.keys(heat).sort().forEach(geo => {
             columns.push(geo);
             periods.forEach((p, i) => rows[i].push(confluenceHeatValue(heat, geo, p)));

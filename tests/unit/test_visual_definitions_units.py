@@ -18,6 +18,8 @@ from data_viz.visual_definitions import MANIFEST_DIR, derive_drill_chain, visual
     ("flat_series", None, []),
     ("flat_series", "substance", ["dimension2"]),
     ("category_treemap", "drug_category", []),
+    ("expected_actual_bar", "sample_outcome", []),
+    ("found_substance_series", "found_substance", []),
     ("map_none", None, []),
     ("das_table", None, []),
     (None, None, []),
@@ -30,6 +32,10 @@ def _heatmap(**options):
     base = {"counts-title": "Deaths", "counts-y-axis-title": "Deaths", "table-counts-row": "Deaths"}
     return {"shape": "geo_series", "level": 1, "chart_type": "heatmap", "data_types": ["counts"],
             "visual_options": {**base, **options}}
+
+
+_RATES_KEYS = {"heatmap-rates-title": "Deaths per 100k", "rates-title": "Deaths per 100k",
+               "rates-y-axis-title": "Deaths per 100k", "table-rates-row": "replace_me"}
 
 
 class TestVisualOptionsProblems:
@@ -45,6 +51,18 @@ class TestVisualOptionsProblems:
 
     def test_no_switch_options_is_fine(self):
         assert visual_options_problems({"shape": "flat_series"}) == []
+
+    def test_default_grain_must_be_one_of_the_declared_grains(self):
+        ok = {"shape": "found_substance_series", "visual_options": {"time_grains": ["quarter", "month"],
+                                                                     "default_grain": "month"}}
+        assert visual_options_problems(ok) == []
+        bad = {"shape": "found_substance_series", "visual_options": {"time_grains": ["quarter", "month"],
+                                                                      "default_grain": "year"}}
+        (problem,) = visual_options_problems(bad)
+        assert "default_grain" in problem
+        alone = {"shape": "found_substance_series", "visual_options": {"default_grain": "month"}}
+        (problem,) = visual_options_problems(alone)
+        assert "default_grain" in problem
 
     @pytest.mark.parametrize("grains", ["year", "quarterly", [], ["months"], ["Year"], [None]])
     def test_malformed_time_grains(self, grains):
@@ -71,7 +89,27 @@ class TestVisualOptionsProblems:
         (problem,) = visual_options_problems(entry)
         assert "counts-title" in problem
 
-    def test_trend_view_needs_counts_first(self):
-        entry = _heatmap(chart_types=["heatmap", "line"])
+    def test_rates_first_trend_view_is_fine_with_rates_keys(self):
+        entry = _heatmap(**_RATES_KEYS, chart_types=["heatmap", "line"])
         entry["data_types"] = ["rates", "counts"]
-        assert "counts" in visual_options_problems(entry)[0]
+        assert visual_options_problems(entry) == []
+
+    def test_trend_view_needs_title_options_for_every_measure(self):
+        entry = _heatmap(**_RATES_KEYS, chart_types=["heatmap", "line"])
+        entry["data_types"] = ["rates", "counts"]
+        del entry["visual_options"]["table-rates-row"]
+        (problem,) = visual_options_problems(entry)
+        assert "table-rates-row" in problem
+
+    def test_rates_heatmap_needs_its_map_title(self):
+        entry = _heatmap(**_RATES_KEYS)
+        entry["data_types"] = ["rates", "counts"]
+        del entry["visual_options"]["heatmap-rates-title"]
+        (problem,) = visual_options_problems(entry)
+        assert "heatmap-rates-title" in problem
+
+    def test_heatmap_measures_limited_to_counts_and_rates(self):
+        entry = _heatmap()
+        entry["data_types"] = ["counts", "percentages"]
+        (problem,) = visual_options_problems(entry)
+        assert "percentages" in problem

@@ -135,3 +135,28 @@ def seed_grain_visuals(source=None, time_grains=ALL_GRAINS):
                            time_frame=frame, time_frame_type=grain, data_metric="deaths",
                            data_value=1)
     return {"source": source, "flat": flat, "heat": heat}
+
+
+def seed_rates_heatmap(source=None):
+    """A Saskatchewan heatmap that carries the source's own per-100k rates beside its counts
+    (data_types "rates,counts", so it opens on rates like the BC and NS maps): counts at year
+    AND month grain, rates at year only -- so the grains on offer depend on the measure."""
+    source = source or make_data_source(name="SK Rates", link="https://sk.example.org/r",
+                                        about="rates")
+    heat = make_visual(province="saskatchewan", name="rates_heatmap", visibility="public",
+                       data_source=source, vis_type="geo_series", data_shape="geo_series",
+                       chart_type="heatmap", metric="deaths", geo_type="health_authority",
+                       key_kind="constant", level="1", data_types="rates,counts",
+                       menu_parent="Deaths", menu_name="Heatmap with rates",
+                       visual_options={"time_grains": ["year", "month"],
+                                       "heatmap-title": "Deaths", "heatmap-rates-title": "Rates"})
+    for geo, year, count, rate in (("Saskatoon", "2025", 5, 1.5), ("Saskatoon", "2026", 6, 1.8),
+                                   ("Regina", "2025", 7, 2.9), ("Regina", "2026", 8, 3.3)):
+        make_datapoint(source, geo=geo, geo_type="health_authority", time_frame=year,
+                       data_metric="deaths", data_value=count)
+        make_datapoint(source, geo=geo, geo_type="health_authority", time_frame=year,
+                       data_metric="deaths", data_type="rates", data_value=rate)
+    for month in ("2025-04", "2025-05", "2025-06"):
+        make_datapoint(source, geo="Saskatoon", geo_type="health_authority", time_frame=month,
+                       time_frame_type="month", data_metric="deaths", data_value=1)
+    return {"source": source, "heat": heat}

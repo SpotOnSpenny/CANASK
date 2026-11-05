@@ -36,6 +36,8 @@ def derive_drill_chain(shape, dimension2_type):
         return ["geo", "time", "dimension", "dimension2"]
     if shape == "flat_series":
         return ["dimension2"] if dimension2_type else []
+    if shape == "found_substance_series":
+        return []   # expected-drug / group / geo pickers are all client-side (self-contained renderer)
     # Self-contained shapes with no inter-visual drill chain: category_treemap (its
     # category->leaf nesting and geo/time/dimension filters are all client-side),
     # expected_actual_bar (segments and time filter are client-side), and map_none.
@@ -45,21 +47,29 @@ def derive_drill_chain(shape, dimension2_type):
 
 TIME_GRAINS = ("year", "quarter", "month")
 SWITCHABLE_CHART_TYPES = ("heatmap", "line")
-# The heatmap's Trend view renders through createVisualLine with the counts data type, which reads these.
-TREND_VIEW_OPTIONS = ("counts-title", "counts-y-axis-title", "table-counts-row")
+# The heatmap's Trend view renders through createVisualLine, which reads these for each data type it
+# can show ("{dt}" = counts / rates).
+TREND_VIEW_OPTIONS = ("{dt}-title", "{dt}-y-axis-title", "table-{dt}-row")
+# Measures the heatmap renderer can draw (it labels the colorbar / hover per measure). Its map title is
+# `heatmap-title` for counts and `heatmap-<dt>-title` for any other measure.
+HEATMAP_DATA_TYPES = ("counts", "rates")
 
 
 def visual_options_problems(entry):
-    """What's wrong with a manifest entry's grain / chart-type switch options ([] = fine). Both are
-    read by the client and Confluence, which would otherwise disagree about a malformed value (a
-    string `time_grains` is a substring test on the server, ignored by the client) or crash on it (a
-    Trend view without its title options)."""
+    """What's wrong with a manifest entry's grain / chart-type / heatmap-measure options ([] = fine).
+    They are read by the client and Confluence, which would otherwise disagree about a malformed value
+    (a string `time_grains` is a substring test on the server, ignored by the client) or crash on it (a
+    Trend view or rates map without its title options)."""
     options = entry.get("visual_options") or {}
+    data_types = entry.get("data_types") or []
     problems = []
     grains = options.get("time_grains")
     if grains is not None and (not isinstance(grains, list) or not grains
                                or any(g not in TIME_GRAINS for g in grains)):
         problems.append(f"time_grains must be a non-empty list drawn from {list(TIME_GRAINS)}, got {grains!r}")
+    default_grain = options.get("default_grain")
+    if default_grain is not None and (not isinstance(grains, list) or default_grain not in grains):
+        problems.append(f"default_grain {default_grain!r} must be one of the declared time_grains {grains!r}")
     chart_types = options.get("chart_types")
     if chart_types is not None:
         if not isinstance(chart_types, list) or any(t not in SWITCHABLE_CHART_TYPES for t in chart_types):
@@ -71,11 +81,19 @@ def visual_options_problems(entry):
         elif entry.get("shape") != "geo_series" or entry.get("level") != 1:
             problems.append("chart_types is only supported on a level-1 geo_series visual")
         elif "line" in chart_types:
-            if (entry.get("data_types") or [None])[0] != "counts":
-                problems.append("a Trend view (chart_types 'line') needs data_types to start with 'counts'")
-            missing = [key for key in TREND_VIEW_OPTIONS if not options.get(key)]
+            missing = [key.format(dt=dt) for dt in data_types or ["counts"] for key in TREND_VIEW_OPTIONS
+                       if not options.get(key.format(dt=dt))]
             if missing:
                 problems.append(f"a Trend view (chart_types 'line') needs visual_options {missing}")
+    if entry.get("chart_type") == "heatmap":
+        unsupported = [dt for dt in data_types if dt not in HEATMAP_DATA_TYPES]
+        if unsupported:
+            problems.append(f"a heatmap's data_types must be drawn from {list(HEATMAP_DATA_TYPES)}, "
+                            f"got {unsupported}")
+        missing = [f"heatmap-{dt}-title" for dt in data_types
+                   if dt in HEATMAP_DATA_TYPES and dt != "counts" and not options.get(f"heatmap-{dt}-title")]
+        if missing:
+            problems.append(f"a heatmap's non-count measures need their map titles: visual_options {missing}")
     return problems
 
 

@@ -13,7 +13,7 @@
       "dimension2_type": null,
       "key_kind": "constant",
       "chart_type": "heatmap",
-      "data_types": ["counts"],
+      "data_types": ["rates", "counts"],
       "menu_parent": "Deaths and Demographics",
       "menu_name": "Drug Toxicity Deaths by Health Authority",
       "level": 1,
@@ -22,11 +22,15 @@
       "is_default": true,
       "visual_options": {
         "heatmap-title": "Unregulated Drug Deaths in British Columbia by Health Authority",
+        "heatmap-rates-title": "Unregulated Drug Deaths per 100,000 Population in British Columbia by Health Authority",
         "table-title": "Unregulated Drug Deaths in replace_with_health_authority Health Authority",
         "table-row-title": "replace_location",
         "counts-title": "Unregulated Drug Deaths in British Columbia by Health Authority",
         "counts-y-axis-title": "Unregulated Drug Deaths",
         "table-counts-row": "replace_me",
+        "rates-title": "Unregulated Drug Deaths per 100,000 Population in British Columbia by Health Authority",
+        "rates-y-axis-title": "Unregulated Drug Deaths per 100,000 Population",
+        "table-rates-row": "replace_me",
         "time_grains": ["year", "quarter", "month"],
         "chart_types": ["heatmap", "line"]
       }

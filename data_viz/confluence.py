@@ -19,6 +19,7 @@ from data_viz import db
 from data_viz.database.models import DasDrugCodes, DasSampleDrugs, DasSamples, DataSources
 from data_viz.das_explorer import PIVOT_MAX_COLS_GEO, PIVOT_MAX_ROWS_GEO, query_pivot
 from data_viz.provinces import PROVINCE_CODES, PROVINCE_LABELS
+from data_viz.visual_definitions import HEATMAP_DATA_TYPES
 from data_viz.visual_generic import visual_block, visual_facets
 from data_viz.visual_query import accessible_provinces, displayable_visuals, source_block
 
@@ -30,6 +31,10 @@ BASES = ("received", "returned")
 # The time grains a visual can be overlaid at, in display order. A manifest's
 # visual_options.time_grains narrows them; undeclared means every grain the visual's facts carry.
 GRAINS = ("year", "quarter", "month")
+# A heatmap's Measure (the province page's Counts / Rates toggle): the data types a heatmap may
+# declare, drawn one at a time -- the manifest validator's vocabulary, so the API's 400 check and
+# define-visuals can't drift apart. Flat charts have no choice.
+HEATMAP_MEASURES = HEATMAP_DATA_TYPES
 MAX_KEYS = 8            # series mode runs one pivot per key; bound the request's cost
 ALL_KEY = "all"         # the "no substance selected" pseudo-key: every sample
 ALL_LABEL = "All samples"
@@ -197,20 +202,34 @@ def facts_at_grain(facts, grain):
     return [f for f in facts if _fact_grain(f) == grain]
 
 
-def _drawn(visual, fact):
-    """Whether a fact is drawn (and so can make a grain available): never an additional row, and only
-    counts on a heatmap, which draws counts alone (the province page's availableGrains rule)."""
+def _drawn(visual, fact, measure="counts"):
+    """Whether a fact is drawn (and so can make a grain available): never an additional row, and on
+    a heatmap only the chosen measure, which it draws alone (the province page's availableGrains
+    rule, with the Measure toggle's pick)."""
     if fact.get("dt") == "additional_rows":
         return False
-    return visual.chart_type != "heatmap" or fact.get("dt") == "counts"
+    return visual.chart_type != "heatmap" or fact.get("dt") == measure
 
 
-def available_grains(visual, facts):
+def available_grains(visual, facts, measure="counts"):
     """The grains this visual can be overlaid at, in GRAINS order: every grain its drawn facts
-    carry (_drawn), narrowed to the manifest's visual_options.time_grains when it declares them."""
+    carry (_drawn, at `measure` for a heatmap), narrowed to the manifest's
+    visual_options.time_grains when it declares them."""
     declared = (visual.visual_options or {}).get("time_grains")
-    present = {_fact_grain(f) for f in facts if _drawn(visual, f)}
+    present = {_fact_grain(f) for f in facts if _drawn(visual, f, measure)}
     return [g for g in GRAINS if g in present and (declared is None or g in declared)]
+
+
+def available_measures(visual, facts):
+    """The measures a heatmap can be overlaid at, in the order its Visuals.data_types declares
+    them (the first is what it opens on, like the province page): the declared HEATMAP_MEASURES
+    that any of its main facts carry; counts alone when nothing is declared. [] for every other
+    chart -- a flat chart has no Measure to choose."""
+    if visual.chart_type != "heatmap":
+        return []
+    declared = [dt for dt in (visual.data_types or "counts").split(",") if dt in HEATMAP_MEASURES]
+    present = {f.get("dt") for f in facts if f.get("dt") != "additional_rows"}
+    return [m for m in declared if m in present]
 
 
 def visual_periods(facts):
@@ -354,15 +373,19 @@ def _clip(values_by_period, periods):
     return {p: v for p, v in values_by_period.items() if p in periods}
 
 
-def build_confluence_payload(province, visual, keys, level, basis, expr, grain=None):
+def build_confluence_payload(province, visual, keys, level, basis, expr, grain=None,
+                             measure=None):
     """The whole pre-aligned overlay for one (province, visual) pair at one time grain (default:
-    the visual's first available grain). `keys` must already be normalized to `level`
-    (keys_at_level). Raises UnalignableVisualError for a grain the visual doesn't offer or whose
-    time frames can't be aligned, and FilterSyntaxError for a bad `expr`.
+    the visual's first available grain) and, for a heatmap, one measure (default: the first its
+    data_types declares -- rates where the source publishes them). `keys` must already be
+    normalized to `level` (keys_at_level). Raises UnalignableVisualError for a grain or measure
+    the visual doesn't offer (a flat chart offers no measure at all) or whose time frames can't be
+    aligned, and FilterSyntaxError for a bad `expr`.
 
     The payload's `visual` key is the province API's block with its facts narrowed to the grain
-    (facts_at_grain);
-    `grains` lists every grain the visual offers, so the client can switch between them.
+    (facts_at_grain) -- both measures' facts for a heatmap, the client narrows to `measure` with
+    the province page's own selector; `grains` lists every grain the visual offers at that
+    measure, and `measures` every measure it offers ([] and a null `measure` for a flat chart).
 
     `das` always carries both `series` and `cities`; `mode` says which one is populated:
     - "series" (flat visuals): series = {key: {period: samples}} over every shared period (a
@@ -370,9 +393,18 @@ def build_confluence_payload(province, visual, keys, level, basis, expr, grain=N
     - "cities" (health-authority maps): cities = {"City, PR": {period: samples}}, sparse (absent
       = 0), undated = {ALL_KEY: samples with no date}."""
     block = visual_block(visual)
-    grains = available_grains(visual, block["facts"])
+    measures = available_measures(visual, block["facts"])
+    if measure is not None and visual.chart_type != "heatmap":
+        raise UnalignableVisualError("Only a health-authority map offers a choice of measure.")
+    if measures:
+        measure = measure or measures[0]
+        if measure not in measures:
+            raise UnalignableVisualError(f"This visual has no {measure} data to overlay.")
+    grains = available_grains(visual, block["facts"], measure or "counts")
     if not grains:
-        raise UnalignableVisualError("This visual has no data to overlay for this province.")
+        raise UnalignableVisualError(
+            f"This visual has no {measure} data to overlay for this province." if measure
+            else "This visual has no data to overlay for this province.")
     grain = grain or grains[0]
     if grain not in grains:
         raise UnalignableVisualError(f"This visual has no {grain} data to overlay.")
@@ -382,7 +414,12 @@ def build_confluence_payload(province, visual, keys, level, basis, expr, grain=N
         raise UnalignableVisualError(
             f"This visual's {grain} time frames can't be aligned with DAS.")
     coverage = das_coverage(basis)
-    periods = overlapping_periods(visual_periods(block["facts"]), grain, coverage)
+    # The shared time axis comes from the facts actually DRAWN: a heatmap ships both measures'
+    # facts, and the other measure may span periods this one lacks (BC's monthly rates are the
+    # workbook's rolling 13-month window while its counts carry merged history) -- those would
+    # otherwise reach the slider as blank map frames.
+    drawn = [f for f in block["facts"] if _drawn(visual, f, measure or "counts")]
+    periods = overlapping_periods(visual_periods(drawn), grain, coverage)
     period_set = set(periods)
     code = PROVINCE_CODES[province]
     mode = SUPPORTED_SHAPES[visual.data_shape]
@@ -418,6 +455,8 @@ def build_confluence_payload(province, visual, keys, level, basis, expr, grain=N
         "visual_metric": visual.metric,
         "grain": grain,
         "grains": grains,
+        "measure": measure if measures else None,
+        "measures": measures,
         "periods": [{"key": p, "das_complete": period_complete(p, grain, coverage)} for p in periods],
         "das": das,
     }
@@ -426,8 +465,9 @@ def build_confluence_payload(province, visual, keys, level, basis, expr, grain=N
 def confluence_config(user):
     """Everything the confluence.jinja boot script needs: the viewer's provinces that have at
     least one pairable visual (with the substance keys each visual's dimension values resolve
-    to, and the time grains it can be overlaid at), plus the crosswalk's groups and families for
-    the chip controls."""
+    to, the measures a heatmap offers and the time grains it can be overlaid at -- per measure
+    for a heatmap, since the source may publish rates at fewer grains than counts), plus the
+    crosswalk's groups and families for the chip controls."""
     data = load_substance_groups()
     accessible = accessible_provinces(user)
     provinces = {}
@@ -437,6 +477,9 @@ def confluence_config(user):
         visuals = []
         for v in supported_visuals(user, slug):
             values, grain_types = visual_facets(v)
+            facets = [{"g": g, "dt": dt} for g, dt in grain_types]
+            measures = available_measures(v, facets)
+            measure_grains = {m: available_grains(v, facets, m) for m in measures}
             visuals.append({
                 "id": v.name,
                 "menu_name": v.menu_name or v.name,
@@ -444,7 +487,10 @@ def confluence_config(user):
                 "shape": v.data_shape,
                 "metric": v.metric,
                 "terms_resolved": keys_at_level(resolve_terms(values, data), "group", data),
-                "grains": available_grains(v, [{"g": g, "dt": dt} for g, dt in grain_types]),
+                # The grains at the opening measure; measure_grains has each measure's own.
+                "grains": measure_grains[measures[0]] if measures else available_grains(v, facets),
+                "measures": measures,
+                "measure_grains": measure_grains,
             })
         if visuals:
             provinces[slug] = {"label": PROVINCE_LABELS[slug], "code": PROVINCE_CODES[slug],

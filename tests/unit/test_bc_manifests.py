@@ -1,4 +1,4 @@
-"""The BC manifests that opt into the time-grain / chart-type switch."""
+"""The BC (and NS heatmap) manifests that opt into the time-grain / chart-type / measure switches."""
 import json
 from pathlib import Path
 
@@ -35,4 +35,18 @@ def test_heatmap_offers_line_chart_with_line_renderer_keys():
     options = _entry("bc-coroners-service.json", "drug_death_heatmap")["visual_options"]
     assert options["chart_types"] == ["heatmap", "line"]
     for key in ("counts-title", "counts-y-axis-title", "table-title", "table-counts-row"):
+        assert options.get(key), key
+
+
+def test_health_area_heatmaps_open_on_rates_with_counts_alongside():
+    for filename, visual_id in (("bc-coroners-service.json", "drug_death_heatmap"),
+                                ("ns-rates-fatalities.json", "deaths_by_health_zone")):
+        entry = _entry(filename, visual_id)
+        assert entry["data_types"] == ["rates", "counts"], visual_id
+        assert entry["visual_options"].get("heatmap-rates-title"), visual_id
+
+
+def test_bc_heatmap_trend_view_has_rates_keys():
+    options = _entry("bc-coroners-service.json", "drug_death_heatmap")["visual_options"]
+    for key in ("rates-title", "rates-y-axis-title", "table-rates-row"):
         assert options.get(key), key

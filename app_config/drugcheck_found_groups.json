@@ -1,0 +1,260 @@
+{
+  "_comment": [
+    "Found-substance crosswalk for the drug-checking 'What's in the Sample?' visual (a maintained asset,",
+    "read by data_viz/drugcheck_substances.py). groups: display order = file order; each group's",
+    "`substances` maps a display label to the normalized tokens (data_viz.drugcheck_substances.norm_substance:",
+    "accents stripped, lower-cased, alphanumerics only) of every spelling the sites have entered for it in",
+    "an FTIR column. strips: internal strip column -> [group, label] credited on a Positive/Positif reading.",
+    "ignore: FTIR tokens that identify nothing. category_fallback: normalized source FTIR-category token ->",
+    "group for a spelling this file doesn't list yet (it keeps its raw label and gen-visuals prints it).",
+    "After each new drugChecking cycle: run `make gen-visuals`, read the 'unmapped FTIR' warning, add the",
+    "new spellings here (tests/unit/test_drugcheck_substances.py pins the current vocabulary)."
+  ],
+  "groups": {
+    "fentanyl_analogues": {
+      "label": "Fentanyl & analogues",
+      "substances": {
+        "Fentanyl": ["fentanyl", "fentanylhcl", "fentanylanalogue"],
+        "Para-fluorofentanyl": ["parafluorofentanyl", "parafluorofentanylhcl", "paraflurofentanyl"],
+        "Ortho-fluorofentanyl": ["orthofluorofentanyl", "orthoflurofentanyl"],
+        "Ortho-methylfentanyl": ["orthomethylfentanyl"],
+        "Carfentanil": ["carfentanil", "carfentanilhcl"],
+        "Isobutyryl fentanyl": ["isobutyrylfentanyl"],
+        "Tetrahydrofuran fentanyl": ["tetrahydrofanfentanyl", "tetrahydrofuranfentanyl"],
+        "Acetylfentanyl": ["acetylfentanyl", "acetylfentanylbase"]
+      }
+    },
+    "nitazenes": {
+      "label": "Nitazenes",
+      "substances": {
+        "Etonitazepyne": ["etonitazepine", "etonitazepyne"],
+        "Ethylene nitazene": ["ethylenenitazenehcl", "ethylenenitazene"],
+        "Nitazene (test strip)": []
+      }
+    },
+    "other_opioids": {
+      "label": "Other opioids",
+      "substances": {
+        "Heroin": ["heroin", "heroine", "heroinbase", "heroinhcl", "heroinehcl"],
+        "Oxycodone": ["oxycodone"],
+        "Codeine": ["codeine", "codeinephosphate"],
+        "Normorphine": ["normorphine"],
+        "Cyclorphine": ["cyclorphine", "cyclophine", "cychlorphine", "cychlorphinesuspectee"],
+        "Hydromorphone": ["hydromorphone"],
+        "6-Monoacetylmorphine": ["6monoacetylmorphine"],
+        "Methadone": ["methadone"]
+      }
+    },
+    "benzodiazepines": {
+      "label": "Benzodiazepines",
+      "substances": {
+        "Benzodiazepine (test strip)": [],
+        "Desalkylgidazepam": ["desalkylgidazepam", "desalkygidazepam"],
+        "Alprazolam": ["alprazolam", "aplrazolam"],
+        "Diazepam": ["diazepam"],
+        "Lorazepam": ["lorazepam", "lorazapam"],
+        "Phenazolam": ["phenazolam"],
+        "Deschloroetizolam": ["deschloroetizolam"],
+        "Bromazolam": ["bromazolam"],
+        "Etizolam": ["etizolam"],
+        "Clonazolam": ["clonazolam"],
+        "Flubromazepam": ["flubromazepam"],
+        "Ethylfluropram": ["ethylfluropram"],
+        "Ethylbromazolam": ["ethylbromazolam"],
+        "Clobromazolam": ["clobromazolam"],
+        "Ethylflualprazolam": ["ethylflualprazolam", "ethylfualprazolam"]
+      }
+    },
+    "medetomidine": {
+      "label": "Medetomidine",
+      "substances": {
+        "Medetomidine": ["medetomidine", "medetomedine", "dexmedetomidine"]
+      }
+    },
+    "xylazine": {
+      "label": "Xylazine",
+      "substances": {
+        "Xylazine": ["xylazine"]
+      }
+    },
+    "cocaine": {
+      "label": "Cocaine & crack",
+      "substances": {
+        "Cocaine": ["cocaine", "cocainehcl", "cocainehci", "cocainesuspecte"],
+        "Crack cocaine": ["cocainefreebase", "cocainebase", "cocainebasecrack", "crackcocaine", "cocanebase", "crackcocainebase"],
+        "Norcocaine": ["norcocainehcl", "norcocaine"],
+        "4-Fluorotropacocaine": ["4fluorotropacocaine"]
+      }
+    },
+    "methamphetamine": {
+      "label": "Methamphetamine & amphetamines",
+      "substances": {
+        "Methamphetamine": ["methamphetamine", "methamphetaminehcl", "methylamphetamine", "methylamphetaminehcl", "methylamphetemine", "methylampheteminehcl", "methampheteminehcl", "methamphetemine", "methamphtetamine", "metamphetamine", "metamphetaminehcl", "uncertainmethamphetamine"],
+        "Amphetamine": ["amphetamine", "amphetaminesulfate", "amphetaminesulphate", "amphteaminesulfate", "dextroamphetamine"],
+        "Lisdexamfetamine": ["lisdexamfetaminedimesylate", "lisdexamfetamine", "lisdexamphetaminedimesylate"]
+      }
+    },
+    "mdma": {
+      "label": "MDMA & analogues",
+      "substances": {
+        "MDMA": ["mdma", "mdmahcl", "mdma34methylenedioxymethamphetamine", "mdma34methylenedioxymethamphetaminehcl", "mdmahci"],
+        "MDA": ["mda", "mdahcl", "mdacitrate", "mda34methylenedioxyamphetamine", "mda34methylenedioxyamphetaminehcl"],
+        "MDEA": ["mdea", "mdea34methylenedioxynethylamphetamine"],
+        "MMDA": ["mmda"]
+      }
+    },
+    "other_stimulants": {
+      "label": "Other stimulants",
+      "substances": {
+        "4-MMC": ["4mmc", "4mmchcl"],
+        "3-MMC": ["3mmc"],
+        "Prolintane": ["prolintane", "prolintanehcl"],
+        "Propylphenidate": ["propylphenidate"],
+        "Methylphenidate": ["methylphenidate"],
+        "Hordenine": ["hordenine", "hordeninehcl"],
+        "Eutylone": ["eutylone", "eutylonehcl", "eutylunehcl"],
+        "5-MAPB": ["5mapb"],
+        "MEAI": ["meai"]
+      }
+    },
+    "dissociatives": {
+      "label": "Dissociatives",
+      "substances": {
+        "Ketamine": ["ketamine", "ketaminehcl", "ketaminehci"],
+        "DMXE": ["dmxe", "dmxehcl", "dmxehcll"],
+        "Deschloro-N-ethyl-ketamine": ["deschloronethylketamine"],
+        "Tiletamine": ["tiletamine", "tiletaminehydrochloride"],
+        "Diphenidine": ["diphenidine", "diphenidinehcl"],
+        "Fluorexetamine": ["fluorexetamine", "fluorextamine"],
+        "2-FDCK": ["2fdck", "2fdckhcl"],
+        "O-PCPr": ["opcpr", "opcprhcl", "opcprhci"]
+      }
+    },
+    "hallucinogens": {
+      "label": "Hallucinogens",
+      "substances": {
+        "2C-B": ["2cb", "2cbhbr", "2cbhcl"],
+        "2C-I": ["2ci"],
+        "DMT": ["dmt"],
+        "Ibogaine": ["ibogaine", "ibogainehcl"],
+        "5-MeO-DMT": ["5meodmt"],
+        "Mescaline": ["mescaline"]
+      }
+    },
+    "other_sedatives": {
+      "label": "GHB & other sedatives",
+      "substances": {
+        "GHB": ["ghb", "ghbliquide", "ghbwet", "ghbsuspecte"],
+        "1,4-Butanediol": ["14butanediol"],
+        "Pentobarbital": ["pentobarbital"]
+      }
+    },
+    "cannabinoids": {
+      "label": "Cannabinoids",
+      "substances": {
+        "THC": ["thc"],
+        "AB-MDMSBA": ["abmdmsba"]
+      }
+    },
+    "cutting_agents": {
+      "label": "Cutting agents & non-psychoactive",
+      "substances": {
+        "Caffeine": ["caffeine", "cafeine", "caffeinesuspecte"],
+        "Xylitol": ["xylitol", "xlitol"],
+        "Erythritol": ["erythritol", "erythitol", "mesoerythitol", "mesoerythritol", "erythritolmannitol"],
+        "Microcrystalline cellulose": ["microcristallinecellulose", "microcrystallinecellulose", "microcrystalinecellulose", "microcristalinecellusloe", "microcrisatlinecellulose", "microcrystalinecellusloe", "microcrystalliecellulose", "microstallinecellulose", "cellulose"],
+        "Phenacetin": ["phenacetin", "phenacetine"],
+        "Dimethyl sulfone": ["dimethylsulfone", "dimelthylsulfone", "dimethylsulfonemsm"],
+        "Lactose": ["lactose"],
+        "Mannitol": ["mannitol", "dmannitol", "mannitolsuspecte"],
+        "Sucrose": ["sucrose"],
+        "Starch": ["starch"],
+        "Acetaminophen": ["acetaminophen", "acetaminophene", "paracetamol"],
+        "Sorbitol": ["sorbitol", "sobitol"],
+        "Water": ["eau", "water"],
+        "Sodium bicarbonate": ["bicarbonatedesoude", "sodiumbicarbonate"],
+        "Flour": ["flour"],
+        "Taurine": ["taurine"],
+        "Glutamine": ["glutamine"],
+        "Creatine": ["creatine", "creatinemonohydrate"],
+        "Calcium phosphate": ["calciumphosphate", "dicalciumphosphate"],
+        "Calcium sulfate": ["calciumsulfate"],
+        "Citric acid": ["citricacid", "citricacidanhydrous"],
+        "Monosodium glutamate": ["monosodiumglutamate", "msg"],
+        "Unidentified sugar": ["uncertainsugar", "sucreindetermine", "glucideincertain", "glucide"],
+        "Unidentified oil": ["huileindeterminee", "huileindetermine", "huileincertaine"],
+        "Lidocaine": ["lidocaine", "lidocainehcl"],
+        "Sodium pantothenate": ["sodiumdpantothenate", "sodiumpantothenate"],
+        "Levamisole": ["levamisole", "levamisolehcl", "levamisolebasesuspecte"],
+        "Procaine": ["procaine"],
+        "Tetracaine": ["tetracaine", "tetracainehcl"],
+        "Calcium": ["calcium"],
+        "Inositol": ["inositol"],
+        "Talc": ["talc"],
+        "Plaster": ["platre"],
+        "Acetylcysteine": ["acetylcysteine"],
+        "Ammonia": ["ammoniac"],
+        "N-phenylpropanamide (fentanyl by-product)": ["nphenylpropanamide"],
+        "Norfentanyl ethylcarbamate (fentanyl by-product)": ["ethylcarbamatenorfentanyl"]
+      }
+    },
+    "other_pharma": {
+      "label": "Other pharmaceuticals",
+      "substances": {
+        "Quetiapine": ["quetiapine"],
+        "Gabapentin": ["gabapentin"],
+        "Tadalafil": ["tadalafil"],
+        "Chlorodehydromethyltestosterone": ["chlorodehydromethyltestosterone"],
+        "DHEA acetate": ["dehydroisandrosterone3acetate"],
+        "CH-Piata": ["chpiata"],
+        "Pregabalin": ["pregabalin"],
+        "Hydroxyzine": ["hydroxyzine", "hydroxyzinedihcl"],
+        "Metronidazole": ["metronidazole"],
+        "Sildenafil": ["sildenafil"]
+      }
+    }
+  },
+  "strips": {
+    "Fentanyl test strip": ["fentanyl_analogues", "Fentanyl"],
+    "Benzodiazepine test strip": ["benzodiazepines", "Benzodiazepine (test strip)"],
+    "Nitazene test strip": ["nitazenes", "Nitazene (test strip)"],
+    "Xylazine test strip": ["xylazine", "Xylazine"],
+    "Medetomidine test strip": ["medetomidine", "Medetomidine"],
+    "MDMA Test strip": ["mdma", "MDMA"]
+  },
+  "ignore": [
+    "inconclusive", "nonconcluant", "uncertainmatch", "matchincertain", "other",
+    "elementincertain", "tricosanolincertain", "semaglutideincertain", "hemitartrateincertain", "na", "none",
+    "aucunmatchconcluant", "autresubstancenonidentifieesuspectee",
+    "bandelettesfentanylbenzodiazepineetmedetomidinepositives"
+  ],
+  "category_fallback": {
+    "stimulants": "other_stimulants",
+    "stimulant": "other_stimulants",
+    "opioids": "other_opioids",
+    "opioides": "other_opioids",
+    "dissociatives": "dissociatives",
+    "dissociative": "dissociatives",
+    "dissociatifs": "dissociatives",
+    "dissociatif": "dissociatives",
+    "hallucinogens": "hallucinogens",
+    "hallucinogenes": "hallucinogens",
+    "sedatives": "other_sedatives",
+    "sedativeshypnotics": "other_sedatives",
+    "sedatifs": "other_sedatives",
+    "sedatifshypnotiques": "other_sedatives",
+    "sedatifhypnotiques": "other_sedatives",
+    "sedativeshypnoticshypnotics": "other_sedatives",
+    "sedativeshypnoticshypnoticshypnotics": "other_sedatives",
+    "sedativeshypnoticshypnoticshypnotiques": "other_sedatives",
+    "cannabinoids": "cannabinoids",
+    "cannabinoides": "cannabinoids",
+    "otherdrug": "cutting_agents",
+    "other": "cutting_agents",
+    "nonpsychoactivesubstance": "cutting_agents",
+    "substancenonpsychoactive": "cutting_agents",
+    "cuttingagents": "cutting_agents",
+    "notindasclassificationsystem": "cutting_agents",
+    "autremedicament": "other_pharma"
+  }
+}

@@ -87,3 +87,37 @@ class TestProvinceDataApi:
         assert block["shape"] == "expected_actual_bar"
         assert {"dt": "counts", "geo": "Alberta||QTHC", "t": "2026-02", "g": "month", "d": "Fentanyl",
                 "d2": "expected_plus", "v": 7} in block["facts"]
+
+    def test_canada_found_substances_visual_served(self, client, db_session):
+        # The drug-checking "What's in the Sample?" visual: the composite "<group>|<label>" and
+        # "__total__" dimension2 keys, both grains, and the gen-time found_groups option must all
+        # reach the client untouched through the generic serve path.
+        source = make_data_source()
+        make_visual(province="canada", name="substances_found_by_expected_drug",
+                    metric="substances_found", geo_type="site", data_source=source,
+                    chart_type="found_substance_lines", vis_type="found_substance_series",
+                    data_shape="found_substance_series", dimension_type="expected_drug",
+                    dimension2_type="found_substance", menu_parent="Drug Supply",
+                    menu_name="What's in the Sample?", level="1",
+                    visual_options={"time_grains": ["quarter", "month"], "default_grain": "month",
+                                    "found_groups": [{"key": "fentanyl_analogues", "label": "Fentanyl & analogues"}]})
+        for time_frame, grain, key, value in [("2026-02", "month", "__total__", 39.0),
+                                              ("2026-02", "month", "fentanyl_analogues|Fentanyl", 34.0),
+                                              ("2026-Q1", "quarter", "fentanyl_analogues|__any__", 85.0)]:
+            make_datapoint(source, geo="Alberta||QTHC", geo_type="site", time_frame=time_frame,
+                           time_frame_type=grain, data_metric="substances_found", data_value=value,
+                           dimension_type="expected_drug", dimension_value="Fentanyl",
+                           dimension2_type="found_substance", dimension2_value=key)
+        payload = client.get("/api/v1/province/canada/data").get_json()
+        block = payload["data"]["substances_found_by_expected_drug"]
+        assert block["chart_type"] == "found_substance_lines"
+        assert block["shape"] == "found_substance_series"
+        assert block["visual_options"]["default_grain"] == "month"
+        assert block["visual_options"]["found_groups"][0]["key"] == "fentanyl_analogues"
+        facts = block["facts"]
+        assert {"dt": "counts", "geo": "Alberta||QTHC", "t": "2026-02", "g": "month", "d": "Fentanyl",
+                "d2": "__total__", "v": 39} in facts
+        assert {"dt": "counts", "geo": "Alberta||QTHC", "t": "2026-02", "g": "month", "d": "Fentanyl",
+                "d2": "fentanyl_analogues|Fentanyl", "v": 34} in facts
+        assert {"dt": "counts", "geo": "Alberta||QTHC", "t": "2026-Q1", "g": "quarter", "d": "Fentanyl",
+                "d2": "fentanyl_analogues|__any__", "v": 85} in facts

@@ -308,6 +308,37 @@ class TestClassifyDrugcheckSample:
         row = _sample("MDMA", **{"MDMA Test strip": "Negative"})
         assert classify_drugcheck_sample(row) == ("MDMA", "not_expected")
 
+    def test_2026_11_expected_spellings_reach_their_target(self):
+        # New-cycle spellings: freebase cocaine is crack (as _DRUGCHECK_DRUG_CANON already says),
+        # "sel" (salt) is powder cocaine, and the meth / ketamine typos must not drop the sample.
+        for expected, target in [("Cocaine freebase", "Crack cocaine"), ("Freebase cocaine", "Crack cocaine"),
+                                 ("Crack (Cocaine basée)", "Crack cocaine"), ("Cocaine (sel)", "Cocaine"),
+                                 ("Métamphetamine", "Methamphetamine"), ("Ketamie", "Ketamine")]:
+            row = _sample(expected, **{"FTIR (1)": "Caffeine"})
+            assert classify_drugcheck_sample(row) == (target, "not_expected"), expected
+
+    def test_2026_11_ftir_spellings_match_their_target(self):
+        for expected, ftir in [("Cocaine", "Cocaine HCI"), ("Ketamine", "Ketamine HCi"), ("MDMA", "MDMA HCI"),
+                               ("Methamphetamine", "Metamphetamine HCl"), ("Heroin", "Heroine HCL"),
+                               ("Fentanyl", "Fentanyl HCl"), ("Fentanyl", "Acetylfentanyl base")]:
+            row = _sample(expected, **{"FTIR (1)": ftir})
+            assert classify_drugcheck_sample(row)[1] == "expected_only", (expected, ftir)
+        row = _sample("Cocaine", **{"FTIR (1)": "Cocaine HCL", "FTIR (2)": "Ethylbromazolam"})
+        assert classify_drugcheck_sample(row) == ("Cocaine", "expected_plus")
+
+    def test_french_strip_readings_are_folded_by_the_loader(self):
+        # classify compares against "Positive"/"Negative" only; _drugcheck_load folds the French
+        # readings first (32 "Positif" fentanyl strips in the 2026-11 export were being excluded).
+        from data_viz.generate_visuals import _drugcheck_canon_strip_readings
+        frame = pandas.DataFrame([_sample("Fentanyl", **{"Fentanyl test strip": "Positif",
+                                                       "Benzodiazepine test strip": "Négatif",
+                                                       "Xylazine test strip": "Résultat Negative",
+                                                       "Medetomidine test strip": "Non réalisé"})])
+        row = _drugcheck_canon_strip_readings(frame).to_dict("records")[0]
+        assert [row[c] for c in ("Fentanyl test strip", "Benzodiazepine test strip", "Xylazine test strip",
+                                 "Medetomidine test strip")] == ["Positive", "Negative", "Negative", "Not done"]
+        assert classify_drugcheck_sample(row) == ("Fentanyl", "expected_only")
+
     def test_every_canon_target_has_ftir_match_entry(self):
         # classify's found-check indexes _DRUGCHECK_FTIR_MATCH by canon target; a new target row
         # without a match set would silently classify everything as not_expected (.get fallback).
@@ -558,6 +589,7 @@ class TestCoronersCleanerMonthQuarter:
     age visuals gain month + complete-quarter facts; the yearly facts are unchanged."""
 
     HEAT = "Unregulated Drug Deaths by Health Authority of Injury"
+    HEAT_RATES = "Unregulated Drug Death Rates per 100,000 by Health Authority of Injury"
     AGE = "Unregulated Drug Deaths by Age Group"
     AGE_RATES = "Age-Specific Unregulated Drug Death Rates per 100,000"
     MONTHS = ["2025-04", "2025-05", "2025-06", "2025-07", "2025-08", "2025-09"]   # Q2 whole, Q3 has a gap
@@ -598,6 +630,12 @@ class TestCoronersCleanerMonthQuarter:
                     frame("month", cls.MONTHS, {"Fraser": [1, 2, 3, 4, None, 6],
                                                 "British Columbia": [5, 5, 5, 6, None, 6]}),
                 ],
+                cls.HEAT_RATES: [
+                    frame("year", ["2024"], {"Fraser": [33.3], "British Columbia": [47.0]}),
+                    # Fraser's blank 2025-05 sits beside a reported BC cell -> a genuine 0.0 rate
+                    frame("month", cls.MONTHS, {"Fraser": [0.1, None, 0.3, 0.4, None, 0.6],
+                                                "British Columbia": [0.2, 0.2, 0.2, 0.25, None, 0.25]}),
+                ],
                 cls.AGE: [
                     frame("year", ["2024"], {"20-29": [7], "Not available": [1], "Total": [8]}),
                     frame("month", cls.MONTHS, {"20-29": [1, 1, 1, 2, 2, 2], "Not available": [0, 0, 1, 0, 0, 0],
@@ -624,7 +662,7 @@ class TestCoronersCleanerMonthQuarter:
         return [f for f in facts if f[3] == grain]
 
     def test_heatmap_months_quarters_and_unchanged_year(self, run):
-        facts = run["drug_death_heatmap"].facts
+        facts = [f for f in run["drug_death_heatmap"].facts if f[4] == "counts"]
         assert self._grain(facts, "year") == [
             ("Fraser", "2024", 10, "year", "counts", None),
             ("British Columbia", "2024", 40, "year", "counts", None)]
@@ -634,6 +672,18 @@ class TestCoronersCleanerMonthQuarter:
                                  ("2025-09", 6)]
         quarters = {(f[0], f[1]): f[2] for f in self._grain(facts, "quarter")}
         assert quarters == {("Fraser", "2025-Q2"): 6, ("British Columbia", "2025-Q2"): 15}   # Q3 has a gap
+
+    def test_heatmap_rates_at_every_grain(self, run):
+        rates = [f for f in run["drug_death_heatmap"].facts if f[4] == "rates"]
+        assert self._grain(rates, "year") == [
+            ("Fraser", "2024", 33.3, "year", "rates", None),
+            ("British Columbia", "2024", 47.0, "year", "rates", None)]
+        fraser_months = [(f[1], f[2]) for f in self._grain(rates, "month") if f[0] == "Fraser"]
+        assert fraser_months == [("2025-04", 0.1), ("2025-05", 0), ("2025-06", 0.3), ("2025-07", 0.4),
+                                 ("2025-09", 0.6)]
+        # Quarter rate = sum of its per-month rates (rounded); Q3 has the unreported 2025-08 -> no fact.
+        quarters = {(f[0], f[1]): f[2] for f in self._grain(rates, "quarter")}
+        assert quarters == {("Fraser", "2025-Q2"): 0.4, ("British Columbia", "2025-Q2"): 0.6}
 
     def test_age_counts_months_quarters_and_relabel(self, run):
         v = run["drug_toxicity_deaths_by_age"]
@@ -674,7 +724,8 @@ class TestCoronersCleanerMonthQuarter:
 
 
     @pytest.mark.parametrize("title,grain", [
-        (HEAT, "year"), (HEAT, "month"), (AGE, "year"), (AGE, "month"),
+        (HEAT, "year"), (HEAT, "month"), (HEAT_RATES, "year"), (HEAT_RATES, "month"),
+        (AGE, "year"), (AGE, "month"),
         (AGE_RATES, "year"), (AGE_RATES, "month"),
     ])
     def test_missing_required_table_fails_the_build(self, monkeypatch, title, grain):
@@ -688,11 +739,14 @@ class TestCoronersCleanerMonthQuarter:
 
     @classmethod
     def _sheets(cls, month_header):
-        """The six required tables as the workbook reads them, monthly headers built by month_header."""
+        """The eight required tables as the workbook reads them, monthly headers built by month_header."""
         months = [month_header(m) for m in ("Apr", "May", "Jun")]
         return {
             "t1": _sheet(cls.HEAT, ["2024"], [("Fraser", [10]), ("British Columbia", [40])]),
             "t4": _sheet(cls.HEAT, months, [("Fraser", [1, 2, 3]), ("British Columbia", [5, 5, 5])]),
+            "t2": _sheet(cls.HEAT_RATES, ["2024"], [("Fraser", [33.3]), ("British Columbia", [47.0])]),
+            "t3": _sheet(cls.HEAT_RATES, months, [("Fraser", [0.1, 0.2, 0.3]),
+                                                  ("British Columbia", [0.2, 0.2, 0.2])]),
             "t5": _sheet(cls.AGE, ["2024"], [("20-29", [7]), ("80+", [1]), ("Total", [8])]),
             "t6": _sheet(cls.AGE, months, [("20-29", [3, 4, 5]), ("80+", ["\xa0", 1, "\xa0"]),
                                            ("Total", [3, 5, 5])]),
@@ -841,3 +895,176 @@ class TestBccsuCleanerGrains:
         assert ("British Columbia", "2024", "Total Samples", 1, "year") in adds
         drug_adds = run["drug_supply_by_year"].additionals
         assert ("British Columbia", "2025-02", "Total Samples", 1, "month") in drug_adds
+
+
+class TestNsHealthZoneHeatmap:
+    """v1_ns_rates_fatalities_export_clean's heatmap carries each zone's annual count AND the source's
+    published rate per 100,000 (the province-wide row and per-drug / per-sex rows stay out of it)."""
+
+    _Visual = TestCoronersCleanerMonthQuarter._Visual
+    _Writer = TestCoronersCleanerMonthQuarter._Writer
+
+    @staticmethod
+    def _row(zone, year, frequency, rate, drug="Total - all substances", quarter="All", sex="Total"):
+        return {"year": year, "health_zone_of_residence": zone, "quarter": quarter, "sex": sex,
+                "drug_type": drug, "manner_of_death": "All manners", "frequency": frequency,
+                "rate_per_100_000_population_annualized_for_quarterly_data": rate}
+
+    @pytest.fixture
+    def heatmap(self, monkeypatch):
+        import data_viz.generate_visuals as gv
+        frame = pandas.DataFrame([
+            self._row("Central", 2025, 42, 7.8),
+            self._row("Eastern", 2025, 24, 13.5),
+            self._row("Northern", 2025, 6, None),                  # rate not reported -> no rates fact
+            self._row("Nova Scotia", 2025, 90, 8.6),               # province total: not a map zone
+            self._row("Western", 2025, 11, 5.1, drug="Cocaine"),   # one drug, not the all-substance total
+            self._row("Western", 2025, 3, 2.0, sex="Male"),        # a sex stratum, not the total
+        ])
+        monkeypatch.setattr(gv, "pull_data", lambda names: {"nsRatesFatalities": {
+            "dataframe": frame, "date_updated": "x", "data_until": "y"}})
+        visuals = {"deaths_by_health_zone": self._Visual()}
+        gv.v1_ns_rates_fatalities_export_clean(self._Writer(visuals), "nova-scotia")
+        return visuals["deaths_by_health_zone"].facts
+
+    def test_counts_per_zone(self, heatmap):
+        assert sorted((f[0], f[2]) for f in heatmap if f[4] == "counts") == [
+            ("Central", 42), ("Eastern", 24), ("Northern", 6)]
+
+    def test_rates_per_zone(self, heatmap):
+        assert sorted((f[0], f[1], f[2]) for f in heatmap if f[4] == "rates") == [
+            ("Central", "2025", 7.8), ("Eastern", "2025", 13.5)]
+
+
+# ---- Drug-checking "What's in the Sample?" emitter ----
+
+class _FactRecorder:
+    """Stand-in VisualWriter: records fact()/options() calls as plain tuples."""
+    def __init__(self):
+        self.facts = []
+        self.opts = {}
+
+    def fact(self, geo, time_frame, value, *, data_type="counts", dimension=None, dimension2=None,
+             time_frame_type=None):
+        self.facts.append((geo, time_frame, value, dimension, dimension2, time_frame_type))
+
+    def options(self, opts):
+        self.opts.update(opts)
+
+
+class TestEmitDrugcheckFoundSubstances:
+    def _frame(self):
+        from data_viz.drugcheck_substances import STRIP_COLS
+        base = {col: "Not done" for col in STRIP_COLS}
+        for i in range(1, 6):
+            base[f"FTIR ({i})"] = None
+            base[f"FTIR ({i}) Drug Category"] = None
+
+        def row(prov, site, expected, month, **over):
+            r = dict(base, **{"Province": prov, "Site/Organization": site,
+                              "Expected Drug (1)": expected, "_month": month})
+            r.update(over)
+            return r
+        return pandas.DataFrame([
+            # two spellings of erythritol + caffeine, fentanyl strip, medetomidine strip
+            row("Alberta", "QTHC", "Fentanyl", "2026-01", **{
+                "FTIR (1)": "Caffeine", "FTIR (1) Drug Category": "Other drug",
+                "FTIR (2)": "Erythritol", "FTIR (3)": "Meso-Erythitol",
+                "Fentanyl test strip": "Positive", "Medetomidine test strip": "Positive"}),
+            row("Alberta", "QTHC", "Fentanyl", "2026-02", **{
+                "FTIR (1)": "Parafluorofentanyl", "FTIR (1) Drug Category": "Opioids",
+                "Fentanyl test strip": "Positive"}),
+            row("Quebec", "Oasis", "Cocaïne", "2026-01", **{"FTIR (1)": "Cocaine HCL"}),     # canon -> Cocaine
+            row("Alberta", "QTHC", "Unknown substance", "2026-01", **{"FTIR (1)": "Caffeine"}),  # canon -> Unknown
+            row("Alberta", "QTHC", None, "2026-01", **{"FTIR (1)": "Caffeine"}),             # no expected drug: dropped
+            row("Alberta", "QTHC", "Ketamine", None, **{"FTIR (1)": "Ketamine"}),            # unparseable date: dropped
+        ])
+
+    def _emit(self):
+        from data_viz.generate_visuals import _emit_drugcheck_found_substances
+        v = _FactRecorder()
+        _emit_drugcheck_found_substances(v, self._frame())
+        return v
+
+    def test_totals_per_geo_period_expected_at_both_grains(self):
+        facts = set(self._emit().facts)
+        assert ("Alberta||QTHC", "2026-01", 1, "Fentanyl", "__total__", "month") in facts
+        assert ("Alberta||QTHC", "2026-02", 1, "Fentanyl", "__total__", "month") in facts
+        assert ("Alberta||QTHC", "2026-Q1", 2, "Fentanyl", "__total__", "quarter") in facts
+        assert ("Quebec||Oasis", "2026-01", 1, "Cocaine", "__total__", "month") in facts
+        assert ("Alberta||QTHC", "2026-01", 1, "Unknown", "__total__", "month") in facts
+        assert not any(f[3] is None or f[3] == "Unknown substance" or f[3] == "Ketamine" for f in facts)
+
+    def test_group_any_counts_a_sample_once(self):
+        facts = set(self._emit().facts)
+        # one sample, two cutting agents (and two spellings of one of them) -> any = 1
+        assert ("Alberta||QTHC", "2026-01", 1, "Fentanyl", "cutting_agents|__any__", "month") in facts
+        assert ("Alberta||QTHC", "2026-01", 1, "Fentanyl", "cutting_agents|Caffeine", "month") in facts
+        assert ("Alberta||QTHC", "2026-01", 1, "Fentanyl", "cutting_agents|Erythritol", "month") in facts
+        # the quarter rolls both fentanyl samples up: both carried fentanyl, one also its analogue
+        assert ("Alberta||QTHC", "2026-Q1", 2, "Fentanyl", "fentanyl_analogues|__any__", "quarter") in facts
+        assert ("Alberta||QTHC", "2026-Q1", 2, "Fentanyl", "fentanyl_analogues|Fentanyl", "quarter") in facts
+        assert ("Alberta||QTHC", "2026-Q1", 1, "Fentanyl", "fentanyl_analogues|Para-fluorofentanyl", "quarter") in facts
+        assert ("Alberta||QTHC", "2026-Q1", 1, "Fentanyl", "medetomidine|__any__", "quarter") in facts
+
+    def test_method_breakdown_keys(self):
+        facts = set(self._emit().facts)
+        # Jan fentanyl: strip only; Feb fentanyl: strip + FTIR para-fluorofentanyl -> the quarter has
+        # 2 fentanyl samples overall, 2 by strip, 0 by FTIR; the analogue 1 by FTIR.
+        assert ("Alberta||QTHC", "2026-Q1", 2, "Fentanyl", "fentanyl_analogues|Fentanyl|strip", "quarter") in facts
+        assert not any(f[4] == "fentanyl_analogues|Fentanyl|ftir" for f in facts)
+        assert ("Alberta||QTHC", "2026-Q1", 1, "Fentanyl", "fentanyl_analogues|Para-fluorofentanyl|ftir", "quarter") in facts
+        assert ("Alberta||QTHC", "2026-01", 1, "Fentanyl", "cutting_agents|Caffeine|ftir", "month") in facts
+        assert ("Alberta||QTHC", "2026-01", 1, "Fentanyl", "medetomidine|Medetomidine|strip", "month") in facts
+
+    def test_strip_and_ftir_hits_land_in_their_groups(self):
+        facts = set(self._emit().facts)
+        assert ("Alberta||QTHC", "2026-01", 1, "Fentanyl", "medetomidine|Medetomidine", "month") in facts
+        assert ("Quebec||Oasis", "2026-01", 1, "Cocaine", "cocaine|Cocaine", "month") in facts
+
+    def test_publishes_group_order_as_an_option(self):
+        from data_viz.drugcheck_substances import group_order
+        assert self._emit().opts["found_groups"] == group_order()
+        assert self._emit().opts["found_groups"][0] == {"key": "fentanyl_analogues", "label": "Fentanyl & analogues"}
+
+    def test_no_sentinel_collides_with_a_real_label(self):
+        from data_viz.drugcheck_substances import load_found_groups
+        for group in load_found_groups()["groups"].values():
+            for label in group["substances"]:
+                assert "|" not in label and label != "__any__" and label != "__total__"
+
+
+class TestDrugcheckExpectedCanon:
+    def test_unknown_spellings_fold_onto_one_label(self):
+        from data_viz.generate_visuals import _DRUGCHECK_DRUG_CANON as canon
+        assert {canon.get(v, v) for v in ["Unknown", "Unknown substance", "Substance inconnue",
+                                          "substance inconnue", "Inconnu", "Inconnue",
+                                          "Unknown Drug", "Unknown subtance"]} == {"Unknown"}
+
+    def test_2026_11_spellings_fold(self):
+        from data_viz.generate_visuals import _DRUGCHECK_CATEGORY_CANON as cat, _DRUGCHECK_DRUG_CANON as canon
+        assert {canon.get(v, v) for v in ["Crack", "Crack (Cocaine base)", "Crack (Cocaine basée)",
+                                          "Freebase cocaine", "Cocaine freebase"]} == {"Crack"}
+        assert {canon.get(v, v) for v in ["Methamphetamine", "Metamphetamine", "MethAmphetamine",
+                                          "Métamphetamine", "Methamphetemine"]} == {"Methamphetamine"}
+        assert {cat.get(v, v) for v in ["Sedatives/Hypnotics", "Sedatives/Hypnotics/Hypnotics",
+                                        "Sedatives/Hypnotics/Hypnotics/Hypnotics",
+                                        "Sedatives/Hypnotics/Hypnotics/hypnotiques",
+                                        "Sédatif/hypnotiques"]} == {"Sedatives/Hypnotics"}
+        assert {cat.get(v, v) for v in ["Unknown drug", "Unknown Drug", "Unknown subtance"]} == {"Unknown drug"}
+        assert {cat.get(v, v) for v in ["Other", "Other drug", "Other substances"]} == {"Other substances"}
+
+
+class TestDrugcheckColumnRenames:
+    def test_cycle5_headers_map_onto_internal_names(self):
+        # The Cycle 1-5 cumulative export's spellings (verified against the real workbook header row);
+        # the found-substance fallback reads the per-FTIR category columns, so those must land too.
+        from data_viz.generate_visuals import _DRUGCHECK_COLUMN_RENAMES as ren
+        from data_viz.drugcheck_substances import FTIR_COLS, STRIP_COLS
+        assert ren["Expected Drug 1"] == "Expected Drug (1)"
+        assert ren["Drug Category 1"] == "Expected Drug Category (1)"
+        assert [ren[f"FTIR {i}"] for i in range(1, 6)] == FTIR_COLS
+        assert [ren[f"FTIR {i} Drug Category"] for i in range(1, 6)] == [f"{c} Drug Category" for c in FTIR_COLS]
+        assert [ren[f"FTIR ({i}.1) drug category"] for i in range(1, 6)] == [f"{c} Drug Category" for c in FTIR_COLS]
+        assert sorted(ren[c] for c in ["Fentanyl Test Strip", "Benzodiazepine Test Strip", "Nitazene Test Strip",
+                                       "Xylazine Test Strip", "MDMA Test Strip", "Medetomidine Test Strip"]) == sorted(STRIP_COLS)

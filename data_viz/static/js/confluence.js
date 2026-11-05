@@ -5,7 +5,9 @@
 // (/api/v1/confluence/data, data_viz/confluence.py) returns one pre-aligned
 // payload: the visual's own fact block, the shared period list, and the DAS
 // half cut to match (a series per substance key for flat charts, or counts per
-// city for health-authority maps). This file only draws. It is bundled after
+// city for health-authority maps). A map draws one measure at a time (the
+// payload's `measure`: counts, or the source's own per-100k rates). This file
+// only draws. It is bundled after
 // visualGeneration.js and dasExplorer.js in one shared script scope, so it
 // reuses their fact selectors (factsToSeries / factsToHeatmap), map helpers
 // (dasMapLayout / dasFitMapHeight / dasEnsureGeoAssets) and theme helpers.
@@ -31,11 +33,12 @@ function initConfluence(cfg) {
         return;
     }
     slugs.forEach(slug => provinceSelect.appendChild(new Option(cfg.provinces[slug].label, slug)));
+    // Measure before Period: a map's grains on offer depend on its measure (measure_grains).
     provinceSelect.onchange = function () {
-        confluenceFillVisuals(); confluenceSyncChips(null); confluenceSyncGrains(null);
+        confluenceFillVisuals(); confluenceSyncChips(null); confluenceSyncMeasures(null); confluenceSyncGrains(null);
     };
     document.getElementById("confluence-visual").onchange = function () {
-        confluenceSyncChips(null); confluenceSyncGrains(null);
+        confluenceSyncChips(null); confluenceSyncMeasures(null); confluenceSyncGrains(null);
     };
     document.querySelectorAll('input[name="confluence-level"]').forEach(radio => {
         radio.onchange = function () { confluenceSyncChips(confluenceCheckedKeys(), radio.value); };
@@ -44,6 +47,11 @@ function initConfluence(cfg) {
     // payload: re-request it straight away.
     document.querySelectorAll('input[name="confluence-grain"]').forEach(radio => {
         radio.onchange = confluenceUserApply;
+    });
+    // Likewise the measure: the map is redrawn from the same facts, but the grains on offer (and
+    // so possibly the period) change with it, so re-request rather than re-render.
+    document.querySelectorAll('input[name="confluence-measure"]').forEach(radio => {
+        radio.onchange = function () { confluenceSyncGrains(null); confluenceUserApply(); };
     });
     const expr = document.getElementById("confluence-expr");
     expr.oninput = function () {
@@ -55,6 +63,7 @@ function initConfluence(cfg) {
     confluenceFillVisuals();
     if (!confluenceReplayFromUrl()) {
         confluenceSyncChips(null);
+        confluenceSyncMeasures(null);
         confluenceSyncGrains(null);
     }
 }
@@ -80,13 +89,51 @@ function confluenceGrain() {
     return checked ? checked.value : "year";
 }
 
-// Offer only the grains the chosen visual has (cfg ...visuals[i].grains, year/quarter/month order):
-// the rest are disabled and hidden, and the whole group hides when there's nothing to choose.
-// Keeps `preferred` (or the current pick) when the visual has it, else falls back to its first
-// grain. Returns the grain left selected.
+// The chosen measure, or null for a visual that offers none (a flat chart): only a map whose
+// source publishes rates beside counts has a choice, and only then is the group shown.
+function confluenceMeasure() {
+    const visual = confluenceVisualCfg();
+    if (!visual || !visual.measures || !visual.measures.length) return null;
+    const checked = document.querySelector('input[name="confluence-measure"]:checked');
+    return checked && visual.measures.includes(checked.value) ? checked.value : visual.measures[0];
+}
+
+// Offer only the measures the chosen visual has (cfg ...visuals[i].measures, in the order its
+// manifest declares them -- the first is what the province page opens on). Keeps `preferred` (or
+// the current pick) when the visual has it, else falls back to its first. Returns the measure
+// left selected (null when there's none to choose).
+function confluenceSyncMeasures(preferred) {
+    const visual = confluenceVisualCfg();
+    const measures = visual && visual.measures ? visual.measures : [];
+    const wrap = document.getElementById("confluence-measure-wrap");
+    const checked = document.querySelector('input[name="confluence-measure"]:checked');
+    // The current pick counts only while a choice is on offer: the template's default-checked
+    // radio must not pre-empt a visual's own opening measure (rates for the BC / NS maps).
+    const current = checked && !wrap.classList.contains("d-none") ? checked.value : null;
+    const wanted = preferred || current;
+    const pick = measures.includes(wanted) ? wanted : (measures[0] || null);
+    document.querySelectorAll('input[name="confluence-measure"]').forEach(radio => {
+        const offered = measures.includes(radio.value);
+        radio.disabled = !offered;
+        radio.checked = radio.value === pick;
+        const label = document.querySelector(`label[for="${radio.id}"]`);
+        if (label) label.classList.toggle("d-none", !offered);
+    });
+    wrap.classList.toggle("d-none", measures.length < 2);
+    return pick;
+}
+
+// Offer only the grains the chosen visual has at its chosen measure (cfg ...visuals[i]
+// .measure_grains[measure], else .grains; year/quarter/month order): the rest are disabled and
+// hidden, and the whole group hides when there's nothing to choose. Keeps `preferred` (or the
+// current pick) when the visual has it, else falls back to its first grain. Returns the grain
+// left selected.
 function confluenceSyncGrains(preferred) {
     const visual = confluenceVisualCfg();
-    const grains = visual && visual.grains && visual.grains.length ? visual.grains : ["year"];
+    const measure = confluenceMeasure();
+    const byMeasure = visual && measure && visual.measure_grains ? visual.measure_grains[measure] : null;
+    const onOffer = byMeasure || (visual && visual.grains) || [];
+    const grains = onOffer.length ? onOffer : ["year"];
     const wanted = preferred || confluenceGrain();
     const pick = grains.includes(wanted) ? wanted : grains[0];
     document.querySelectorAll('input[name="confluence-grain"]').forEach(radio => {
@@ -155,7 +202,8 @@ function confluenceCheckedKeys() {
     return Array.from(document.querySelectorAll("#confluence-chips input:checked")).map(i => i.value);
 }
 
-// Deep links: ?province=&visual=&grain=&groups=&level=&basis=&expr= (written by confluenceApply).
+// Deep links: ?province=&visual=&measure=&grain=&groups=&level=&basis=&expr= (written by
+// confluenceApply; `measure` only for a map that offers one).
 // Returns true when it found a valid pairing and kicked off the fetch. A link that no longer
 // resolves (or names unknown substances) says so rather than quietly showing something else.
 function confluenceReplayFromUrl() {
@@ -175,6 +223,13 @@ function confluenceReplayFromUrl() {
         return false;
     }
     document.getElementById("confluence-visual").value = visual;
+    const linkedMeasure = params.get("measure");
+    const measure = confluenceSyncMeasures(linkedMeasure);
+    if (linkedMeasure && linkedMeasure !== measure) {
+        confluenceSetNote("confluence-link-note", measure
+            ? `The linked measure (${linkedMeasure}) isn't available for this visual, so it's shown as ${measure} instead.`
+            : `This visual has no measure to choose, so the linked one (${linkedMeasure}) was ignored.`);
+    }
     const linkedGrain = params.get("grain");
     const grain = confluenceSyncGrains(linkedGrain);
     if (linkedGrain && linkedGrain !== grain) {
@@ -257,6 +312,8 @@ async function confluenceApply() {
         province: province, visual: visual.id, grain: confluenceGrain(), level: level,
         basis: document.getElementById("confluence-basis").value,
     });
+    const measure = confluenceMeasure();
+    if (measure) params.set("measure", measure);
     if (keys.length) params.set("groups", keys.join(","));
     if (expr) params.set("expr", expr);
 
@@ -362,12 +419,28 @@ function confluenceHeatValue(heat, geo, period) {
     return idx >= 0 ? heat[geo].y[idx] : null;
 }
 
+// A map pairing's facts at the payload's measure (counts unless the source publishes rates and
+// rates were asked for), through the province page's own selector so the two can't drift.
+function confluenceHeat(d) {
+    return factsToHeatmap(d.visual.facts, d.visual.key_kind, d.measure || "counts");
+}
+
+// What a map's values are: {label: "deaths per 100,000", colorbar: "Deaths per<br>100,000"}.
+function confluenceMeasureLabels(d) {
+    const metric = d.visual_metric || "count";
+    const capital = metric.charAt(0).toUpperCase() + metric.slice(1);
+    return d.measure === "rates"
+        ? { label: `${metric} per 100,000`, colorbar: `${capital} per<br>100,000` }
+        : { label: metric, colorbar: capital };
+}
+
 function confluenceRender() {
     const state = confluenceState;
     const d = state && state.data;
     const chart = document.getElementById("confluence-chart");
     if (!d || !chart) return;
-    const title = `${d.visual_label} · DAS samples (${d.das.basis} date, ${d.province.label})`;
+    const perCapita = d.measure === "rates" ? " per 100,000 population" : "";
+    const title = `${d.visual_label}${perCapita} · DAS samples (${d.das.basis} date, ${d.province.label})`;
     document.getElementById("confluence-chart-title").textContent = title;
 
     const incomplete = d.periods.filter(p => !p.das_complete).map(p => p.key);
@@ -482,8 +555,9 @@ function confluenceRenderSeries(d, chart) {
     Plotly.react(chart, traces, themeChartLayout(layout), { displaylogo: false, responsive: true });
 }
 
-// Health-authority map + DAS bubbles: per period one choropleth (the visual's counts) and one
-// scattergeo (DAS samples by city), only the active period's pair visible; the slider steps both.
+// Health-authority map + DAS bubbles: per period one choropleth (the visual's counts or rates,
+// per the payload's measure) and one scattergeo (DAS samples by city), only the active period's
+// pair visible; the slider steps both.
 function confluenceRenderCities(d, chart) {
     const geojson = confluenceState.geojson;
     if (!geojson || !Array.isArray(geojson.features) || !geojson.features.length) {
@@ -492,7 +566,7 @@ function confluenceRenderCities(d, chart) {
     }
     const t = canaskChartTheme();
     const periods = d.periods.map(p => p.key);
-    const heat = factsToHeatmap(d.visual.facts, d.visual.key_kind);
+    const heat = confluenceHeat(d);
     const names = new Set(geojson.features.map(f => f.properties.ENGNAME));
     const unmatchedAreas = Object.keys(heat).filter(geo => !names.has(geo)).sort();
     const frames = periods.map(p => {
@@ -515,7 +589,7 @@ function confluenceRenderCities(d, chart) {
     const maxValue = Math.max(0, ...allValues);
     const sizeref = maxValue > 0 ? (2 * maxValue) / (30 ** 2) : 1;
     const bubble = confluenceDasColor(0, t);
-    const metricLabel = d.visual_metric || "count";
+    const measure = confluenceMeasureLabels(d);
 
     const traces = [];
     frames.forEach((f, j) => {
@@ -533,7 +607,7 @@ function confluenceRenderCities(d, chart) {
             colorscale: t.dark ? "Cividis" : "YlOrRd",
             reversescale: !t.dark,
             marker: { line: { color: t.border, width: 0.5 } },
-            colorbar: dasMapColorbar({ measure: metricLabel.charAt(0).toUpperCase() + metricLabel.slice(1) }, t),
+            colorbar: dasMapColorbar({ measure: measure.colorbar }, t),
             showlegend: false,
         });
         const keys = known.filter(c => d.das.cities[c][f.label] != null);
@@ -584,7 +658,7 @@ function confluenceRenderCities(d, chart) {
         .then(() => {
             dasFitMapHeight(chart);
             attachGeoHoverTip(chart, (point) => (point.location == null ? null
-                : { name: point.location, value: `${point.z} ${metricLabel}` }));
+                : { name: point.location, value: `${point.z} ${measure.label}` }));
         })
         .catch(error => {
             console.error("Confluence map render failed:", error);
@@ -599,7 +673,7 @@ function confluenceRenderTable(d) {
     const periods = d.periods.map(p => p.key);
     const columns = [], rows = periods.map(p => [p]);
     if (d.das.mode === "cities") {
-        const heat = factsToHeatmap(d.visual.facts, d.visual.key_kind);
+        const heat = confluenceHeat(d);
         Object.keys(heat).sort().forEach(geo => {
             columns.push(geo);
             periods.forEach((p, i) => rows[i].push(confluenceHeatValue(heat, geo, p)));

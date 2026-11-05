@@ -13,7 +13,7 @@
       "dimension2_type": null,
       "key_kind": "constant",
       "chart_type": "heatmap",
-      "data_types": ["counts"],
+      "data_types": ["rates", "counts"],
       "menu_parent": "Deaths and Demographics",
       "menu_name": "Substance-Related Deaths by Health Zone",
       "level": 1,
@@ -22,6 +22,7 @@
       "is_default": false,
       "visual_options": {
         "heatmap-title": "Substance-Related Deaths in Nova Scotia by Health Zone",
+        "heatmap-rates-title": "Substance-Related Deaths per 100,000 Population in Nova Scotia by Health Zone",
         "table-title": "Substance-Related Deaths in replace_with_health_authority Health Zone",
         "table-geo-header": "Health Zone",
         "table-row-title": "replace_location"

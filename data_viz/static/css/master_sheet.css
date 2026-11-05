@@ -386,6 +386,11 @@ a { text-decoration: none; }
   min-height: 100%;
   padding-bottom: 10px;
 }
+/* #content-div is itself a Bootstrap .container (capped at 1140/1320px by viewport width). On the
+   visual dashboards (the pages with a .data-row chart fold) the cards already sit beside a 264px
+   rail, so release the cap there and let the chart use the whole pane on wide monitors. */
+#content-div.container:has(> .container > .data-row),
+#content-div > .container.h-100:has(> .data-row) { max-width: none; }
 
 /* The main visualization surface — let the data breathe */
 #viz-card { background: var(--c-surface); border-radius: var(--radius); }
@@ -439,7 +444,14 @@ a { text-decoration: none; }
   background: var(--c-surface);
 }
 .vis-control { display: flex; align-items: center; gap: 0.5rem; }
-.vis-control:not(:has(.btn-check)) { display: none; }
+.vis-control:not(:has(.btn-check, select, .btn)) { display: none; }
+/* Renderer-owned dropdowns slot into the same line: the slot itself is transparent to the flex row. */
+.vis-renderer-controls { display: contents; }
+/* With renderer dropdowns on the line, tighten the spacing so the whole set fits one row on a laptop. */
+.vis-controls:has(> .vis-renderer-controls > *) { gap: 0.5rem 0.6rem; padding-left: 0.75rem; padding-right: 0.75rem; }
+.vis-controls .form-select-sm { width: auto; max-width: 10rem; font-size: 0.8rem; }
+/* The renderer's Reset button closes the line, after the Measure / Period / View toggles. */
+.vis-controls .treemap-reset { order: 1; }
 .vis-control-label { font-size: 0.8rem; font-weight: 600; color: var(--c-muted); white-space: nowrap; }
 .vis-controls .btn-group-sm > .btn { font-size: 0.875rem; padding: 0.3rem 0.8rem; }
 /* The chart surface loses its bottom corners when the control bar is showing beneath it. */
@@ -463,6 +475,35 @@ a { text-decoration: none; }
 .treemap-controls-row .treemap-control { text-align: start; }
 .treemap-controls-row .form-select-sm { font-size: 0.78rem; min-width: 8.5rem; }
 .treemap-controls-row .form-range { padding: 0; }
+/* Samples vs. Expectations key: HTML (wraps cleanly) rather than Plotly's legend. */
+.ea-legend {
+  display: flex; flex-flow: row wrap; justify-content: center; gap: 0.25rem 1.1rem;
+  font-size: 0.8rem; color: var(--c-text); margin-bottom: 0.5rem;
+}
+.ea-legend-item { display: inline-flex; align-items: center; gap: 0.4rem; }
+.ea-legend-swatch { width: 0.85rem; height: 0.85rem; border-radius: 2px; flex: 0 0 auto; border: 1px solid rgba(0,0,0,0.15); }
+
+/* Found-substance lines ("What's in the Sample?"): a clickable list of substance groups beside the
+   chart on wide screens; on phones the list hides and its <select> twin in the controls row takes over. */
+.found-body { display: flex; flex-direction: row; gap: 0.75rem; flex: 1 1 auto; min-height: 0; width: 100%; }
+.found-groups { flex: 0 0 15rem; max-width: 34%; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; text-align: start; }
+.found-group { flex: 0 0 auto; }
+.found-groups-head { font-size: 0.8rem; font-weight: 600; color: var(--c-muted); padding: 0.15rem 0.5rem 0.35rem; }
+.found-group {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem;
+  width: 100%; padding: 0.3rem 0.5rem; border: 0; border-left: 3px solid transparent; border-radius: 0;
+  background: transparent; color: var(--c-text); font-size: 0.86rem; text-align: start; cursor: pointer;
+}
+.found-group:hover { background: var(--c-surface-2, rgba(127, 127, 127, 0.12)); }
+.found-group.active { border-left-color: var(--c-accent); background: var(--c-surface-2, rgba(127, 127, 127, 0.12)); font-weight: 600; }
+.found-group.empty { color: var(--c-muted); }
+.found-group-pct { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.found-chart { flex: 1 1 auto; min-width: 0; }
+.found-group-select { display: none; }
+@media (max-width: 767.98px) {
+  .found-groups { display: none; }
+  .found-group-select { display: flex; }
+}
 
 /* ---------------------------- Breadcrumb -------------------------------- */
 .vis-breadcrumb {
@@ -708,6 +749,33 @@ a { text-decoration: none; }
 /* Drill-down rows in the Data Ownership visibility table — subtle, theme-aware tint via the same
    surface token the table striping uses, so it adapts to dark mode (Bootstrap's table-light does not). */
 .card-body .table tr.vis-drill-row { --bs-table-bg: var(--c-surface-2); }
+/* Grouped data tables (treemap categories): one label column -- an accent-edged heading row per
+   group (its own count / share, plus a muted member count), the members indented beneath it. The
+   striped bg is surface-2, so headings use surface-3 to stand apart from the stripes. */
+.card-body .table tr.vis-group-row,
+.card-body .table tr.vis-group-row:nth-of-type(odd) > * {
+  --bs-table-bg: var(--c-surface-3);
+  --bs-table-striped-bg: var(--c-surface-3);
+  background: var(--c-surface-3);
+  font-weight: 600;
+}
+.card-body .table tr.vis-group-row td:first-child { border-left: 3px solid var(--c-accent); text-align: left; }
+.card-body .table tr.vis-group-row[role="button"] { cursor: pointer; }
+.card-body .table tr.vis-group-row:focus-visible { outline: none; box-shadow: var(--ring); }
+.card-body .table tr.vis-group-row .vis-group-chevron {
+  display: inline-block; width: 1.1rem; font-size: 0.7rem; color: var(--c-muted);
+  transition: transform 0.15s ease;
+}
+.card-body .table tr.vis-group-row.vis-group-collapsed .vis-group-chevron { transform: rotate(-90deg); }
+.card-body .table tr.vis-group-row .vis-group-n {
+  margin-left: 0.5rem; font-weight: 400; font-size: 0.74rem; color: var(--c-text-muted, var(--c-muted, #64748b));
+}
+.card-body .table tr.vis-group-child td:first-child {
+  text-align: left; padding-left: 1.75rem; position: relative;
+}
+.card-body .table tr.vis-group-child td:first-child::before {
+  content: ""; position: absolute; left: 0.8rem; top: 0; bottom: 0; border-left: 1px solid var(--c-border);
+}
 #table-title { font-size: 0.95rem; font-weight: 600; color: var(--c-text); }
 
 /* Invite management sortable headers */

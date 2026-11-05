@@ -58,6 +58,9 @@
                      view (map / trend). Shown by masterLoop only for visuals that offer a choice; each group hides
                      itself (CSS :has) while it holds no radios. -->
                 <div id="vis-controls" class="vis-controls d-none">
+                    <!-- Renderer-owned filter dropdowns (e.g. the found-substance visual's expected drug / province /
+                         site + Reset) share this line; masterLoop empties the slot before every render. -->
+                    <div id="vis-renderer-controls" class="vis-renderer-controls"></div>
                     <div class="vis-control">
                         <span class="vis-control-label" id="data-type-toggle-label">Measure</span>
                         <div id="data-type-toggle" class="btn-group btn-group-sm" role="group" aria-labelledby="data-type-toggle-label"></div>

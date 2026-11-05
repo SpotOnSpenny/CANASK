@@ -286,9 +286,10 @@ class TestOverlappingPeriods:
 
 
 class _Visual:
-    def __init__(self, visual_options=None, chart_type="line"):
+    def __init__(self, visual_options=None, chart_type="line", data_types=None):
         self.visual_options = visual_options
         self.chart_type = chart_type
+        self.data_types = data_types
 
 
 MIXED = [{"dt": "counts", "t": "2025", "g": "year"},
@@ -340,16 +341,49 @@ class TestAvailableGrains:
                  {"dt": "additional_rows", "t": "2025-04", "g": "month"}]
         assert cf.available_grains(_Visual(self.ALL), facts) == ["year"]
 
-    def test_heatmap_grains_come_from_its_counts_only(self):
-        # A heatmap draws counts alone: a grain carried only by its rates would draw an empty map.
+    def test_heatmap_grains_come_from_its_drawn_measure_only(self):
+        # A heatmap draws one measure at a time (counts unless asked): a grain carried only by
+        # the other measure would draw an empty map.
         facts = [{"dt": "counts", "t": "2025", "g": "year"},
                  {"dt": "rates", "t": "2025-04", "g": "month"}]
         assert cf.available_grains(_Visual(chart_type="heatmap"), facts) == ["year"]
+        assert cf.available_grains(_Visual(chart_type="heatmap"), facts, "rates") == ["month"]
         assert cf.available_grains(_Visual(chart_type="line"), facts) == ["year", "month"]
+        # A flat chart's grains don't depend on the measure.
+        assert cf.available_grains(_Visual(chart_type="line"), facts, "rates") == ["year", "month"]
 
     def test_unknown_declared_grain_ignored(self):
         facts = [{"dt": "counts", "t": "2025-W01", "g": "week"}]
         assert cf.available_grains(_Visual({"time_grains": ["week"]}), facts) == []
+
+
+class TestAvailableMeasures:
+    BOTH = [{"dt": "rates", "t": "2025", "g": "year"}, {"dt": "counts", "t": "2025", "g": "year"},
+            {"dt": "additional_rows", "t": "2025", "g": "year"}]
+
+    def test_heatmap_offers_its_declared_data_types_in_declared_order(self):
+        assert cf.available_measures(_Visual(chart_type="heatmap", data_types="rates,counts"),
+                                     self.BOTH) == ["rates", "counts"]
+        assert cf.available_measures(_Visual(chart_type="heatmap", data_types="counts,rates"),
+                                     self.BOTH) == ["counts", "rates"]
+
+    def test_declared_but_absent_measure_dropped(self):
+        counts_only = [f for f in self.BOTH if f["dt"] != "rates"]
+        assert cf.available_measures(_Visual(chart_type="heatmap", data_types="rates,counts"),
+                                     counts_only) == ["counts"]
+
+    def test_undeclared_heatmap_draws_counts(self):
+        assert cf.available_measures(_Visual(chart_type="heatmap"), self.BOTH) == ["counts"]
+
+    def test_additional_rows_and_other_data_types_never_offered(self):
+        facts = [{"dt": "additional_rows", "t": "2025", "g": "year"},
+                 {"dt": "percentages", "t": "2025", "g": "year"}]
+        assert cf.available_measures(_Visual(chart_type="heatmap", data_types="counts,percentages"),
+                                     facts) == []
+
+    def test_flat_charts_have_no_measure_to_choose(self):
+        assert cf.available_measures(_Visual(chart_type="line", data_types="rates,counts"),
+                                     self.BOTH) == []
 
 
 class TestPivotAdapters:

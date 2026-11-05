@@ -4,10 +4,21 @@ import json
 import datetime
 import logging
 import re
-import unicodedata
 
 # External Dependency Imports
 import pandas
+
+from data_viz.drugcheck_substances import (
+    ANY_LABEL as _DRUGCHECK_ANY_LABEL,
+    FTIR_COLS as _DRUGCHECK_FTIR_COLS,
+    TOTAL_KEY as _DRUGCHECK_TOTAL_KEY,
+    STRIP_COLS as _DRUGCHECK_STRIP_COLS,
+    norm_substance as _norm_substance,
+    found_substances_by_method as _drugcheck_found_substances_by_method,
+    group_order as _drugcheck_group_order,
+    reset_unmapped as _drugcheck_reset_unmapped,
+    unmapped_tokens as _drugcheck_unmapped_tokens,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +130,18 @@ _DRUGCHECK_CATEGORY_CANON = {
     "cannabinoïdes": "Cannabinoids",
     "hallucinogènes": "Hallucinogens",
     "autres substances": "Other substances",
+    "Other": "Other substances",
+    "Other drug": "Other substances",
+    "Unknown Drug": "Unknown drug",
+    "Unknown substance": "Unknown drug",
+    "Unknown subtance": "Unknown drug",
+    # a cascaded find-and-replace in the source multiplied the "/Hypnotics" suffix
+    "Sedatives/Hypnotics/Hypnotics": "Sedatives/Hypnotics",
+    "Sedatives/Hypnotics/Hypnotics/Hypnotics": "Sedatives/Hypnotics",
+    "Sedatives/Hypnotics/Hypnotics/hypnotics": "Sedatives/Hypnotics",
+    "Sedatives/Hypnotics/Hypnotics/hypnotiques": "Sedatives/Hypnotics",
+    "Sédatif/hypnotiques": "Sedatives/Hypnotics",
+    "Nitazene": "Opioids",
 }
 # Categories carrying no substance signal ("sans objet" == not applicable) -- drop these rows.
 _DRUGCHECK_DROP_CATEGORIES = {"sans objet"}
@@ -144,8 +167,9 @@ _DRUGCHECK_DRUG_CANON = {
     "MDMA - (3,4-Methylenedioxymethamphetamine)": "MDMA",
     "MDA - (3,4-Methylenedioxyamphetamine)": "MDA",
     "Probiotique": "Probiotic",
-    "Substance inconnue": "Unknown substance",
-    "substance inconnue": "Unknown substance",
+    "Substance inconnue": "Unknown",
+    "substance inconnue": "Unknown",
+    "Unknown substance": "Unknown",
     "Unknown Stimulant": "Unknown stimulant",
     "speed": "Speed",
     "Cocaine freebase": "Crack",
@@ -154,6 +178,24 @@ _DRUGCHECK_DRUG_CANON = {
     "amphétamine": "Amphetamine",
     "Inconnu": "Unknown",
     "Inconnue": "Unknown",
+    "Unknown Drug": "Unknown",
+    "Unknown subtance": "Unknown",
+    "Crack (Cocaine base)": "Crack",
+    "Crack (Cocaine basée)": "Crack",
+    "Freebase cocaine": "Crack",
+    "Cocaine (sel)": "Cocaine",
+    "Amphétamine": "Amphetamine",
+    "Amphetamines": "Amphetamine",
+    "Benzodiazépine": "Benzodiazepine",
+    "Ketamie": "Ketamine",
+    "Metamphetamine": "Methamphetamine",
+    "MethAmphetamine": "Methamphetamine",
+    "Métamphetamine": "Methamphetamine",
+    "Médétomidine": "Medetomidine",
+    "DextroAmphetamine": "Dextroamphetamine",
+    "Lisdexamphetamine": "Lisdexamfetamine",
+    "lisdexamfétamine (vyvanse)": "Lisdexamfetamine",
+    "Complément alimentaire": "Dietary supplement",
 }
 _DRUGCHECK_SITE_CANON = {
     # The workbook's macron spelling is the organization's actual name; fold the CSV mojibake and
@@ -182,15 +224,19 @@ _DRUGCHECK_RETIRED_GEOS = {
 # lowercase, alphanumeric-only tokens covering every observed spelling/salt-form variant.
 
 _DRUGCHECK_STRIP_VOCAB = {"Positive", "Negative", "Not done", "Not available"}
-_DRUGCHECK_STRIP_COLS = [
-    "Fentanyl test strip", "Benzodiazepine test strip", "Nitazene test strip",
-    "Xylazine test strip", "MDMA Test strip", "Medetomidine test strip",
-]
-_DRUGCHECK_FTIR_COLS = ["FTIR (1)", "FTIR (2)", "FTIR (3)", "FTIR (4)", "FTIR (5)"]
+# Strip readings arrive in both languages and occasionally padded ("Résultat Negative"); the
+# classifier compares against the English vocabulary, so _drugcheck_load folds them first.
+_DRUGCHECK_STRIP_READING_CANON = {
+    "Positif": "Positive", "Négatif": "Negative", "Résultat Negative": "Negative",
+    "Non réalisé": "Not done",
+}
+# _DRUGCHECK_STRIP_COLS / _DRUGCHECK_FTIR_COLS / _norm_substance are shared with the found-substance
+# extractor and live in data_viz.drugcheck_substances (imported above under these names).
 
 _FENTANYL_FAMILY = {
     "fentanyl", "fentanylanalogue", "parafluorofentanyl", "paraflurofentanyl",
     "orthofluorofentanyl", "orthoflurofentanyl", "orthomethylfentanyl",
+    "fentanylhcl", "parafluorofentanylhcl", "acetylfentanyl", "acetylfentanylbase",
 }
 
 # Normalized "Expected Drug (1)" -> chart row. Anything unmapped is excluded from this visual
@@ -205,6 +251,13 @@ _DRUGCHECK_TARGET_CANON = {
     "crack": "Crack cocaine",
     "cocainebase": "Crack cocaine",
     "cocanebase": "Crack cocaine",
+    "cocainefreebase": "Crack cocaine",
+    "freebasecocaine": "Crack cocaine",
+    "crackcocainebasee": "Crack cocaine",
+    "cocainesel": "Cocaine",
+    "metamphetamine": "Methamphetamine",
+    "methamphetemine": "Methamphetamine",
+    "ketamie": "Ketamine",
     "cocainebasecrack": "Crack cocaine",
     "crackcocainebase": "Crack cocaine",
     "heroin": "Heroin",
@@ -215,19 +268,20 @@ _DRUGCHECK_TARGET_CANON = {
 # crack match strictly by salt form (powder vs base); a bare "Cocaine" identification is
 # form-ambiguous and counts for both.
 _DRUGCHECK_FTIR_MATCH = {
-    "Ketamine": {"ketamine", "ketaminehcl"},
-    "MDMA": {"mdma", "mdmahcl", "mdma34methylenedioxymethamphetamine"},
+    "Ketamine": {"ketamine", "ketaminehcl", "ketaminehci"},
+    "MDMA": {"mdma", "mdmahcl", "mdmahci", "mdma34methylenedioxymethamphetamine"},
     "Methamphetamine": {
         "methamphetamine", "methamphetaminehcl", "methylamphetamine",
         "methylamphetaminehcl", "methylamphetemine", "methylampheteminehcl",
-        "uncertainmethamphetamine",
+        "uncertainmethamphetamine", "metamphetamine", "metamphetaminehcl",
+        "methamphetemine", "methampheteminehcl",
     },
-    "Cocaine": {"cocaine", "cocainehcl"},
+    "Cocaine": {"cocaine", "cocainehcl", "cocainehci"},
     "Crack cocaine": {
         "cocaine", "cocainefreebase", "cocainebase", "cocainebasecrack",
         "crackcocaine", "cocanebase",
     },
-    "Heroin": {"heroin", "heroinbase"},
+    "Heroin": {"heroin", "heroine", "heroinbase", "heroinhcl", "heroinehcl"},
     "Fentanyl": set(_FENTANYL_FAMILY),
 }
 
@@ -243,6 +297,11 @@ _DRUGCHECK_NOTEWORTHY_FTIR = {
     "bromazolam": "benzo",
     "clonazolam": "benzo",
     "desalkylgidazepam": "benzo",
+    "desalkygidazepam": "benzo",
+    "ethylbromazolam": "benzo",
+    "clobromazolam": "benzo",
+    "ethylflualprazolam": "benzo",
+    "ethylfualprazolam": "benzo",
     "deschloroetizolam": "benzo",
     "etizolam": "benzo",
     "flubromazepam": "benzo",
@@ -265,17 +324,6 @@ _DRUGCHECK_EXPECTED_FAMILY = {"Fentanyl": {"fentanyl"}}
 # FTIR entries that identify nothing -- ignored entirely.
 _DRUGCHECK_FTIR_INCONCLUSIVE = {"inconclusive", "nonconcluant", "uncertainmatch", "matchincertain", "other"}
 _DRUGCHECK_OUTCOMES = ("expected_only", "expected_plus", "not_expected")
-
-
-def _norm_substance(value):
-    """Canonical comparison token for a hand-entered substance name: accents decomposed and
-    dropped, lowercased, every non-alphanumeric removed ("Cocaine HCl" / "Cocaïne" -> "cocainehcl"
-    / "cocaine"). Returns "" for missing values."""
-    if value is None or (isinstance(value, float) and pandas.isna(value)):
-        return ""
-    decomposed = unicodedata.normalize("NFKD", str(value))
-    stripped = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
-    return re.sub(r"[^a-z0-9]", "", stripped.lower())
 
 
 def _drugcheck_repair_shifted(df):
@@ -330,6 +378,28 @@ def classify_drugcheck_sample(row):
     return target, ("expected_plus" if others else "expected_only")
 
 
+# Every export generation's header spelling -> the internal column name the rest of this module
+# speaks (see _drugcheck_load). Renaming an absent column is a no-op, so generations coexist here.
+_DRUGCHECK_COLUMN_RENAMES = {
+    "Drug Category (1)": "Expected Drug Category (1)",
+    "Expected Drug 1": "Expected Drug (1)",
+    "Drug Category 1": "Expected Drug Category (1)",
+    "Expected Drug 2": "Expected Drug (2)",
+    "Drug Category 2": "Expected Drug Category (2)",
+    "FTIR 1": "FTIR (1)", "FTIR 2": "FTIR (2)", "FTIR 3": "FTIR (3)",
+    "FTIR 4": "FTIR (4)", "FTIR 5": "FTIR (5)",
+    # the category beside each FTIR identification (read by the found-substance fallback)
+    **{f"FTIR {i} Drug Category": f"FTIR ({i}) Drug Category" for i in range(1, 6)},
+    **{f"FTIR ({i}.1) drug category": f"FTIR ({i}) Drug Category" for i in range(1, 6)},
+    "Fentanyl Test Strip": "Fentanyl test strip",
+    "Benzodiazepine Test Strip": "Benzodiazepine test strip",
+    "Nitazene Test Strip": "Nitazene test strip",
+    "Xylazine Test Strip": "Xylazine test strip",
+    "MDMA Test Strip": "MDMA Test strip",
+    "Medetomidine Test Strip": "Medetomidine test strip",
+}
+
+
 def _drugcheck_load():
     """Pull the harmonized drug-checking workbook and return (pulled, df) with every fix both
     drug-checking visuals depend on already applied: normalized headers (with the Cycle-2
@@ -347,29 +417,26 @@ def _drugcheck_load():
     # spelling onto the internal names the rest of this module speaks, rather than chasing column
     # names through every constant below. Renaming a column that isn't present is a no-op, so old
     # and new spellings can coexist here indefinitely.
-    df = df.rename(columns={
-        "Drug Category (1)": "Expected Drug Category (1)",
-        "Expected Drug 1": "Expected Drug (1)",
-        "Drug Category 1": "Expected Drug Category (1)",
-        "Expected Drug 2": "Expected Drug (2)",
-        "Drug Category 2": "Expected Drug Category (2)",
-        "FTIR 1": "FTIR (1)", "FTIR 2": "FTIR (2)", "FTIR 3": "FTIR (3)",
-        "FTIR 4": "FTIR (4)", "FTIR 5": "FTIR (5)",
-        "Fentanyl Test Strip": "Fentanyl test strip",
-        "Benzodiazepine Test Strip": "Benzodiazepine test strip",
-        "Nitazene Test Strip": "Nitazene test strip",
-        "Xylazine Test Strip": "Xylazine test strip",
-        "MDMA Test Strip": "MDMA Test strip",
-        "Medetomidine Test Strip": "Medetomidine test strip",
-    })
+    df = df.rename(columns=_DRUGCHECK_COLUMN_RENAMES)
     df = df.map(lambda cell: cell.strip() if isinstance(cell, str) else cell)
     df = _drugcheck_repair_shifted(df)
+    df = _drugcheck_canon_strip_readings(df)
     # Province arrives both abbreviated and spelled out; canonicalize known abbreviations so the
     # Province dropdown groups them as one (extend this map as new provinces appear).
     df["Province"] = df["Province"].replace({"Sask": "Saskatchewan"})
     # Month grain matches the BC treemap (client derives year/seasonal/all-time buckets).
     df["_month"] = _drugcheck_months(df["Visit Date"])
     return pulled, df
+
+
+def _drugcheck_canon_strip_readings(df):
+    """Fold the French / padded strip readings onto the English vocabulary (see
+    _DRUGCHECK_STRIP_READING_CANON). Runs after the shift repair so it sees the real strip cells."""
+    cols = [col for col in _DRUGCHECK_STRIP_COLS if col in df.columns]
+    if cols:
+        df = df.copy()
+        df[cols] = df[cols].replace(_DRUGCHECK_STRIP_READING_CANON)
+    return df
 
 
 def _drugcheck_months(visit_dates):
@@ -429,13 +496,57 @@ def _emit_drugcheck_expected_actual(v, df):
         v.fact(geo, month, n, dimension=target, dimension2=outcome, time_frame_type="month")
 
 
+# The found-substance visual's sentinel dimension2 keys (_DRUGCHECK_TOTAL_KEY / _DRUGCHECK_ANY_LABEL)
+# are owned by drugcheck_substances, whose loader refuses a crosswalk label that contains "|" or
+# equals a sentinel, so real "<group>|<label>" keys can't collide with them.
+
+
+def _emit_drugcheck_found_substances(v, df):
+    """"What's in the Sample?": per (Province||Site, period, expected drug) the number of samples
+    checked ("__total__"), the number containing ANY substance of each crosswalk group
+    ("<group>|__any__" -- a sample with two benzos counts once), the number containing each
+    substance ("<group>|<label>") and, per detection method, the number in which that method found
+    it ("<group>|<label>|ftir" / "<group>|<label>|strip" -- a sample both methods found counts in
+    both, so the client shows them as a breakdown, never a sum). Emitted at month AND quarter grain
+    (the manifest declares both; the client computes percentages from these counts after summing
+    the selected geos)."""
+    df = df.dropna(subset=["Site/Organization", "Province", "Expected Drug (1)"]).copy()
+    df = df[df["_month"].notna()]
+    df["Site/Organization"] = df["Site/Organization"].replace(_DRUGCHECK_SITE_CANON)
+    df["Expected Drug (1)"] = df["Expected Drug (1)"].replace(_DRUGCHECK_DRUG_CANON)
+    counts = {}   # (geo, period, grain, expected, key) -> n samples
+
+    def bump(geo, period, grain, expected, key):
+        k = (geo, period, grain, expected, key)
+        counts[k] = counts.get(k, 0) + 1
+
+    for row in df.to_dict("records"):
+        geo = f"{row['Province']}||{row['Site/Organization']}"
+        expected = row["Expected Drug (1)"]
+        by_method = _drugcheck_found_substances_by_method(row)
+        found = {(group, label) for group, label, _ in by_method}
+        groups = {group for group, _ in found}
+        for grain, period in (("month", row["_month"]), ("quarter", _quarter_of(row["_month"]))):
+            bump(geo, period, grain, expected, _DRUGCHECK_TOTAL_KEY)
+            for group in groups:
+                bump(geo, period, grain, expected, f"{group}|{_DRUGCHECK_ANY_LABEL}")
+            for group, label in found:
+                bump(geo, period, grain, expected, f"{group}|{label}")
+            for group, label, method in by_method:
+                bump(geo, period, grain, expected, f"{group}|{label}|{method}")
+    for (geo, period, grain, expected, key), n in counts.items():
+        v.fact(geo, period, n, dimension=expected, dimension2=key, time_frame_type=grain)
+    # Group order + labels come from the crosswalk (single source); the client reads this option.
+    v.options({"found_groups": _drugcheck_group_order()})
+
+
 def v1_drugchecking_export_clean(writer, province):
     # Pan-Canadian drug-checking harmonized data: one row per checked sample, spanning provinces.
     # New-style cleaner -- emits straight to the writer, no intermediate block dict. `province` is
     # the target scope key ("canada"); the per-sample Province lives in the geo composite. Two
-    # visuals share one load: the category_treemap (Category -> Expected Drug) and the
-    # expected-vs-actual stacked bar; each is skipped independently if undefined (the writer
-    # already warned -- run `define-visuals`).
+    # visuals share one load: the category_treemap (Category -> Expected Drug), the
+    # expected-vs-actual stacked bar and the found-substance trend lines; each is skipped
+    # independently if undefined (the writer already warned -- run `define-visuals`).
     pulled, df = _drugcheck_load()
     source = {
         "name": "Pan-Canadian Drug Checking Data Harmonization",
@@ -460,6 +571,23 @@ To find out more about drug checking, and the CCSA's Drug Checking working group
         for geo in _DRUGCHECK_RETIRED_GEOS:   # set-deduped with the treemap's claims
             v_expected.retire_geo(geo)
         _emit_drugcheck_expected_actual(v_expected, df)
+    v_found = writer.visual(province, "substances_found_by_expected_drug")
+    if v_found is not None:
+        v_found.use_source(source)
+        for geo in _DRUGCHECK_RETIRED_GEOS:
+            v_found.retire_geo(geo)
+        _drugcheck_reset_unmapped()
+        _emit_drugcheck_found_substances(v_found, df)
+        unmapped = _drugcheck_unmapped_tokens()
+        if unmapped:
+            # A spelling the crosswalk doesn't list: it charted under its raw label in the group the
+            # source's own category implies (or was dropped when that category was unusable). Add
+            # it to app_config/drugcheck_found_groups.json so it merges with its siblings.
+            print(f"  ! {len(unmapped)} unmapped FTIR spelling(s) in drugChecking -- add to "
+                  f"app_config/drugcheck_found_groups.json:")
+            for token, info in sorted(unmapped.items()):
+                where = info["group"] or "DROPPED"
+                print(f"      {info['raw']!r} (category {info['category']!r}) -> {where}")
 
 
 _BCCSU_GRAINS = ("year", "quarter", "month")
@@ -825,11 +953,16 @@ def v1_coroners_export_clean(writer, province):
     }
     geo_province = PROVINCE_DISPLAY[province]
 
-    # ----- Heatmap: unregulated drug deaths by health authority, per year / quarter / month (counts) -----
+    # ----- Heatmap: unregulated drug deaths by health authority, per year / quarter / month -----
+    # Counts AND the source's own rates per 100,000 (population-adjusted, so the sparsely populated
+    # Northern HA isn't drowned out by Fraser / Vancouver Coastal on the map).
     bc_year_totals = {}   # year -> BC-wide deaths, reused by the drug-type counts derivation below
     heat_title = "Unregulated Drug Deaths by Health Authority of Injury"
+    heat_rates_title = "Unregulated Drug Death Rates per 100,000 by Health Authority of Injury"
     heat = _coroners_required_frame(workbook, heat_title, "year")
     heat_months = _coroners_required_frame(workbook, heat_title, "month")
+    heat_rates = _coroners_required_frame(workbook, heat_rates_title, "year")
+    heat_rates_months = _coroners_required_frame(workbook, heat_rates_title, "month")
     v = writer.visual(province, "drug_death_heatmap")
     if v is not None:
         v.use_source(source)
@@ -845,6 +978,14 @@ def v1_coroners_export_clean(writer, province):
     if v is not None:
         for ha in heat_months["rows"]:
             _emit_month_and_quarter(v, ha, _coroners_month_series(heat_months, ha))
+        # Yearly rates pass through as published (the source annualises the current partial year, so
+        # its rate is comparable to full years even though its count isn't). Monthly rates are
+        # per-100k-per-month like the age table's, so a quarter's rate is the sum of its months.
+        for ha, values in heat_rates["rows"].items():
+            for period, value in zip(heat_rates["periods"], values):
+                _emit_fact(v, ha, period, _coroners_clean_cell(value), data_type="rates")
+        for ha in heat_rates_months["rows"]:
+            _emit_month_and_quarter(v, ha, _coroners_month_series(heat_rates_months, ha), data_type="rates")
 
     # ----- Deaths by sex, per health authority, per year (drill from the heatmap) -----
     v = writer.visual(province, "deaths_by_sex_line")
@@ -1740,7 +1881,7 @@ def v1_ns_rates_fatalities_export_clean(writer, province):
         r = pandas.to_numeric(row[_NS_RATE_COL], errors="coerce")
         return None if pandas.isna(r) else float(r)
 
-    # ----- Deaths by health zone (annual all-substance counts per zone; heatmap) -----
+    # ----- Deaths by health zone (annual all-substance counts + rates per zone; heatmap) -----
     v = writer.visual(province, "deaths_by_health_zone")
     if v is not None:
         v.use_source(source)
@@ -1748,7 +1889,9 @@ def v1_ns_rates_fatalities_export_clean(writer, province):
                       & (annual["manner_of_death"] == "All manners")
                       & (annual["health_zone_of_residence"].isin(_NS_ZONES))]
         for _, row in rows.iterrows():
-            _emit_fact(v, row["health_zone_of_residence"], str(int(row["year"])), count_of(row))
+            zone, year = row["health_zone_of_residence"], str(int(row["year"]))
+            _emit_fact(v, zone, year, count_of(row))
+            _emit_fact(v, zone, year, rate_of(row), data_type="rates")
 
     province_geo = PROVINCE_DISPLAY[province]
     ns = annual[annual["health_zone_of_residence"] == province_geo]
