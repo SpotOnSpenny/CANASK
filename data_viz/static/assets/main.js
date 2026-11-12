@@ -264,6 +264,154 @@ function canaskRedrawCharts() {
 window.themeChartLayout = themeChartLayout;
 window.canaskRedrawCharts = canaskRedrawCharts;
 
+// ---------------------------------------------------------------------------
+// PNG export: a named file with the title drawn into the image
+// ---------------------------------------------------------------------------
+// Chart titles are HTML headings outside the Plotly figure (see setVisualTitle), so Plotly's own
+// camera button saves an untitled image called "newplot.png". chartConfig() swaps that button for
+// one that exports a copy of the figure with the title (and the jurisdiction beneath it) drawn
+// above the plot, on a solid background, named after both. The on-page chart is never touched.
+//
+// Usage:  Plotly.react(div, traces, themeChartLayout(layout), chartConfig({ responsive: false }, info))
+// `info` is { title, place, note } (note: an optional small line under the heading, e.g. the
+// filters applied) or a function returning it; a function is read when the button is
+// clicked, so it always describes the chart as it is then.
+
+var CANASK_EXPORT_PREFIX = "CANASK";
+
+function canaskSlug(text) {
+  return String(text == null ? "" : text)
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+// The jurisdiction is left out when the title already names it ("... in British Columbia").
+function canaskTitleNamesPlace(title, place) {
+  var p = canaskSlug(place);
+  return !p || ("-" + canaskSlug(title) + "-").indexOf("-" + p + "-") !== -1;
+}
+
+// File name (no extension) for an exported chart: "CANASK-<title>-<jurisdiction>", slugified.
+function chartExportName(title, place) {
+  var suffix = canaskTitleNamesPlace(title, place) ? "" : canaskSlug(place);
+  // A long title is cut short rather than the jurisdiction after it.
+  var head = canaskSlug(title).slice(0, 120 - suffix.length).replace(/-+$/, "");
+  return [CANASK_EXPORT_PREFIX, head, suffix].filter(Boolean).join("-") + (head || suffix ? "" : "-chart");
+}
+
+// Plotly titles don't wrap, so break the text into lines that fit `width` px at `fontSize`.
+function canaskWrapText(text, width, fontSize) {
+  var perLine = Math.max(16, Math.floor(width / (fontSize * 0.56)));
+  var lines = [];
+  var line = "";
+  String(text).split(/\s+/).filter(Boolean).forEach(function (word) {
+    if (line && (line + " " + word).length > perLine) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = line ? line + " " + word : word;
+    }
+  });
+  if (line) lines.push(line);
+  return lines;
+}
+
+function canaskEscapeChartText(text) {
+  return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// The figure to export: the chart's current data + layout, made taller by a heading band that
+// holds the title, with a solid background (the page's is transparent). Pure apart from reading
+// the theme, so the plot area keeps exactly its on-screen size.
+function chartExportFigure(gd, info) {
+  var t = canaskChartTheme();
+  var full = gd._fullLayout || {};
+  var width = Math.round(full.width || gd.clientWidth || 900);
+  var height = Math.round(full.height || gd.clientHeight || 500);
+  var title = String((info && info.title) || "").trim();
+  var place = String((info && info.place) || "").trim();
+  var titleSize = 18;
+  var placeSize = 14;
+
+  var titleLines = title ? canaskWrapText(title, width - 48, titleSize) : [];
+  var showPlace = !!place && !canaskTitleNamesPlace(title, place);
+  var text = titleLines.map(canaskEscapeChartText).join("<br>");
+  if (showPlace) {
+    text += (text ? "<br>" : "") +
+      '<span style="font-size:' + placeSize + "px;color:" + t.tick + '">' + canaskEscapeChartText(place) + "</span>";
+  }
+  // An optional note under the heading (e.g. the filters a chart was built with), small and muted.
+  var note = String((info && info.note) || "").trim();
+  var noteSize = 13;
+  var noteLines = note ? canaskWrapText(note, width - 48, noteSize) : [];
+  if (noteLines.length) {
+    text += (text ? "<br>" : "") +
+      '<span style="font-size:' + noteSize + "px;color:" + t.tick + '">' +
+      noteLines.map(canaskEscapeChartText).join("<br>") + "</span>";
+  }
+  var lineCount = titleLines.length + (showPlace ? 1 : 0) + noteLines.length;
+  var band = text ? Math.round(titleLines.length * titleSize * 1.3 + (showPlace ? placeSize * 1.5 : 0) +
+    noteLines.length * noteSize * 1.5 + 14) : 0;
+
+  var data = gd.data || [];
+  try {
+    data = structuredClone(data);
+  } catch (e) { /* not cloneable: Plotly only reads the traces, so share them */ }
+
+  var layout = Object.assign({}, gd.layout || {});
+  var topMargin = (full.margin && typeof full.margin.t === "number") ? full.margin.t : 40;
+  layout.margin = Object.assign({}, layout.margin, { t: topMargin + band });
+  layout.width = width;
+  layout.height = height + band;
+  layout.autosize = false;
+  layout.paper_bgcolor = t.dark ? "#0f172a" : "#ffffff"; // --c-surface
+  if (text) {
+    layout.title = {
+      text: text,
+      x: 0.5,
+      xanchor: "center",
+      xref: "container",
+      y: 1,
+      yref: "container",
+      yanchor: "top",
+      // Plotly 2.32 lifts a multi-line title about 13px above where it puts a one-line title.
+      pad: { t: lineCount > 1 ? 27 : 14 },
+      font: { family: t.fontFamily, color: t.dark ? "#f1f5f9" : "#0f172a", size: titleSize },
+    };
+  }
+  return { data: data, layout: layout, width: width, height: height + band };
+}
+
+function chartDownloadPng(gd, info) {
+  var resolved = (typeof info === "function" ? info(gd) : info) || {};
+  var fig = chartExportFigure(gd, resolved);
+  return Plotly.downloadImage(
+    { data: fig.data, layout: fig.layout },
+    { format: "png", width: fig.width, height: fig.height, scale: 2, filename: chartExportName(resolved.title, resolved.place) }
+  );
+}
+
+// Public: the Plotly config for a chart, with the stock camera button replaced by ours.
+function chartConfig(base, info) {
+  var config = Object.assign({ displaylogo: false }, base || {});
+  config.modeBarButtonsToRemove = (config.modeBarButtonsToRemove || []).concat(["toImage"]);
+  config.modeBarButtonsToAdd = (config.modeBarButtonsToAdd || []).concat([{
+    name: "canaskDownloadPng",
+    title: "Download chart as a PNG",
+    icon: Plotly.Icons.camera,
+    click: function (gd) {
+      chartDownloadPng(gd, info).catch(function (err) {
+        console.error("Chart export failed", err);
+      });
+    },
+  }]);
+  return config;
+}
+
 // CSRF token handling for htmx requests
 document.body.addEventListener('htmx:configRequest', (event) => {
     event.detail.headers['X-CSRFToken'] = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
@@ -969,6 +1117,18 @@ function setVisualTitle(text) {
   const title = text == null ? "" : String(text).replace(/<br\s*\/?>/gi, " ").trim();
   el.textContent = title;
   el.classList.toggle("d-none", !title);
+}
+
+// What the PNG export (chartConfig in plotly-theme.js) calls this chart: the heading above the figure,
+// or the header the treemap-style visuals draw inside #vis-div, plus the page's jurisdiction. Read
+// when the download button is clicked, so it follows the filters and toggles.
+function visualExportInfo() {
+  const heading = document.getElementById("vis-title");
+  const own = document.querySelector("#vis-div .treemap-title");
+  const title = (heading && !heading.classList.contains("d-none") && heading.textContent.trim())
+    || (own && own.textContent.trim()) || "";
+  const place = String(province || "").replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+  return { title: title, place: place };
 }
 
 // Height left for the Plotly figure inside #viz-card once the heading (and its margin) is placed.
@@ -1866,10 +2026,7 @@ async function createVisualHeatMap(province, visualToGen, geojson, heatByType, m
     visDiv,
     dataSlider,
     themeChartLayout(layout),
-    (config = {
-      displaylogo: false,
-      responsive: false,
-    })
+    chartConfig({ responsive: false }, visualExportInfo)
   ).then(() => {
     // The tip's measure label is spelled out rather than read from the colorbar title: Plotly
     // rewrites a string colorbar title into {text} on gd.data.
@@ -1980,10 +2137,7 @@ async function createVisualMap(province, currentVisual, geojson, mapOptions) {
     visDiv,
     [mapData],
     themeChartLayout(layout),
-    (config = {
-      displaylogo: false,
-      responsive: false,
-    })
+    chartConfig({ responsive: false }, visualExportInfo)
   ).then(() => {
     attachGeoHoverTip(visDiv, (point) => (point.location == null ? null : { name: point.location, value: null }));
     visDiv.on("plotly_click", function (data) {
@@ -2153,9 +2307,7 @@ async function createVisualLine(province, lineData, currentVisual, dataType, lin
       legend: responsiveLegend(),
       margin: responsiveMargin(),
     }),
-    (config = {
-      displaylogo: false,
-    })
+    chartConfig({}, visualExportInfo)
   );
   
   // Replace the tabular section with table data for this vis
@@ -2319,9 +2471,7 @@ async function createVisualBar(province, barData, currentVisual, dataType, barSo
       legend: responsiveLegend(),
       margin: responsiveMargin(),
     }),
-    (config = {
-      displaylogo: false,
-    })
+    chartConfig({}, visualExportInfo)
   );
 
   // Replace the tabular section with table data for this vis
@@ -2472,10 +2622,7 @@ async function createVisualPie(province, pieData, pieSource, visualOptions, tabu
     visDiv,
     dataSlider,
     themeChartLayout(layout),
-    (config = {
-      displaylogo: false,
-      responsive: false,
-    })
+    chartConfig({ responsive: false }, visualExportInfo)
   ).then(() => {
     visDiv.on("plotly_click", function (data) {
       if (!canDrill(province, currentVisual)) {
@@ -2947,7 +3094,7 @@ async function createVisualTreemap(province, block, currentVisual, source) {
       margin: { t: 6, l: 0, r: 0, b: 0 },
     };
     Plotly.purge(chartDiv);
-    Plotly.react(chartDiv, [trace], themeChartLayout(layout), { displaylogo: false, responsive: false });
+    Plotly.react(chartDiv, [trace], themeChartLayout(layout), chartConfig({ responsive: false }, visualExportInfo));
     renderTable(data);
     if (resetBtn) resetBtn.disabled = !filtersActive();   // keep reset button in sync with live filters
   }
@@ -3084,7 +3231,7 @@ async function createVisualStratifiedBar(province, block, currentVisual, source,
       annotations: totalAnnotations,
       legend: responsiveLegend(),
       margin: responsiveMargin(),
-    }), { displaylogo: false, responsive: false });
+    }), chartConfig({ responsive: false }, visualExportInfo));
 
     // Table: one row per sex, a column per age band (mirrors the chart's current substance+year view).
     tableTitle.innerText = fillTokens(cfg.table_title || cfg.title || "Hospitalizations by Age and Sex");
@@ -3271,7 +3418,7 @@ async function createVisualExpectedActual(province, block, currentVisual, source
       // and the figure's bottom margin only needs the axis.
       showlegend: false,
       margin: Object.assign(responsiveMargin(), { b: 52 }),
-    }), { displaylogo: false, responsive: false });
+    }), chartConfig({ responsive: false }, visualExportInfo));
 
     // Table: one row per expected drug -- sample count plus each segment as "count (share%)".
     tableTitle.innerText = cfg.table_title || cfg.title || "Samples vs. Expectations";
@@ -3776,7 +3923,7 @@ async function createVisualFoundSubstances(province, block, currentVisual, sourc
       hoverlabel: { namelength: -1 },
       legend: responsiveLegend(),
       margin: responsiveMargin(),
-    }), { displaylogo: false, responsive: false });
+    }), chartConfig({ responsive: false }, visualExportInfo));
 
     // Table: samples checked, the group total, then EVERY substance (not just the drawn ones).
     tableTitle.innerText = fillTokens(cfg.table_title || cfg.title || "What's in the Sample?") + `: ${groupLabel[sel.group]}`;
@@ -4508,7 +4655,10 @@ async function dasApplyPivot() {
         if (!response.ok) throw new Error(`pivot request failed: ${response.status}`);
         const pivot = await response.json();
         chart.innerHTML = "";
-        dasState.pivot = { data: pivot, chartType: chartType };
+        dasState.pivot = {
+            data: pivot, chartType: chartType,
+            exportInfo: dasPivotDescribe(rows, chartType === "pie" ? "" : cols, headerFilters, pivot.measure),
+        };
         dasRenderPivot();
     } catch (error) {
         console.error("DAS pivot failed:", error);
@@ -4606,6 +4756,38 @@ function dasMapColorbar(p, t) {
         title: { text: p.measure, side: "right", font: { color: t.font } },
         tickfont: { color: t.tick },
     };
+}
+
+// What the PNG export (chartConfig in plotly-theme.js) says about a pivot chart, captured when the
+// chart is BUILT (the selects and table filters can change afterwards without a rebuild). The chart
+// has no heading of its own, so the title is "<dataset>: <measure> by <rows> and <columns>", and
+// the table filters the pivot was narrowed by go in a note under it -- an exported image of
+// "samples by province" that was really filtered to medetomidine has to say so.
+function dasPivotDescribe(rows, cols, headerFilters, measure) {
+    const ds = dasDatasetCfg();
+    const kinds = ds.kinds || {};
+    const dimLabel = field => {
+        const dim = ds.pivotDims.find(d => d.field === field);
+        return dim ? dim.label : "";
+    };
+    const by = [dimLabel(rows), dimLabel(cols)].filter(Boolean).join(" and ");
+    const title = [ds.label, [measure, by].filter(Boolean).join(" by ")].filter(Boolean).join(": ");
+    // Same rules as dasAppendFilterParams, so the note lists exactly what the server applied.
+    const filters = [];
+    headerFilters.forEach(f => {
+        const values = (Array.isArray(f.value) ? f.value : [f.value])
+            .filter(v => v !== "" && v != null)
+            .map(v => String(v).trim())
+            .filter(v => kinds[f.field] !== "text" || dasValidExpression(v, dasAllowStar(f.field)));
+        if (!values.length) return;
+        const col = ds.columns.find(c => c.field === f.field);
+        filters.push(`${col ? col.title : f.field}: ${values.join(", ")}`);
+    });
+    return { title: title, place: "Canada", note: filters.length ? "Filtered to " + filters.join("; ") : "" };
+}
+
+function dasPivotExportInfo() {
+    return (dasState && dasState.pivot && dasState.pivot.exportInfo) || { title: "", place: "Canada" };
 }
 
 function dasRenderPivot() {
@@ -4745,7 +4927,7 @@ function dasRenderPivot() {
 
     document.getElementById("das-pivot-truncated").classList.toggle("d-none", !p.truncated);
     const isMap = chartType === "map_province" || chartType === "map_city";
-    const plotted = Plotly.react(chart, traces, themeChartLayout(layout), { displaylogo: false, responsive: true });
+    const plotted = Plotly.react(chart, traces, themeChartLayout(layout), chartConfig({ responsive: true }, dasPivotExportInfo));
     if (isMap) plotted.then(() => dasFitMapHeight(chart));
 }
 
@@ -5226,6 +5408,13 @@ function confluenceMeasureLabels(d) {
         : { label: metric, colorbar: capital };
 }
 
+// Title + jurisdiction for the PNG export (chartConfig in plotly-theme.js), read at click time.
+function confluenceExportInfo() {
+    const heading = document.getElementById("confluence-chart-title");
+    const d = confluenceState && confluenceState.data;
+    return { title: heading ? heading.textContent.trim() : "", place: d && d.province ? d.province.label : "" };
+}
+
 function confluenceRender() {
     const state = confluenceState;
     const d = state && state.data;
@@ -5344,7 +5533,7 @@ function confluenceRenderSeries(d, chart) {
         shapes: shapes,
         hovermode: "x unified",
     };
-    Plotly.react(chart, traces, themeChartLayout(layout), { displaylogo: false, responsive: true });
+    Plotly.react(chart, traces, themeChartLayout(layout), chartConfig({ responsive: true }, confluenceExportInfo));
 }
 
 // Health-authority map + DAS bubbles: per period one choropleth (the visual's counts or rates,
@@ -5446,7 +5635,7 @@ function confluenceRenderCities(d, chart) {
         notes.push("DAS results with no recorded city aren't shown on the map (they're counted in the table's total).");
     }
     confluenceSetNote("confluence-unmapped", notes.join(" "));
-    Plotly.react(chart, traces, themeChartLayout(layout), { displaylogo: false, responsive: true })
+    Plotly.react(chart, traces, themeChartLayout(layout), chartConfig({ responsive: true }, confluenceExportInfo))
         .then(() => {
             dasFitMapHeight(chart);
             attachGeoHoverTip(chart, (point) => (point.location == null ? null

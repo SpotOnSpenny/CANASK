@@ -148,7 +148,9 @@ class Config():
         "https://www.gstatic.com https://www.googletagmanager.com https://static.cloudflareinsights.com",
         "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com",
         "font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net",
-        "img-src 'self' data: https:",
+        # blob: Plotly's "Download plot as PNG" serialises the chart to an SVG blob and loads it into
+        # an <img> to rasterise it on a canvas; without it the mode-bar download fails.
+        "img-src 'self' data: blob: https:",
         # cdn.plot.ly: Plotly geo charts (map/heatmap visuals) fetch their base-map topojson
         # (e.g. world_110m.json) from there at render time; without it every map visual dies with
         # "unexpected error while fetching topojson file".

@@ -307,6 +307,18 @@ function setVisualTitle(text) {
   el.classList.toggle("d-none", !title);
 }
 
+// What the PNG export (chartConfig in plotly-theme.js) calls this chart: the heading above the figure,
+// or the header the treemap-style visuals draw inside #vis-div, plus the page's jurisdiction. Read
+// when the download button is clicked, so it follows the filters and toggles.
+function visualExportInfo() {
+  const heading = document.getElementById("vis-title");
+  const own = document.querySelector("#vis-div .treemap-title");
+  const title = (heading && !heading.classList.contains("d-none") && heading.textContent.trim())
+    || (own && own.textContent.trim()) || "";
+  const place = String(province || "").replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+  return { title: title, place: place };
+}
+
 // Height left for the Plotly figure inside #viz-card once the heading (and its margin) is placed.
 function chartAreaHeight() {
   const card = $("#viz-card").height();
@@ -1202,10 +1214,7 @@ async function createVisualHeatMap(province, visualToGen, geojson, heatByType, m
     visDiv,
     dataSlider,
     themeChartLayout(layout),
-    (config = {
-      displaylogo: false,
-      responsive: false,
-    })
+    chartConfig({ responsive: false }, visualExportInfo)
   ).then(() => {
     // The tip's measure label is spelled out rather than read from the colorbar title: Plotly
     // rewrites a string colorbar title into {text} on gd.data.
@@ -1316,10 +1325,7 @@ async function createVisualMap(province, currentVisual, geojson, mapOptions) {
     visDiv,
     [mapData],
     themeChartLayout(layout),
-    (config = {
-      displaylogo: false,
-      responsive: false,
-    })
+    chartConfig({ responsive: false }, visualExportInfo)
   ).then(() => {
     attachGeoHoverTip(visDiv, (point) => (point.location == null ? null : { name: point.location, value: null }));
     visDiv.on("plotly_click", function (data) {
@@ -1489,9 +1495,7 @@ async function createVisualLine(province, lineData, currentVisual, dataType, lin
       legend: responsiveLegend(),
       margin: responsiveMargin(),
     }),
-    (config = {
-      displaylogo: false,
-    })
+    chartConfig({}, visualExportInfo)
   );
   
   // Replace the tabular section with table data for this vis
@@ -1655,9 +1659,7 @@ async function createVisualBar(province, barData, currentVisual, dataType, barSo
       legend: responsiveLegend(),
       margin: responsiveMargin(),
     }),
-    (config = {
-      displaylogo: false,
-    })
+    chartConfig({}, visualExportInfo)
   );
 
   // Replace the tabular section with table data for this vis
@@ -1808,10 +1810,7 @@ async function createVisualPie(province, pieData, pieSource, visualOptions, tabu
     visDiv,
     dataSlider,
     themeChartLayout(layout),
-    (config = {
-      displaylogo: false,
-      responsive: false,
-    })
+    chartConfig({ responsive: false }, visualExportInfo)
   ).then(() => {
     visDiv.on("plotly_click", function (data) {
       if (!canDrill(province, currentVisual)) {
@@ -2283,7 +2282,7 @@ async function createVisualTreemap(province, block, currentVisual, source) {
       margin: { t: 6, l: 0, r: 0, b: 0 },
     };
     Plotly.purge(chartDiv);
-    Plotly.react(chartDiv, [trace], themeChartLayout(layout), { displaylogo: false, responsive: false });
+    Plotly.react(chartDiv, [trace], themeChartLayout(layout), chartConfig({ responsive: false }, visualExportInfo));
     renderTable(data);
     if (resetBtn) resetBtn.disabled = !filtersActive();   // keep reset button in sync with live filters
   }
@@ -2420,7 +2419,7 @@ async function createVisualStratifiedBar(province, block, currentVisual, source,
       annotations: totalAnnotations,
       legend: responsiveLegend(),
       margin: responsiveMargin(),
-    }), { displaylogo: false, responsive: false });
+    }), chartConfig({ responsive: false }, visualExportInfo));
 
     // Table: one row per sex, a column per age band (mirrors the chart's current substance+year view).
     tableTitle.innerText = fillTokens(cfg.table_title || cfg.title || "Hospitalizations by Age and Sex");
@@ -2607,7 +2606,7 @@ async function createVisualExpectedActual(province, block, currentVisual, source
       // and the figure's bottom margin only needs the axis.
       showlegend: false,
       margin: Object.assign(responsiveMargin(), { b: 52 }),
-    }), { displaylogo: false, responsive: false });
+    }), chartConfig({ responsive: false }, visualExportInfo));
 
     // Table: one row per expected drug -- sample count plus each segment as "count (share%)".
     tableTitle.innerText = cfg.table_title || cfg.title || "Samples vs. Expectations";
@@ -3112,7 +3111,7 @@ async function createVisualFoundSubstances(province, block, currentVisual, sourc
       hoverlabel: { namelength: -1 },
       legend: responsiveLegend(),
       margin: responsiveMargin(),
-    }), { displaylogo: false, responsive: false });
+    }), chartConfig({ responsive: false }, visualExportInfo));
 
     // Table: samples checked, the group total, then EVERY substance (not just the drawn ones).
     tableTitle.innerText = fillTokens(cfg.table_title || cfg.title || "What's in the Sample?") + `: ${groupLabel[sel.group]}`;

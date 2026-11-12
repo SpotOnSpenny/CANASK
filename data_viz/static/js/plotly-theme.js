@@ -247,3 +247,151 @@ function canaskRedrawCharts() {
 // Expose the entry points the (non-bundled) base.jinja toggle script needs.
 window.themeChartLayout = themeChartLayout;
 window.canaskRedrawCharts = canaskRedrawCharts;
+
+// ---------------------------------------------------------------------------
+// PNG export: a named file with the title drawn into the image
+// ---------------------------------------------------------------------------
+// Chart titles are HTML headings outside the Plotly figure (see setVisualTitle), so Plotly's own
+// camera button saves an untitled image called "newplot.png". chartConfig() swaps that button for
+// one that exports a copy of the figure with the title (and the jurisdiction beneath it) drawn
+// above the plot, on a solid background, named after both. The on-page chart is never touched.
+//
+// Usage:  Plotly.react(div, traces, themeChartLayout(layout), chartConfig({ responsive: false }, info))
+// `info` is { title, place, note } (note: an optional small line under the heading, e.g. the
+// filters applied) or a function returning it; a function is read when the button is
+// clicked, so it always describes the chart as it is then.
+
+var CANASK_EXPORT_PREFIX = "CANASK";
+
+function canaskSlug(text) {
+  return String(text == null ? "" : text)
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+// The jurisdiction is left out when the title already names it ("... in British Columbia").
+function canaskTitleNamesPlace(title, place) {
+  var p = canaskSlug(place);
+  return !p || ("-" + canaskSlug(title) + "-").indexOf("-" + p + "-") !== -1;
+}
+
+// File name (no extension) for an exported chart: "CANASK-<title>-<jurisdiction>", slugified.
+function chartExportName(title, place) {
+  var suffix = canaskTitleNamesPlace(title, place) ? "" : canaskSlug(place);
+  // A long title is cut short rather than the jurisdiction after it.
+  var head = canaskSlug(title).slice(0, 120 - suffix.length).replace(/-+$/, "");
+  return [CANASK_EXPORT_PREFIX, head, suffix].filter(Boolean).join("-") + (head || suffix ? "" : "-chart");
+}
+
+// Plotly titles don't wrap, so break the text into lines that fit `width` px at `fontSize`.
+function canaskWrapText(text, width, fontSize) {
+  var perLine = Math.max(16, Math.floor(width / (fontSize * 0.56)));
+  var lines = [];
+  var line = "";
+  String(text).split(/\s+/).filter(Boolean).forEach(function (word) {
+    if (line && (line + " " + word).length > perLine) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = line ? line + " " + word : word;
+    }
+  });
+  if (line) lines.push(line);
+  return lines;
+}
+
+function canaskEscapeChartText(text) {
+  return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// The figure to export: the chart's current data + layout, made taller by a heading band that
+// holds the title, with a solid background (the page's is transparent). Pure apart from reading
+// the theme, so the plot area keeps exactly its on-screen size.
+function chartExportFigure(gd, info) {
+  var t = canaskChartTheme();
+  var full = gd._fullLayout || {};
+  var width = Math.round(full.width || gd.clientWidth || 900);
+  var height = Math.round(full.height || gd.clientHeight || 500);
+  var title = String((info && info.title) || "").trim();
+  var place = String((info && info.place) || "").trim();
+  var titleSize = 18;
+  var placeSize = 14;
+
+  var titleLines = title ? canaskWrapText(title, width - 48, titleSize) : [];
+  var showPlace = !!place && !canaskTitleNamesPlace(title, place);
+  var text = titleLines.map(canaskEscapeChartText).join("<br>");
+  if (showPlace) {
+    text += (text ? "<br>" : "") +
+      '<span style="font-size:' + placeSize + "px;color:" + t.tick + '">' + canaskEscapeChartText(place) + "</span>";
+  }
+  // An optional note under the heading (e.g. the filters a chart was built with), small and muted.
+  var note = String((info && info.note) || "").trim();
+  var noteSize = 13;
+  var noteLines = note ? canaskWrapText(note, width - 48, noteSize) : [];
+  if (noteLines.length) {
+    text += (text ? "<br>" : "") +
+      '<span style="font-size:' + noteSize + "px;color:" + t.tick + '">' +
+      noteLines.map(canaskEscapeChartText).join("<br>") + "</span>";
+  }
+  var lineCount = titleLines.length + (showPlace ? 1 : 0) + noteLines.length;
+  var band = text ? Math.round(titleLines.length * titleSize * 1.3 + (showPlace ? placeSize * 1.5 : 0) +
+    noteLines.length * noteSize * 1.5 + 14) : 0;
+
+  var data = gd.data || [];
+  try {
+    data = structuredClone(data);
+  } catch (e) { /* not cloneable: Plotly only reads the traces, so share them */ }
+
+  var layout = Object.assign({}, gd.layout || {});
+  var topMargin = (full.margin && typeof full.margin.t === "number") ? full.margin.t : 40;
+  layout.margin = Object.assign({}, layout.margin, { t: topMargin + band });
+  layout.width = width;
+  layout.height = height + band;
+  layout.autosize = false;
+  layout.paper_bgcolor = t.dark ? "#0f172a" : "#ffffff"; // --c-surface
+  if (text) {
+    layout.title = {
+      text: text,
+      x: 0.5,
+      xanchor: "center",
+      xref: "container",
+      y: 1,
+      yref: "container",
+      yanchor: "top",
+      // Plotly 2.32 lifts a multi-line title about 13px above where it puts a one-line title.
+      pad: { t: lineCount > 1 ? 27 : 14 },
+      font: { family: t.fontFamily, color: t.dark ? "#f1f5f9" : "#0f172a", size: titleSize },
+    };
+  }
+  return { data: data, layout: layout, width: width, height: height + band };
+}
+
+function chartDownloadPng(gd, info) {
+  var resolved = (typeof info === "function" ? info(gd) : info) || {};
+  var fig = chartExportFigure(gd, resolved);
+  return Plotly.downloadImage(
+    { data: fig.data, layout: fig.layout },
+    { format: "png", width: fig.width, height: fig.height, scale: 2, filename: chartExportName(resolved.title, resolved.place) }
+  );
+}
+
+// Public: the Plotly config for a chart, with the stock camera button replaced by ours.
+function chartConfig(base, info) {
+  var config = Object.assign({ displaylogo: false }, base || {});
+  config.modeBarButtonsToRemove = (config.modeBarButtonsToRemove || []).concat(["toImage"]);
+  config.modeBarButtonsToAdd = (config.modeBarButtonsToAdd || []).concat([{
+    name: "canaskDownloadPng",
+    title: "Download chart as a PNG",
+    icon: Plotly.Icons.camera,
+    click: function (gd) {
+      chartDownloadPng(gd, info).catch(function (err) {
+        console.error("Chart export failed", err);
+      });
+    },
+  }]);
+  return config;
+}

@@ -222,6 +222,10 @@ class TestSecurityHeaders:
     def test_headers_on_page_responses(self, client, db_session):
         response = client.get("/")
         assert "Content-Security-Policy" in response.headers
+        # Plotly's "Download plot as PNG" rasterises the chart through a blob: <img>.
+        img_src = next(d for d in response.headers["Content-Security-Policy"].split("; ")
+                       if d.startswith("img-src "))
+        assert "blob:" in img_src.split()
         assert response.headers["X-Content-Type-Options"] == "nosniff"
         assert response.headers["X-Frame-Options"] == "DENY"
         assert "no-store" in response.headers["Cache-Control"]

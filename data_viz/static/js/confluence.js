@@ -434,6 +434,13 @@ function confluenceMeasureLabels(d) {
         : { label: metric, colorbar: capital };
 }
 
+// Title + jurisdiction for the PNG export (chartConfig in plotly-theme.js), read at click time.
+function confluenceExportInfo() {
+    const heading = document.getElementById("confluence-chart-title");
+    const d = confluenceState && confluenceState.data;
+    return { title: heading ? heading.textContent.trim() : "", place: d && d.province ? d.province.label : "" };
+}
+
 function confluenceRender() {
     const state = confluenceState;
     const d = state && state.data;
@@ -552,7 +559,7 @@ function confluenceRenderSeries(d, chart) {
         shapes: shapes,
         hovermode: "x unified",
     };
-    Plotly.react(chart, traces, themeChartLayout(layout), { displaylogo: false, responsive: true });
+    Plotly.react(chart, traces, themeChartLayout(layout), chartConfig({ responsive: true }, confluenceExportInfo));
 }
 
 // Health-authority map + DAS bubbles: per period one choropleth (the visual's counts or rates,
@@ -654,7 +661,7 @@ function confluenceRenderCities(d, chart) {
         notes.push("DAS results with no recorded city aren't shown on the map (they're counted in the table's total).");
     }
     confluenceSetNote("confluence-unmapped", notes.join(" "));
-    Plotly.react(chart, traces, themeChartLayout(layout), { displaylogo: false, responsive: true })
+    Plotly.react(chart, traces, themeChartLayout(layout), chartConfig({ responsive: true }, confluenceExportInfo))
         .then(() => {
             dasFitMapHeight(chart);
             attachGeoHoverTip(chart, (point) => (point.location == null ? null

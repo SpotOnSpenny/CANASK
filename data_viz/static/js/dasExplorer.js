@@ -387,7 +387,10 @@ async function dasApplyPivot() {
         if (!response.ok) throw new Error(`pivot request failed: ${response.status}`);
         const pivot = await response.json();
         chart.innerHTML = "";
-        dasState.pivot = { data: pivot, chartType: chartType };
+        dasState.pivot = {
+            data: pivot, chartType: chartType,
+            exportInfo: dasPivotDescribe(rows, chartType === "pie" ? "" : cols, headerFilters, pivot.measure),
+        };
         dasRenderPivot();
     } catch (error) {
         console.error("DAS pivot failed:", error);
@@ -485,6 +488,38 @@ function dasMapColorbar(p, t) {
         title: { text: p.measure, side: "right", font: { color: t.font } },
         tickfont: { color: t.tick },
     };
+}
+
+// What the PNG export (chartConfig in plotly-theme.js) says about a pivot chart, captured when the
+// chart is BUILT (the selects and table filters can change afterwards without a rebuild). The chart
+// has no heading of its own, so the title is "<dataset>: <measure> by <rows> and <columns>", and
+// the table filters the pivot was narrowed by go in a note under it -- an exported image of
+// "samples by province" that was really filtered to medetomidine has to say so.
+function dasPivotDescribe(rows, cols, headerFilters, measure) {
+    const ds = dasDatasetCfg();
+    const kinds = ds.kinds || {};
+    const dimLabel = field => {
+        const dim = ds.pivotDims.find(d => d.field === field);
+        return dim ? dim.label : "";
+    };
+    const by = [dimLabel(rows), dimLabel(cols)].filter(Boolean).join(" and ");
+    const title = [ds.label, [measure, by].filter(Boolean).join(" by ")].filter(Boolean).join(": ");
+    // Same rules as dasAppendFilterParams, so the note lists exactly what the server applied.
+    const filters = [];
+    headerFilters.forEach(f => {
+        const values = (Array.isArray(f.value) ? f.value : [f.value])
+            .filter(v => v !== "" && v != null)
+            .map(v => String(v).trim())
+            .filter(v => kinds[f.field] !== "text" || dasValidExpression(v, dasAllowStar(f.field)));
+        if (!values.length) return;
+        const col = ds.columns.find(c => c.field === f.field);
+        filters.push(`${col ? col.title : f.field}: ${values.join(", ")}`);
+    });
+    return { title: title, place: "Canada", note: filters.length ? "Filtered to " + filters.join("; ") : "" };
+}
+
+function dasPivotExportInfo() {
+    return (dasState && dasState.pivot && dasState.pivot.exportInfo) || { title: "", place: "Canada" };
 }
 
 function dasRenderPivot() {
@@ -624,7 +659,7 @@ function dasRenderPivot() {
 
     document.getElementById("das-pivot-truncated").classList.toggle("d-none", !p.truncated);
     const isMap = chartType === "map_province" || chartType === "map_city";
-    const plotted = Plotly.react(chart, traces, themeChartLayout(layout), { displaylogo: false, responsive: true });
+    const plotted = Plotly.react(chart, traces, themeChartLayout(layout), chartConfig({ responsive: true }, dasPivotExportInfo));
     if (isMap) plotted.then(() => dasFitMapHeight(chart));
 }
 
