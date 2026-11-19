@@ -1,8 +1,19 @@
-<tr id="user-row-{{ user.id }}">
+{# `outside`: a group manager (not a site admin) looking at someone who is in none of the
+   groups they manage -- a directory row. It shows email, username and status only: no
+   groups, no site-admin badge, and "Add to group" as its one action. #}
+{% set outside = managed_group_ids is not none and not memberships and user.id != current_user.id %}
+{# data-groups feeds the page's group filter: the same memberships the Groups cell shows. #}
+{% set row_group_ids = [] %}
+{% for m in memberships %}
+    {% if managed_group_ids is none or m.group_id in managed_group_ids %}
+        {% set _ = row_group_ids.append(m.group_id) %}
+    {% endif %}
+{% endfor %}
+<tr id="user-row-{{ user.id }}" data-scope="{{ 'other' if outside else 'mine' }}" data-groups="{{ row_group_ids|join(' ') }}">
     <td>{{ user.email }}</td>
     <td>{{ user.username }}</td>
     <td>
-        {% if user.site_admin %}
+        {% if user.site_admin and not outside %}
             <span class="badge bg-primary">Site Admin</span>
         {% endif %}
         {% set shown = namespace(any=false) %}
@@ -12,7 +23,7 @@
                 {% set shown.any = true %}
             {% endif %}
         {% endfor %}
-        {% if not user.site_admin and not shown.any %}
+        {% if (outside or not user.site_admin) and not shown.any %}
             <span class="text-muted">—</span>
         {% endif %}
     </td>
@@ -28,6 +39,38 @@
     <td>
         {% if user.id == current_user.id %}
             <span class="badge bg-info text-dark">You</span>
+            {# A site admin may set their own group roles -- how they join a group that holds a
+               restricted source. Nothing else is self-service. #}
+            {% if current_user.site_admin %}
+            <div class="dropdown d-inline-block ms-1">
+                <button class="btn btn-sm invite-action-btn dropdown-toggle"
+                        type="button"
+                        data-bs-toggle="dropdown"
+                        data-bs-boundary="viewport"
+                        aria-label="Actions for your own account">
+                </button>
+                <ul class="dropdown-menu">
+                    <li>
+                        <button class="dropdown-item"
+                            hx-get="/v1/users/{{ user.id }}/adjust-permissions"
+                            hx-target="#modal-container"
+                            hx-swap="innerHTML"
+                            hx-on::after-request="new bootstrap.Modal(document.getElementById('adjustPermissionsModal')).show()">
+                            Adjust My Groups
+                        </button>
+                    </li>
+                </ul>
+            </div>
+            {% endif %}
+        {% elif outside %}
+            <button type="button"
+                    class="btn btn-sm btn-outline-primary text-nowrap"
+                    hx-get="/v1/add-user?user_id={{ user.id }}"
+                    hx-target="#modal-container"
+                    hx-swap="innerHTML"
+                    hx-on::after-request="new bootstrap.Modal(document.getElementById('adjustPermissionsModal')).show()">
+                <i class="bi bi-person-plus me-1"></i>Add to group
+            </button>
         {% else %}
             {% set can_adjust = namespace(value=current_user.site_admin) %}
             {% for m in memberships %}

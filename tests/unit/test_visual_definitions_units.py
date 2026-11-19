@@ -6,7 +6,8 @@ import os
 
 import pytest
 
-from data_viz.visual_definitions import MANIFEST_DIR, derive_drill_chain, visual_options_problems
+from data_viz.visual_definitions import (MANIFEST_DIR, data_source_problems, derive_drill_chain,
+                                         visual_options_problems)
 
 
 @pytest.mark.parametrize("shape,dim2,expected", [
@@ -113,3 +114,34 @@ class TestVisualOptionsProblems:
         entry["data_types"] = ["counts", "percentages"]
         (problem,) = visual_options_problems(entry)
         assert "percentages" in problem
+
+
+class TestDataSourceProblems:
+    def test_every_real_manifest_source_block_is_valid(self):
+        for path in sorted(glob.glob(os.path.join(MANIFEST_DIR, "*.json"))):
+            with open(path) as handle:
+                assert data_source_problems(json.load(handle).get("data_source")) == [], \
+                    os.path.basename(path)
+
+    def test_sourceless_manifest_is_fine(self):
+        assert data_source_problems(None) == []
+
+    def test_name_is_required(self):
+        assert data_source_problems({"link": "https://example.org"}) != []
+
+    @pytest.mark.parametrize("value", ["true", 1, None])
+    def test_restricted_must_be_a_real_boolean(self, value):
+        assert data_source_problems({"name": "x", "restricted": value}) != []
+
+    def test_unknown_key_is_a_problem(self):
+        # A misspelled "restricted" must not silently leave the source open.
+        (problem,) = data_source_problems({"name": "x", "restriced": True})
+        assert "restriced" in problem
+
+
+def test_drug_checking_source_is_declared_restricted():
+    """The national drug checking data is under a data sharing agreement: only members of a
+    group holding the source may see it, site admins included. This pins the manifest switch --
+    removing it is a deliberate, reviewed act, not a refactoring accident."""
+    with open(os.path.join(MANIFEST_DIR, "drugchecking.json")) as handle:
+        assert json.load(handle)["data_source"].get("restricted") is True

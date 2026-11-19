@@ -12,6 +12,7 @@ from flask import g
 from data_viz.database.models import (Visuals, VisualQuery, DataPoints, DataSources,
                                        UserGroups, GroupVisuals, GroupDataSources)
 from data_viz.auth.role_hierarchy import ROLE_HIERARCHY
+from data_viz.auth.restricted import uncovered_source_ids
 
 
 def _request_cache():
@@ -29,10 +30,13 @@ def _request_cache():
 def _viewer_context(user):
     """Precompute, once per request, what `user` is allowed to leverage for the per-visual visibility
     test below: whether they are signed in / a site admin, the data_source_ids they own (Data Owner+
-    in a group with the source), and the visual ids granted to their groups (GroupVisuals)."""
+    in a group with the source), the visual ids granted to their groups (GroupVisuals), and the
+    restricted sources they are NOT covered for (data_viz/auth/restricted.py) -- which no other
+    entry in this tuple can override."""
     signed_in = user is not None and getattr(user, "is_authenticated", False)
     site_admin = signed_in and getattr(user, "site_admin", False)
     owned_sources, granted = set(), set()
+    uncovered = uncovered_source_ids(user) if signed_in else set()
     if signed_in and not site_admin:
         memberships = UserGroups.query.filter_by(user_id=user.id).all()
         group_ids = [m.group_id for m in memberships]
@@ -45,15 +49,20 @@ def _viewer_context(user):
         if owner_group_ids:
             owned_sources = {gds.data_source_id for gds in GroupDataSources.query.filter(
                 GroupDataSources.group_id.in_(owner_group_ids)).all()}
-    return signed_in, site_admin, owned_sources, granted
+    return signed_in, site_admin, owned_sources, granted, uncovered
 
 
-def _can_see(visual, signed_in, site_admin, owned_sources, granted):
+def _can_see(visual, signed_in, site_admin, owned_sources, granted, uncovered):
     """Whether a single visual passes its own visibility level for this viewer (ignoring the drill
     hierarchy, which allowed_visuals enforces separately)."""
     if visual.visibility == "public":
         return True
     if not signed_in:
+        return False
+    # A restricted source (data sharing agreement) is closed to everyone who isn't a member of a
+    # group that holds it -- site admins included, and regardless of any GroupVisuals grant sitting
+    # on some other group. Checked before every rule below so none of them can open it back up.
+    if visual.data_source_id is not None and visual.data_source_id in uncovered:
         return False
     if site_admin:
         return True

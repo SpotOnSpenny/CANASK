@@ -1,9 +1,43 @@
+{# Group managers (not site admins) get two views of one table: "My groups" (default) and
+   "All users", the directory. The switch is CSS on the table's data-view, so a row that
+   HTMX re-renders lands in the right view by its own data-scope. #}
+{% set has_directory = managed_group_ids is not none %}
+{% if has_directory %}
+<style>
+    #user-table[data-view="mine"] tr[data-scope="other"] { display: none; }
+</style>
+{% endif %}
 <div id="user-management-div" class="container py-4">
     <div class="row justify-content-center">
         <div class="col-12">
             <div class="card shadow-sm">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0">User Management</h5>
+                <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+                    <div class="d-flex flex-wrap align-items-center gap-3">
+                        <h5 class="mb-0">User Management</h5>
+                        {% if has_directory %}
+                        <div class="btn-group btn-group-sm" role="group" aria-label="Which users to list">
+                            <button type="button" class="btn btn-primary"
+                                    data-user-view="mine" aria-pressed="true">My groups</button>
+                            <button type="button" class="btn btn-outline-primary"
+                                    data-user-view="all" aria-pressed="false">All users</button>
+                        </div>
+                        {% endif %}
+                        {% if filter_groups %}
+                        {# Narrows the list to one group. The rule lives in the <style> below
+                           (rewritten by the script), so a row HTMX re-renders is filtered by
+                           its own data-groups without any re-run. #}
+                        <div id="user-group-filter-wrap" class="d-flex align-items-center gap-2">
+                        <label for="user-group-filter" class="small text-body-secondary mb-0">Group</label>
+                        <select id="user-group-filter" class="form-select form-select-sm w-auto">
+                            <option value="">{{ "All my groups" if has_directory else "All groups" }}</option>
+                            {% for group in filter_groups %}
+                            <option value="{{ group.id }}">{{ group.name }}</option>
+                            {% endfor %}
+                        </select>
+                        </div>
+                        <style id="user-group-filter-style"></style>
+                        {% endif %}
+                    </div>
                     <div class="d-flex align-items-center gap-2">
                         <input type="text"
                                id="user-search"
@@ -20,8 +54,14 @@
                     </div>
                 </div>
                 <div class="card-body p-0">
+                    {% if has_directory %}
+                    <p id="user-directory-note" class="small text-body-secondary px-3 py-2 mb-0 border-bottom" hidden>
+                        Everyone with an active account. Only the groups you manage are shown
+                        for each person; use <strong>Add to group</strong> to give someone access.
+                    </p>
+                    {% endif %}
                     <div class="table-responsive">
-                        <table class="table table-hover mb-0" id="user-table">
+                        <table id="user-table"{% if has_directory %} data-view="mine"{% endif %} class="table table-hover mb-0">
                             <thead>
                                 <tr>
                                     <th class="sortable" data-col="0">
@@ -46,21 +86,86 @@
                             </tbody>
                         </table>
                     </div>
+                    <p id="user-table-empty" class="text-body-secondary text-center px-3 py-4 mb-0" hidden>
+                        No users match your search.
+                        {% if has_directory %}
+                        <span id="user-table-empty-hint">Looking for someone outside your groups?
+                            Switch to <strong>All users</strong>.</span>
+                        {% endif %}
+                    </p>
                 </div>
             </div>
         </div>
     </div>
 </div>
 
+{% if has_directory %}
+<script>
+    // My groups / All users. An IIFE: this partial is re-injected by HTMX, and a top-level
+    // let/const would throw "redeclaration" the second time.
+    (function () {
+        const table = document.getElementById('user-table');
+        const note = document.getElementById('user-directory-note');
+        const buttons = document.querySelectorAll('#user-management-div [data-user-view]');
+        buttons.forEach(button => {
+            button.addEventListener('click', function () {
+                table.dataset.view = this.dataset.userView;
+                note.hidden = this.dataset.userView !== 'all';
+                // The group filter belongs to My groups: directory rows have no groups, so in
+                // All users it is cleared and put away.
+                const groupFilter = document.getElementById('user-group-filter');
+                if (groupFilter) {
+                    const all = this.dataset.userView === 'all';
+                    if (all) groupFilter.value = '';
+                    document.getElementById('user-group-filter-wrap').classList.toggle('d-none', all);
+                    groupFilter.dispatchEvent(new Event('change'));
+                }
+                // Re-run the search so the "no matches" message follows the new view.
+                document.getElementById('user-search').dispatchEvent(new Event('input'));
+                buttons.forEach(other => {
+                    const active = other === this;
+                    other.classList.toggle('btn-primary', active);
+                    other.classList.toggle('btn-outline-primary', !active);
+                    other.setAttribute('aria-pressed', active ? 'true' : 'false');
+                });
+            });
+        });
+    })();
+</script>
+{% endif %}
+
+{% if filter_groups %}
+<script>
+    // Group filter (IIFE for the same reason as above).
+    (function () {
+        const select = document.getElementById('user-group-filter');
+        const rule = document.getElementById('user-group-filter-style');
+        select.addEventListener('change', function () {
+            const groupId = parseInt(this.value, 10);
+            rule.textContent = Number.isInteger(groupId)
+                ? '#user-table-body tr:not([data-groups~="' + groupId + '"]) { display: none; }'
+                : '';
+            document.getElementById('user-search').dispatchEvent(new Event('input'));
+        });
+    })();
+</script>
+{% endif %}
+
 <script>
     // Search
     document.getElementById('user-search').addEventListener('input', function() {
         const search = this.value.toLowerCase();
         const rows = document.querySelectorAll('#user-table-body tr');
+        let shown = 0;
         rows.forEach(row => {
             const text = row.textContent.toLowerCase();
             row.style.display = text.includes(search) ? '' : 'none';
+            // offsetParent is null for a row hidden by the search OR by the My groups view.
+            if (row.offsetParent !== null) shown += 1;
         });
+        document.getElementById('user-table-empty').hidden = shown > 0;
+        const hint = document.getElementById('user-table-empty-hint');
+        if (hint) hint.hidden = document.getElementById('user-table').dataset.view !== 'mine';
     });
 
     // Sort

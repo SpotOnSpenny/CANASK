@@ -101,6 +101,19 @@ prod-clear-invites:
 prod-rotate-site-admin-key:
 	$(PROD) exec web flask rotate-site-admin-key $(if $(key),--key "$(key)")
 
+# Restricted data sources (data sharing agreements), prod. See the dev targets of the same names.
+# Usage: make prod-source-access [source="Source Name"]
+#        make prod-set-group-role email=a@b.org group="Group Name" role="Data Owner" | remove=1
+#        make prod-set-group-source group="Group Name" source="Source Name" [remove=1]
+prod-source-access:
+	$(PROD) exec web flask source-access $(if $(source),"$(source)")
+
+prod-set-group-role:
+	$(PROD) exec web flask set-group-role "$(email)" "$(group)" $(if $(remove),--remove,"$(role)")
+
+prod-set-group-source:
+	$(PROD) exec web flask set-group-source "$(group)" "$(source)" $(if $(remove),--remove)
+
 clear-cache:
 	docker compose --env-file app_config/.env.dev exec web rm -rf data_viz/static/.webassets-cache
 	docker compose --env-file app_config/.env.dev exec web rm -f data_viz/static/assets/main.css
@@ -146,6 +159,25 @@ drop-db:
 #        make clear-invites email=x@y  -> delete ALL invites for that email, any status
 clear-invites:
 	docker compose --env-file app_config/.env.dev exec web flask clear-invites $(if $(email),--email "$(email)")
+
+# Who can see a data source right now (the list to check against a data sharing agreement).
+# Usage: make source-access                       -> list every source and its restricted flag
+#        make source-access source="Source Name"  -> the full access report for one source
+source-access:
+	docker compose --env-file app_config/.env.dev exec web flask source-access $(if $(source),"$(source)")
+
+# Break-glass: set (or remove=1 drop) a user's role in a group from the server -- for a group
+# holding a restricted source that nobody can manage in the app any more.
+# Usage: make set-group-role email=a@b.org group="Group Name" role="Data Owner"
+#        make set-group-role email=a@b.org group="Group Name" remove=1
+set-group-role:
+	docker compose --env-file app_config/.env.dev exec web flask set-group-role "$(email)" "$(group)" $(if $(remove),--remove,"$(role)")
+
+# Break-glass: give a group a data source (or remove=1 take it away) from the server -- for a
+# restricted source that no group holds yet, which nobody can attach in the app.
+# Usage: make set-group-source group="Group Name" source="Source Name" [remove=1]
+set-group-source:
+	docker compose --env-file app_config/.env.dev exec web flask set-group-source "$(group)" "$(source)" $(if $(remove),--remove)
 
 # Break-glass set/rotate of the shared site admin key (dev).
 # Usage: make rotate-site-admin-key            -> generate + print a strong secret once

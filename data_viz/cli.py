@@ -249,6 +249,130 @@ def register_cli(app):
             db.session.commit()
         print(f"Cleared {len(ids)} {f'invite(s) for {email}' if email else 'revoked invite(s)'}.")
 
+    @app.cli.command("source-access",
+                     short_help="Show who can see a data source right now (or list every source and its restricted flag).")
+    @click.argument("source_name", required=False)
+    def source_access(source_name):
+        # The check that goes with a restricted source (data sharing agreement): run it after
+        # define-visuals turns the flag on, and whenever the agreement's membership changes, and
+        # compare the printed people against the agreement. Read-only.
+        from data_viz.auth.restricted import source_access_report
+        if not source_name:
+            for source in DataSources.query.order_by(DataSources.name).all():
+                print(f"{'[restricted]' if source.restricted else '[open]      '} {source.name}")
+            return
+        source = DataSources.query.filter_by(name = source_name).first()
+        if source is None:
+            print(f"No data source named {source_name!r}. Run `flask source-access` to list them.")
+            raise SystemExit(1)
+        report = source_access_report(source)
+
+        def describe(user):
+            suffix = "" if user.status == User.STATUS_ACTIVE else f"  [{user.status}]"
+            return f"{user.email} ({user.username}){suffix}"
+
+        print(f"Data source: {source.name}")
+        if report["restricted"]:
+            print("Status: RESTRICTED -- only members of the groups below can see or manage it; "
+                  "site admins outside them cannot.")
+        else:
+            print("Status: open -- every site admin can see and manage it.")
+
+        print("\nGroups that hold this source:")
+        if not report["groups"]:
+            print("  (none)" + (" -- nobody can see its non-public visuals." if report["restricted"] else ""))
+        for entry in report["groups"]:
+            print(f"  {entry['group'].name}")
+            if not entry["members"]:
+                print("    (no members)")
+            for member in entry["members"]:
+                print(f"    {member['role']:<12} {describe(member['user'])}")
+        if report["groups"]:
+            print("  Data Owners see every visual; other members see the Group-level visuals "
+                  "granted to their group.")
+
+        print(f"\nSite admins who can see and manage it ({len(report['site_admins_covered'])}):")
+        for admin in report["site_admins_covered"] or []:
+            print(f"  {describe(admin)}")
+        if report["restricted"]:
+            print(f"\nSite admins who can NOT see it ({len(report['site_admins_not_covered'])}):")
+            for admin in report["site_admins_not_covered"]:
+                print(f"  {describe(admin)}")
+
+        print(f"\nVisuals set to Public -- visible to everyone, signed in or not ({len(report['public_visuals'])}):")
+        for visual in report["public_visuals"]:
+            print(f"  {visual.province} / {visual.name}")
+
+        if report["stray_grants"]:
+            note = ("ignored while the source is restricted" if report["restricted"]
+                    else "these groups CAN see the granted visuals")
+            print(f"\nVisual grants on groups that do not hold this source ({note}):")
+            for group, visuals in report["stray_grants"]:
+                print(f"  {group.name}: {', '.join(v.name for v in visuals)}")
+
+        print(f"\nPending invites into these groups ({len(report['pending_invites'])}):")
+        for item in report["pending_invites"]:
+            invite = item["invite"]
+            print(f"  {invite.email} -> {item['group'].name} ({item['role']}), expires {invite.expires_at:%Y-%m-%d}")
+
+    @app.cli.command("set-group-role",
+                     short_help="Set (or with --remove, drop) a user's role in a group from the server.")
+    @click.argument("email")
+    @click.argument("group_name")
+    @click.argument("role", required=False)
+    @click.option("--remove", is_flag=True, help="Remove the user from the group instead of setting a role.")
+    def set_group_role(email, group_name, role, remove):
+        # Break-glass for a group that holds a restricted source: once its last Data Owner / member
+        # site admin is gone, nobody can manage it in the app (site admins outside it are shut out
+        # by design), so membership has to be repaired from the server. Works for any group.
+        from data_viz.validation import validate_role
+        user = User.query.filter_by(email = email).first()
+        group = Groups.query.filter_by(name = group_name).first()
+        if user is None or group is None:
+            print(f"No {'user with email ' + repr(email) if user is None else 'group named ' + repr(group_name)}.")
+            raise SystemExit(1)
+        if remove:
+            if UserGroups.query.filter_by(user_id = user.id, group_id = group.id).first() is None:
+                print(f"{email} is not a member of {group_name}; nothing to remove.")
+                raise SystemExit(1)
+            assign_group(user.id, group.id, None, remove = True)
+            print(f"Removed {email} from {group_name}.")
+            return
+        valid, message = validate_role(role)
+        if not valid:
+            print(f"Refusing to set role {role!r}: {message} Use Data Owner, Group Admin or Data Viewer.")
+            raise SystemExit(1)
+        existing = UserGroups.query.filter_by(user_id = user.id, group_id = group.id).first()
+        if existing is not None and existing.role == role:
+            print(f"{email} already has the role {role} in {group_name}.")
+            return
+        assign_group(user.id, group.id, role)
+        print(f"{email} is now {role} in {group_name}.")
+
+    @app.cli.command("set-group-source",
+                     short_help="Give a group a data source (or with --remove, take it away) from the server.")
+    @click.argument("group_name")
+    @click.argument("source_name")
+    @click.option("--remove", is_flag=True, help="Detach the source from the group instead of attaching it.")
+    def set_group_source(group_name, source_name, remove):
+        # The other half of the restricted-source break-glass: in the app only someone already
+        # covered by the agreement can attach a restricted source to a group, so a restricted
+        # source that NO group holds (e.g. the flag went live before its group was set up) can
+        # only be given its first group from here. Other sources on the group are left alone.
+        from data_viz.auth.auth_helpers import set_group_data_sources
+        group = Groups.query.filter_by(name = group_name).first()
+        source = DataSources.query.filter_by(name = source_name).first()
+        if group is None or source is None:
+            print(f"No {'group named ' + repr(group_name) if group is None else 'data source named ' + repr(source_name)}.")
+            raise SystemExit(1)
+        current = {gds.data_source_id for gds in GroupDataSources.query.filter_by(group_id = group.id).all()}
+        wanted = current - {source.id} if remove else current | {source.id}
+        changes = set_group_data_sources(group.id, wanted, changed_by = None)
+        if not changes:
+            print(f"{group_name} {'does not have' if remove else 'already has'} {source_name}; nothing changed.")
+        else:
+            print(f"{group_name} {'no longer has' if remove else 'now has'} {source_name}.")
+
     @app.cli.command("rotate-site-admin-key",
                      short_help="Set or rotate the shared site admin key (break-glass: no current key needed).")
     @click.option("--key", default=None,

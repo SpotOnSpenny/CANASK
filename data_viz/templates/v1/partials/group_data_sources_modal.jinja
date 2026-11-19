@@ -15,18 +15,28 @@
             {% for item in source_rows %}
             <div class="mb-2 p-2 border rounded">
                 <div class="form-check mb-0">
+                    {# A restricted source whose agreement the viewer is not on is shown locked: the
+                       server ignores it either way (and keeps it attached if it already is). #}
                     <input class="form-check-input source-check"
                            type="checkbox"
                            name="source_ids"
                            value="{{ item.source.id }}"
                            id="source_{{ item.source.id }}"
-                           {% if item.checked %}checked{% endif %}>
+                           {% if item.checked %}checked{% endif %}
+                           {% if item.locked %}disabled{% endif %}>
                     <label class="form-check-label fw-semibold" for="source_{{ item.source.id }}">
                         {{ item.source.name }}
                     </label>
+                    {% if item.source.restricted %}
+                        <span class="badge bg-warning text-dark ms-1">Restricted</span>
+                    {% endif %}
                     {% if item.source.link %}
                         <a href="{{ item.source.link }}" target="_blank" rel="noopener"
                            class="ms-2 small text-decoration-none">source ↗</a>
+                    {% endif %}
+                    {% if item.locked %}
+                        <div class="form-text mb-0">Covered by a data sharing agreement. Only members
+                            of a group that already has this source can share it.</div>
                     {% endif %}
                 </div>
             </div>

@@ -18,7 +18,7 @@ import json
 import os
 
 from data_viz.database import db
-from data_viz.database.models import DataSources, Visuals, VisualQuery, GroupVisuals
+from data_viz.database.models import DataSources, Visuals, VisualQuery, GroupVisuals, UserActivity
 
 # app_config/visuals/ lives at the project root (one dir above the data_viz package).
 MANIFEST_DIR = os.path.join(
@@ -97,6 +97,29 @@ def visual_options_problems(entry):
     return problems
 
 
+DATA_SOURCE_KEYS = ("name", "link", "restricted")
+
+
+def data_source_problems(data_source):
+    """What's wrong with a manifest's `data_source` block ([] = fine; None = the sourceless
+    scaffolding manifest). Strict on purpose: `restricted` is an access-control switch (see
+    data_viz/auth/restricted.py), so a misspelled key or a truthy non-boolean must fail the sync
+    rather than quietly leave a source open."""
+    if data_source is None:
+        return []
+    if not isinstance(data_source, dict):
+        return [f"data_source must be an object, got {data_source!r}"]
+    problems = []
+    if not isinstance(data_source.get("name"), str) or not data_source["name"].strip():
+        problems.append("data_source needs a non-empty name")
+    unknown = sorted(set(data_source) - set(DATA_SOURCE_KEYS))
+    if unknown:
+        problems.append(f"unknown data_source keys {unknown} (allowed: {list(DATA_SOURCE_KEYS)})")
+    if "restricted" in data_source and not isinstance(data_source["restricted"], bool):
+        problems.append(f"data_source restricted must be true or false, got {data_source['restricted']!r}")
+    return problems
+
+
 def sync_visual_definitions(manifest_dir=None, prune=True):
     """Upsert every visual defined in the manifests into the Visuals table, keyed by
     (province, visual_id). Returns {"created", "updated", "pruned"} counts.
@@ -113,12 +136,21 @@ def sync_visual_definitions(manifest_dir=None, prune=True):
     existing = {(v.province, v.name): v for v in Visuals.query.all()}
     created = updated = pruned = 0
     scopes = []   # (source_id, desired {(province, name)}) per file, for the prune pass
+    declared_restricted = {}   # source name -> its `restricted` declaration, to catch two files disagreeing
 
     try:
         for path in files:
             with open(path) as handle:
                 manifest = json.load(handle)
-            source_id = _upsert_source(manifest.get("data_source"))
+            data_source = manifest.get("data_source")
+            problems = data_source_problems(data_source)
+            if data_source and not problems:
+                restricted = data_source.get("restricted", False)
+                if declared_restricted.setdefault(data_source["name"], restricted) != restricted:
+                    problems.append(f"manifests disagree on whether {data_source['name']!r} is restricted")
+            if problems:
+                raise ValueError(f"{os.path.basename(path)}: " + "; ".join(problems))
+            source_id = _upsert_source(data_source)
             desired = set()
             for entry in manifest["visuals"]:
                 key = (entry["province"], entry["visual_id"])
@@ -165,16 +197,34 @@ def sync_visual_definitions(manifest_dir=None, prune=True):
 
 def _upsert_source(data_source):
     """Upsert a DataSources row by name; return its id (None for the sourceless scaffolding file).
-    Only `link` is set here -- about / scrape-date strings stay owned by gen-visuals."""
+    `link` and `restricted` are set here -- about / scrape-date strings stay owned by gen-visuals.
+
+    `restricted` (data sharing agreement, see data_viz/auth/restricted.py) is owned by the manifest
+    in BOTH directions: absent means unrestricted. There is deliberately no other way to set it, so
+    lifting a restriction is a reviewed code change plus a deploy. Because rows are keyed by name, a
+    renamed source gets a NEW row -- which starts restricted too, since the flag travels with the
+    manifest rather than with the old row. Every change is printed and audited."""
     if not data_source:
         return None
     source = DataSources.query.filter_by(name=data_source["name"]).first()
     if source is None:
-        source = DataSources(name=data_source["name"])
+        source = DataSources(name=data_source["name"], restricted=False)
         db.session.add(source)
     if data_source.get("link") is not None:
         source.link = data_source["link"]
+    restricted = data_source.get("restricted", False)
+    changed = bool(source.restricted) != restricted
+    source.restricted = restricted
     db.session.flush()
+    if changed:
+        state = "restricted" if restricted else "NO LONGER restricted"
+        print(f"Data source {source.name!r} is now {state} (set by its manifest).")
+        db.session.add(UserActivity(
+            user_id=None,
+            activity_type="source_restriction_changed",
+            activity_target_type="data_source",
+            activity_target_id=source.id,
+            details=f"Data source {source.name} is now {state} (define-visuals, from its manifest)."))
     return source.id
 
 

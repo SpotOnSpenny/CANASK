@@ -17,8 +17,9 @@ from sqlalchemy import or_, and_, func
 from data_viz.auth import login_manager
 from data_viz.database import db
 from data_viz.database.models import User, Invites, Groups, UserGroups, UserActivity, InviteGroups, DataSources, GroupDataSources, Visuals, GroupVisuals, PasswordResets
-from data_viz.auth.auth_helpers import get_user_groups, get_assignable_roles, validate_password, create_user, create_group, assign_group, assign_site_admin, get_manageable_users, get_user_memberships_in_groups, get_manageable_groups, set_group_data_sources, owned_data_sources, can_manage_source, teams_for_source, visuals_for_source, set_group_visuals, set_visual_visibility, set_source_visibility, set_province_default_visual, visibility_rows_for_source, is_last_active_site_admin, site_admin_key_is_set, check_site_admin_key, deactivate_user, set_user_password
-from data_viz.auth.role_hierarchy import ROLE_HIERARCHY
+from data_viz.auth.auth_helpers import get_user_groups, get_assignable_roles, validate_password, create_user, create_group, assign_group, assign_site_admin, get_manageable_users, get_directory_users, get_user_memberships_in_groups, get_manageable_groups, set_group_data_sources, owned_data_sources, can_manage_source, teams_for_source, visuals_for_source, set_group_visuals, set_visual_visibility, set_source_visibility, set_province_default_visual, visibility_rows_for_source, is_last_active_site_admin, site_admin_key_is_set, check_site_admin_key, deactivate_user, set_user_password
+from data_viz.auth.role_hierarchy import GROUP_ROLES, ROLE_HIERARCHY
+from data_viz.auth.restricted import blocked_group_ids, uncovered_source_ids
 from data_viz.extensions import limiter
 from data_viz.email import send_ses_email
 from data_viz.recaptcha import verify_recaptcha
@@ -425,15 +426,74 @@ def flash_skipped_assignments(skipped):
     if skipped:
         flash(f"These assignments were not applied (unknown group or role): {', '.join(skipped)}", "warning")
 
+# --------------------------------------------------------------------------------------- #
+# Restricted data sources (auth/restricted.py): a group that holds a restricted source is
+# "blocked" for a site admin who is not on that source's agreement. Their site-admin status
+# gives them nothing there -- they may not add, invite, re-role or remove its members, nor
+# change its sources. Everywhere below that a site admin gets "every group", these are excluded.
+# --------------------------------------------------------------------------------------- #
+
+_RESTRICTED_GROUP_MSG = ("{name} holds data covered by a data sharing agreement, so only its own "
+                         "members can manage it.")
+
+def _blocked_group_ids():
+    """Group ids the signed-in SITE ADMIN has no powers over. Empty for everyone else: a
+    non-admin's reach is already bounded by their own group roles."""
+    if not getattr(current_user, "site_admin", False):
+        return set()
+    return blocked_group_ids(current_user)
+
+
+def _invite_touches_blocked_group(invite):
+    blocked = _blocked_group_ids()
+    return bool(blocked) and any(ig.group_id in blocked for ig in invite.invite_groups)
+
+
+def _member_of_blocked_group(user):
+    """Whether `user` belongs to a group that is blocked for the signed-in site admin."""
+    blocked = _blocked_group_ids()
+    return bool(blocked) and UserGroups.query.filter(
+        UserGroups.user_id == user.id, UserGroups.group_id.in_(blocked)).first() is not None
+
+
+def _restricted_invite_refused(invite, action, managed_group_ids, groups_with_required_role):
+    """Refuse `action` (renew / resend / adjust) on an invite into a blocked group; re-render
+    its row unchanged."""
+    flash(f"This invite includes a group that holds data covered by a data sharing agreement, so "
+          f"only that group's own members can {action} it.", "warning")
+    return render_template("v1/partials/invite_row.jinja",
+                        invite=invite,
+                        managed_group_ids=managed_group_ids,
+                        groups_with_required_role=groups_with_required_role,
+                        role_hierarchy=ROLE_HIERARCHY)
+
+
+def _add_invite_group(invite, group_id, role):
+    """The single place an InviteGroups row is created, so the restricted-source rule has one
+    backstop for invites: whatever a route's own checks did or didn't do, a site admin cannot
+    put a blocked group on an invite."""
+    if group_id in _blocked_group_ids():
+        raise PermissionError(f"Site admin {current_user.username} may not invite into group "
+                              f"{group_id}: it holds a restricted data source.")
+    invite_group = InviteGroups(invite_id = invite.id, group_id = group_id, role = role)
+    db.session.add(invite_group)
+    return invite_group
+
+
 def validate_group_assignments(group_assignments, groups_with_required_role):
     """Authorize a parsed {group_id: role} map against the caller's permissions.
 
-    Returns (ok, error_message). Site admins may assign anything. Otherwise the caller must manage
-    the group (it must appear in the decorator-injected groups_with_required_role) and the role must
-    be one they're allowed to grant there (get_assignable_roles enforces the no-outrank rule). The
-    invite/add-user handlers must call this before persisting assignments -- the role decorators only
-    prove the caller manages *some* group, not that the submitted group/role pairs are in scope."""
+    Returns (ok, error_message). Site admins may assign anything, except into a group blocked for
+    them (see above). Otherwise the caller must manage the group (it must appear in the
+    decorator-injected groups_with_required_role) and the role must be one they're allowed to grant
+    there (get_assignable_roles enforces the no-outrank rule). The invite/add-user handlers must
+    call this before persisting assignments -- the role decorators only prove the caller manages
+    *some* group, not that the submitted group/role pairs are in scope."""
     if current_user.site_admin:
+        blocked = _blocked_group_ids()
+        for group_id in group_assignments:
+            if group_id in blocked:
+                return False, _RESTRICTED_GROUP_MSG.format(name = Groups.query.get(group_id).name)
         return True, None
     for group_id, role in group_assignments.items():
         if group_id not in groups_with_required_role:
@@ -457,7 +517,7 @@ def create_invite(email, group_assignments, site_admin_invite):
 
     if not site_admin_invite:
         for group_id, role in group_assignments.items():
-            db.session.add(InviteGroups(invite_id = invite.id, group_id = group_id, role = role))
+            _add_invite_group(invite, group_id, role)
 
     if site_admin_invite:
         details = f"Site admin invite sent to {invite.email} by {current_user.username}"
@@ -580,10 +640,11 @@ def invite_user(groups_with_required_role = None):
         # Check for site admin role to determine what to show
         template_data = {}
         if current_user.site_admin:
-            groups = Groups.query.all()
+            blocked = _blocked_group_ids()
+            groups = [group for group in Groups.query.all() if group.id not in blocked]
             template_data["Site Wide"] = ["Site Admin"]
             for group in groups:
-                template_data[group.name] = ["Group Admin", "Data Owner", "Data Viewer"]
+                template_data[group.name] = list(GROUP_ROLES)
         else:
             groups = groups_with_required_role.keys()
             for group in groups:
@@ -642,6 +703,15 @@ def invite_user(groups_with_required_role = None):
         existing_invite = Invites.query.filter_by(email=email, status="pending").first()
 
         if existing_invite:
+            # An invite that already reaches a restricted-source group is not this site admin's
+            # to change in any direction (add groups, or upgrade it to site admin, which strips
+            # its group rows) -- only to revoke, from invite management.
+            if _invite_touches_blocked_group(existing_invite):
+                flash(f"A pending invite for {email} includes a group that holds data covered by "
+                      "a data sharing agreement, so only that group's own members can change it.",
+                      "warning")
+                return redirect(url_for("auth.invite_user"))
+
             # Case 1: existing invite is site admin — block everything
             if existing_invite.site_admin_invite:
                 flash(f"A pending invite for {email} already exists with elevated site admin permissions.", "warning")
@@ -678,28 +748,23 @@ def invite_user(groups_with_required_role = None):
                 flash(f"A pending invite for {email} to {duplicate_names} already exists.", "warning")
                 return redirect(url_for("auth.invite_user"))
 
-            # Case 4: add new groups to existing invite
+            # Case 4: add new groups to existing invite. Every submitted group is added before the
+            # single activity row / commit / redirect (these used to sit inside the loop, so only
+            # the first group was saved while the flash named them all).
             for group_id, role in group_assignments.items():
-                invite_group = InviteGroups(
-                    invite_id=existing_invite.id,
-                    group_id=group_id,
-                    role=role
-                )
-                db.session.add(invite_group)
-            
-                activity = UserActivity(
-                    user_id=current_user.id,
-                    activity_type="user_invite",
-                    activity_target_type="invite",
-                    activity_target_id=existing_invite.id,
-                    details=f"Groups {', '.join([Groups.query.get(gid).name for gid in group_assignments.keys()])} added to existing invite for {email} by {current_user.username}",
-                    ip_address=request.remote_addr
-                )
-                db.session.add(activity)
-                db.session.commit()
-                group_names = ", ".join([Groups.query.get(gid).name for gid in group_assignments.keys()])
-                flash(f"An invite already exists for {email}, {group_names} has been added to the existing invite.", "success")
-                return redirect(url_for("main.index"))
+                _add_invite_group(existing_invite, group_id, role)
+            group_names = ", ".join([Groups.query.get(gid).name for gid in group_assignments.keys()])
+            db.session.add(UserActivity(
+                user_id=current_user.id,
+                activity_type="user_invite",
+                activity_target_type="invite",
+                activity_target_id=existing_invite.id,
+                details=f"Groups {group_names} added to existing invite for {email} by {current_user.username}",
+                ip_address=request.remote_addr
+            ))
+            db.session.commit()
+            flash(f"An invite already exists for {email}; added to it: {group_names}.", "success")
+            return redirect(url_for("main.index"))
 
         # Create the invite and invite groups in the database tables
         invite = create_invite(email, group_assignments, site_admin_invite)
@@ -796,6 +861,12 @@ def resend_invite(invite_id, groups_with_required_role=None):
         flash("Invite not found.", "danger")
         return "", 200, {"HX-Reswap": "none"}
 
+    # A site admin outside a restricted source's agreement may not push an invite into its group
+    # back out (they may still revoke it -- that only removes access).
+    if _invite_touches_blocked_group(invite):
+        return _restricted_invite_refused(invite, "resend", managed_group_ids,
+                                          groups_with_required_role)
+
     # Resend mints nothing new -- same token, same expiry -- so site-admin invites
     # deliberately take no credential gate here (nor does renew, by the same choice: the
     # gate already approved the invite at creation).
@@ -854,6 +925,13 @@ def renew_invite(invite_id, groups_with_required_role=None):
         # No GET flow -- every Renew button posts directly.
         return redirect(url_for("auth.invite_management"))
 
+    # Renewing mints a fresh token into every group on the invite. A site admin outside a
+    # restricted source's agreement may not do that for its group (the invitee may have left
+    # the agreement since the invite expired) -- only the group's own members can.
+    if _invite_touches_blocked_group(invite):
+        return _restricted_invite_refused(invite, "renew", managed_group_ids,
+                                          groups_with_required_role)
+
     if invite.expiry_task_id:
         AsyncResult(invite.expiry_task_id).revoke()
 
@@ -887,7 +965,10 @@ def _adjustable_groups_for(invite, managed_group_ids):
     otherwise only the invite's existing rows within the caller's managed groups."""
     adjustable_groups = []
     if managed_group_ids is None:
+        blocked = _blocked_group_ids()
         for group in Groups.query.all():
+            if group.id in blocked:
+                continue   # restricted-source group: not this site admin's to adjust
             existing_ig = next((ig for ig in invite.invite_groups if ig.group_id == group.id), None)
             if existing_ig is None:
                 # If the group invite does not exist, we need one so that the site admin can add groups via the template
@@ -947,6 +1028,18 @@ def adjust_invite_permissions(invite_id, groups_with_required_role=None):
                             managed_group_ids=managed_group_ids,
                             groups_with_required_role=groups_with_required_role,
                             role_hierarchy=ROLE_HIERARCHY)
+
+    # An invite that reaches a restricted-source group this site admin is outside of is not
+    # theirs to adjust at all -- not its other rows, and not its site-admin flag: demoting a
+    # flagged invite would bring a dormant row in that group to life, elevating it would strip
+    # the row. Revoke (invite management) is the one action left to them.
+    if _invite_touches_blocked_group(invite):
+        if request.method == "GET":
+            return _admin_gate_refused(
+                "This invite includes a group that holds data covered by a data sharing "
+                "agreement, so only that group's own members can adjust it.", "warning")
+        return _restricted_invite_refused(invite, "adjust", managed_group_ids,
+                                          groups_with_required_role)
 
     if request.method == "GET":
         return render_template("v1/partials/adjust_permissions_modal.jinja",
@@ -1021,6 +1114,9 @@ def adjust_invite_permissions(invite_id, groups_with_required_role=None):
         new_assignments = []
         rejected = []
         rejected_gids = set()
+        # Groups holding a restricted source this site admin is outside of: a submitted role for
+        # one is rejected. (The invite itself carries no such row -- refused above.)
+        blocked = _blocked_group_ids()
         for key, value in form_data.items():
             if key.startswith("role_"):
                 suffix = key.split("_", 1)[1]
@@ -1037,6 +1133,10 @@ def adjust_invite_permissions(invite_id, groups_with_required_role=None):
                     continue
                 # managed_group_ids is None only for site admins (who may assign any role).
                 if managed_group_ids is not None and group_id not in managed_group_ids:
+                    rejected.append(group_label)
+                    rejected_gids.add(group_id)
+                    continue
+                if group_id in blocked:
                     rejected.append(group_label)
                     rejected_gids.add(group_id)
                     continue
@@ -1081,13 +1181,7 @@ def adjust_invite_permissions(invite_id, groups_with_required_role=None):
         # Add on the new/altered permissions
         new_igs = []
         for group_id, value in new_assignments:
-            new_ig = InviteGroups(
-                invite_id=invite.id,
-                group_id=group_id,
-                role=value
-            )
-            new_igs.append(new_ig)
-            db.session.add(new_ig)
+            new_igs.append(_add_invite_group(invite, group_id, value))
         # Rejecting an out-of-scope role is the correct RBAC outcome, but doing it silently is not --
         # tell the caller which requested changes were dropped instead of rendering pure success.
         if rejected:
@@ -1137,10 +1231,29 @@ def user_management(groups_with_required_role = None):
             continue
         user_rows.append({"user": user, "memberships": memberships})
 
+    # A group manager also gets the "All users" directory: every other active account, with
+    # NO memberships attached (user_row.jinja renders such a row as email / username / status
+    # plus "Add to group"), so they can find someone to add without learning who is in which
+    # other group. Site admins already see everyone above.
+    if not current_user.site_admin:
+        listed = {row["user"].id for row in user_rows}
+        for user in get_directory_users(exclude_ids = listed):
+            user_rows.append({"user": user, "memberships": []})
+
+    # The group filter: every group for a site admin, the groups they manage for anyone else
+    # (the same groups the rows' badges and data-groups are limited to). Pointless with one.
+    filter_groups = Groups.query.order_by(Groups.name)
+    if managed_group_ids is not None:
+        filter_groups = filter_groups.filter(Groups.id.in_(managed_group_ids))
+    filter_groups = filter_groups.all()
+    if len(filter_groups) < 2:
+        filter_groups = []
+
     if request.headers.get("HX-Request") == "true":
         return render_template("v1/user_management.jinja",
                             user_rows = user_rows,
                             managed_group_ids = managed_group_ids,
+                            filter_groups = filter_groups,
                             groups_with_required_role = groups_with_required_role,
                             role_hierarchy = ROLE_HIERARCHY)
     else:
@@ -1149,8 +1262,20 @@ def user_management(groups_with_required_role = None):
                             dash_template = "v1/user_management.jinja",
                             user_rows = user_rows,
                             managed_group_ids = managed_group_ids,
+                            filter_groups = filter_groups,
                             groups_with_required_role = groups_with_required_role,
                             role_hierarchy = ROLE_HIERARCHY)
+
+
+def _may_change_own_groups():
+    """Whether the signed-in user may set their OWN group roles. Only a site admin: they
+    already outrank every group role, so it is no escalation, and it is the only in-app way
+    for an admin to join the group that holds a restricted source (membership is what covers
+    them -- auth/restricted.py). A group blocked for them stays closed like for anyone they
+    might add: it is never offered, the POST rejects it, and assign_group backstops it.
+    Everyone else keeps the guardrail (a Group Admin must not re-role themselves). The site
+    admin flag itself is never self-service: make_site_admin / remove_site_admin refuse it."""
+    return bool(current_user.site_admin)
 
 
 @auth_blueprint.route("/v1/add-user", methods=["GET", "POST"])
@@ -1160,9 +1285,11 @@ def add_user(groups_with_required_role = None):
     if request.method == "GET":
         template_data = {}
         if current_user.site_admin:
+            blocked = _blocked_group_ids()
             template_data["Site Wide"] = ["Site Admin"]
             for group in Groups.query.all():
-                template_data[group.name] = ["Group Admin", "Data Owner", "Data Viewer"]
+                if group.id not in blocked:
+                    template_data[group.name] = list(GROUP_ROLES)
         else:
             for group_id in groups_with_required_role.keys():
                 group_obj = Groups.query.get(group_id)
@@ -1170,8 +1297,18 @@ def add_user(groups_with_required_role = None):
                 if assignable_roles:
                     template_data[group_obj.name] = assignable_roles
 
+        # "Add to group" on a directory row opens this modal for that person (?user_id=). Only
+        # an active account is prefilled -- the same set the directory lists.
+        prefill_email = None
+        raw_user_id = request.args.get("user_id", "")
+        if raw_user_id.isdigit() and len(raw_user_id) <= 9:
+            person = User.query.get(int(raw_user_id))
+            if person and person.status == User.STATUS_ACTIVE:
+                prefill_email = person.email
+
         # Always a modal partial — launched from the User Management page
-        return render_template("v1/add_user.jinja", invitable_roles = template_data)
+        return render_template("v1/add_user.jinja", invitable_roles = template_data,
+                               prefill_email = prefill_email)
 
     if request.method == "POST":
         email_ok, email = validate_email(request.form.get("email"), required=True)
@@ -1187,7 +1324,8 @@ def add_user(groups_with_required_role = None):
 
         # Existing account → assign directly (no invite needed)
         if existing_user:
-            if existing_user.id == current_user.id:
+            # A site admin may set their OWN group roles (see _may_change_own_groups).
+            if existing_user.id == current_user.id and not _may_change_own_groups():
                 flash("You cannot change your own access.", "danger")
                 return redirect(url_for("auth.user_management"))
 
@@ -1209,8 +1347,13 @@ def add_user(groups_with_required_role = None):
             else:
                 for group_id, role in group_assignments.items():
                     group_name = Groups.query.get(group_id).name
-                    if not current_user.site_admin and role not in get_assignable_roles(current_user, group_id):
-                        flash(f"You cannot assign the role {role} in {group_name}.", "danger")
+                    # Checked for site admins too: get_assignable_roles returns every role for
+                    # them EXCEPT in a group blocked by a restricted source, where it returns none.
+                    if role not in get_assignable_roles(current_user, group_id):
+                        if group_id in _blocked_group_ids():
+                            flash(_RESTRICTED_GROUP_MSG.format(name = group_name), "danger")
+                        else:
+                            flash(f"You cannot assign the role {role} in {group_name}.", "danger")
                         continue
                     existing = UserGroups.query.filter_by(user_id = existing_user.id, group_id = group_id).first()
                     if existing and existing.role == role:
@@ -1270,16 +1413,22 @@ def adjust_user_permissions(user_id, groups_with_required_role = None):
 
     managed_group_ids = None if current_user.site_admin else list(groups_with_required_role.keys())
 
-    # Self guardrail — a manager can never act on their own membership
-    if user_id == current_user.id:
+    # Self guardrail — a manager can never act on their own membership (a site admin may:
+    # see _may_change_own_groups)
+    if user_id == current_user.id and not _may_change_own_groups():
         flash("You cannot change your own access.", "danger")
         return "", 200, {"HX-Reswap": "none"}
 
+    # Groups holding a restricted source this site admin is outside of (auth/restricted.py):
+    # never offered, never written, and -- because an omitted group means "revoke" in this
+    # form -- never part of the scope the POST reconciles.
+    blocked = _blocked_group_ids()
+
     def in_scope(group_id, membership):
-        """Groups this manager may touch for this user: site admins anything,
-        others only groups they out-rank the member's current role in."""
+        """Groups this manager may touch for this user: site admins anything that isn't
+        blocked for them, others only groups they out-rank the member's current role in."""
         if current_user.site_admin:
-            return True
+            return group_id not in blocked
         manager_role = groups_with_required_role.get(group_id)
         return bool(membership) and bool(manager_role) and \
             ROLE_HIERARCHY[membership.role] < ROLE_HIERARCHY[manager_role]
@@ -1287,7 +1436,7 @@ def adjust_user_permissions(user_id, groups_with_required_role = None):
     if request.method == "GET":
         adjustable_groups = []
         if current_user.site_admin:
-            candidate_group_ids = [g.id for g in Groups.query.all()]
+            candidate_group_ids = [g.id for g in Groups.query.all() if g.id not in blocked]
         else:
             candidate_group_ids = managed_group_ids
 
@@ -1308,7 +1457,7 @@ def adjust_user_permissions(user_id, groups_with_required_role = None):
     if request.method == "POST":
         form_data = request.form.to_dict()
         if current_user.site_admin:
-            scope_group_ids = [g.id for g in Groups.query.all()]
+            scope_group_ids = [g.id for g in Groups.query.all() if g.id not in blocked]
         else:
             scope_group_ids = [
                 gid for gid in managed_group_ids
@@ -1474,6 +1623,15 @@ def make_site_admin(user_id):
         return _admin_gate_refused(f"{target.username}'s account is not active, so it cannot be "
                                 "made a site admin.", "warning")
 
+    # A site admin who is a member of a restricted source's group has full powers over that
+    # source (auth/restricted.py). So turning one of its members into a site admin is itself a
+    # grant of the restricted data, and only an admin already covered by the agreement may do it.
+    if _member_of_blocked_group(target):
+        return _admin_gate_refused(
+            f"{target.username} belongs to a group that holds data covered by a data sharing "
+            "agreement. Only a site admin who is also in that group can make them a site admin.",
+            "warning")
+
     if not site_admin_key_is_set():
         return _admin_gate_refused(_UNSET_KEY_MSG, "warning")
 
@@ -1521,13 +1679,18 @@ def group_management(groups_with_required_role = None):
             "source_count": len(group_sources)
         })
 
+    # Groups holding a restricted source this site admin is outside of are listed (their
+    # existence isn't the secret) but offer no actions.
+    blocked = _blocked_group_ids()
     if request.headers.get("HX-Request") == "true":
-        return render_template("v1/group_management.jinja", group_rows = group_rows)
+        return render_template("v1/group_management.jinja", group_rows = group_rows,
+                            blocked_group_ids = blocked)
     else:
         return render_template("base.jinja",
                             include_partials = "index",
                             dash_template = "v1/group_management.jinja",
-                            group_rows = group_rows)
+                            group_rows = group_rows,
+                            blocked_group_ids = blocked)
 
 
 @auth_blueprint.route("/v1/create-group", methods=["GET", "POST"])
@@ -1571,11 +1734,21 @@ def group_data_sources(group_id, groups_with_required_role = None):
         flash("Group not found.", "danger")
         return redirect(url_for("auth.group_management"))
 
+    # The group holds a restricted source this site admin is outside of: its sources are not
+    # theirs to change (the decorator let them in as "all groups").
+    if group_id in _blocked_group_ids():
+        flash(_RESTRICTED_GROUP_MSG.format(name = group.name), "danger")
+        return "", 200, {"HX-Reswap": "none"}
+
     all_sources = DataSources.query.order_by(DataSources.name).all()
     current_ids = {gds.data_source_id for gds in GroupDataSources.query.filter_by(group_id = group_id).all()}
+    # Restricted sources whose agreement the caller is not on: listed (so the admin can see why
+    # they can't pick it) but locked, and never attachable below.
+    locked_ids = uncovered_source_ids(current_user)
 
     if request.method == "GET":
-        source_rows = [{"source": s, "checked": s.id in current_ids} for s in all_sources]
+        source_rows = [{"source": s, "checked": s.id in current_ids, "locked": s.id in locked_ids}
+                       for s in all_sources]
         return render_template("v1/partials/group_data_sources_modal.jinja",
                             group = group, source_rows = source_rows)
 
@@ -1584,10 +1757,12 @@ def group_data_sources(group_id, groups_with_required_role = None):
         # create a group (auto-owning it), attach every source, and thereby self-grant management of
         # all sources -- letting them flip any restricted visual to public. Sources already on the
         # group that the caller can't manage are preserved so a reconcile doesn't detach them.
+        # A site admin may attach anything except a restricted source they are not covered for
+        # (attaching it to a group of their choosing would be self-granting the agreement).
         if current_user.site_admin:
-            attachable_ids = {s.id for s in all_sources}
+            attachable_ids = {s.id for s in all_sources} - locked_ids
         else:
-            attachable_ids = {s.id for s in owned_data_sources(current_user)}
+            attachable_ids = {s.id for s in owned_data_sources(current_user)} - locked_ids
         submitted = set(current_ids - attachable_ids)
         for raw in request.form.getlist("source_ids"):
             try:
@@ -1607,7 +1782,8 @@ def group_data_sources(group_id, groups_with_required_role = None):
         return render_template("v1/partials/group_row.jinja",
                             group = group,
                             data_sources = group_sources,
-                            source_count = len(group_sources))
+                            source_count = len(group_sources),
+                            blocked_group_ids = _blocked_group_ids())
 
 
 # --------------------------------------------------------------------------------------- #
@@ -1665,6 +1841,12 @@ def group_source_visuals(group_id, source_id):
     source = DataSources.query.get(source_id)
     if not group or not source:
         flash("Group or data source not found.", "danger")
+        return _ownership_bounce()
+    # Visual grants only go to teams that have the source (the page only ever offers those);
+    # without this a source's owner could grant its visuals to any group id.
+    if group_id not in {team.id for team in teams_for_source(source_id)}:
+        flash(f"{group.name} does not have access to {source.name}. Give the group the data "
+              "source first.", "danger")
         return _ownership_bounce()
 
     source_visuals = Visuals.query.filter_by(data_source_id = source_id).all()

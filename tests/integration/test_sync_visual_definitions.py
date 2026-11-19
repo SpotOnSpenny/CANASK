@@ -6,7 +6,7 @@ import json
 import pytest
 
 from data_viz.database import db
-from data_viz.database.models import GroupVisuals, Visuals, VisualQuery
+from data_viz.database.models import DataSources, GroupVisuals, UserActivity, Visuals, VisualQuery
 from data_viz.visual_definitions import sync_visual_definitions
 
 from tests.factories import make_group, unique
@@ -152,3 +152,93 @@ class TestInvalidOptions:
         with pytest.raises(ValueError, match=f"{province}/bad_visual: time_grains"):
             sync_visual_definitions(manifest_dir=str(tmp_path))
         assert Visuals.query.filter_by(province=province).count() == 0
+
+
+def write_source_manifest(tmp_path, data_source, province, filename="test-source.json"):
+    """A one-visual manifest with a caller-supplied `data_source` block."""
+    (tmp_path / filename).write_text(json.dumps(
+        {"data_source": data_source, "visuals": [entry(province, "a_visual")]}))
+    return tmp_path
+
+
+class TestRestrictedFlag:
+    """`"restricted": true` in a manifest's data_source is the ONLY switch for a restricted
+    source (auth/restricted.py) -- define-visuals syncs it onto the DataSources row."""
+
+    def _restriction_activity(self, source):
+        return UserActivity.query.filter_by(activity_type="source_restriction_changed",
+                                            activity_target_id=source.id).all()
+
+    def test_absent_key_means_unrestricted(self, db_session, tmp_path, province):
+        name = unique("src")
+        write_source_manifest(tmp_path, {"name": name}, province)
+        sync_visual_definitions(manifest_dir=str(tmp_path))
+        source = DataSources.query.filter_by(name=name).one()
+        assert source.restricted is False
+        assert self._restriction_activity(source) == []
+
+    def test_manifest_turns_the_flag_on_and_logs_it(self, db_session, tmp_path, province):
+        name = unique("src")
+        write_source_manifest(tmp_path, {"name": name, "restricted": True}, province)
+        sync_visual_definitions(manifest_dir=str(tmp_path))
+        source = DataSources.query.filter_by(name=name).one()
+        assert source.restricted is True
+        (activity,) = self._restriction_activity(source)
+        assert name in activity.details and "restricted" in activity.details
+
+    def test_resync_keeps_the_flag_without_logging_again(self, db_session, tmp_path, province):
+        name = unique("src")
+        write_source_manifest(tmp_path, {"name": name, "restricted": True}, province)
+        sync_visual_definitions(manifest_dir=str(tmp_path))
+        sync_visual_definitions(manifest_dir=str(tmp_path))
+        source = DataSources.query.filter_by(name=name).one()
+        assert source.restricted is True
+        assert len(self._restriction_activity(source)) == 1
+
+    def test_existing_unrestricted_source_becomes_restricted(self, db_session, tmp_path,
+                                                             province):
+        name = unique("src")
+        write_source_manifest(tmp_path, {"name": name}, province)
+        sync_visual_definitions(manifest_dir=str(tmp_path))
+        source = DataSources.query.filter_by(name=name).one()
+        write_source_manifest(tmp_path, {"name": name, "restricted": True}, province)
+        sync_visual_definitions(manifest_dir=str(tmp_path))
+        assert source.restricted is True
+        assert DataSources.query.filter_by(name=name).one().id == source.id   # same row
+
+    def test_removing_the_key_lifts_the_restriction_and_logs_it(self, db_session, tmp_path,
+                                                                province):
+        name = unique("src")
+        write_source_manifest(tmp_path, {"name": name, "restricted": True}, province)
+        sync_visual_definitions(manifest_dir=str(tmp_path))
+        write_source_manifest(tmp_path, {"name": name}, province)
+        sync_visual_definitions(manifest_dir=str(tmp_path))
+        source = DataSources.query.filter_by(name=name).one()
+        assert source.restricted is False
+        assert len(self._restriction_activity(source)) == 2
+
+    @pytest.mark.parametrize("value", ["true", 1, "yes", None])
+    def test_non_boolean_fails_the_sync(self, db_session, tmp_path, province, value):
+        name = unique("src")
+        write_source_manifest(tmp_path, {"name": name, "restricted": value}, province)
+        with pytest.raises(ValueError, match="restricted"):
+            sync_visual_definitions(manifest_dir=str(tmp_path))
+        assert DataSources.query.filter_by(name=name).count() == 0
+
+    def test_misspelled_key_fails_the_sync_instead_of_failing_open(self, db_session, tmp_path,
+                                                                   province):
+        name = unique("src")
+        write_source_manifest(tmp_path, {"name": name, "restriced": True}, province)
+        with pytest.raises(ValueError, match="restriced"):
+            sync_visual_definitions(manifest_dir=str(tmp_path))
+        assert DataSources.query.filter_by(name=name).count() == 0
+
+    def test_two_manifests_disagreeing_about_one_source_fail_the_sync(self, db_session,
+                                                                      tmp_path, province):
+        name = unique("src")
+        write_source_manifest(tmp_path, {"name": name, "restricted": True}, province,
+                              filename="a.json")
+        (tmp_path / "b.json").write_text(json.dumps(
+            {"data_source": {"name": name}, "visuals": [entry(province, "other_visual")]}))
+        with pytest.raises(ValueError, match="disagree"):
+            sync_visual_definitions(manifest_dir=str(tmp_path))

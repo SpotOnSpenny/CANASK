@@ -22,15 +22,25 @@
                         <h6 class="mb-0">
                             <i class="bi bi-chevron-down me-2 small" aria-hidden="true"></i>{{ source.name }}
                         </h6>
-                        <span class="badge bg-secondary">
-                            {{ entry.visual_count }} visual{{ '' if entry.visual_count == 1 else 's' }}
+                        <span>
+                            {% if source.restricted %}
+                            <span class="badge bg-warning text-dark"
+                                  title="Covered by a data sharing agreement: only members of a group that has this source can see or manage it. Site admins outside those groups cannot."><i class="bi bi-lock-fill" aria-hidden="true"></i> Restricted</span>
+                            {% endif %}
+                            <span class="badge bg-secondary">
+                                {{ entry.visual_count }} visual{{ '' if entry.visual_count == 1 else 's' }}
+                            </span>
                         </span>
                     </div>
                     <div id="source-body-{{ source.id }}" class="card-body p-0 collapse show">
                         <div class="px-3 pt-3">
                             <h6 class="mb-1">Visibility</h6>
                             <p class="text-muted small mb-2">
+                                {% if source.restricted %}
+                                <strong>Private</strong>: only data owners and site admins who are members of a group that has this source ·
+                                {% else %}
                                 <strong>Private</strong>: only you and site admins ·
+                                {% endif %}
                                 <strong>Group</strong>: signed-in members of teams granted the visual below ·
                                 <strong>Public</strong>: anyone, no sign-in required.
                                 Drill-downs can't be made more visible than the access point they open from.

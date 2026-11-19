@@ -10,13 +10,23 @@
     <td>
         {% if data_sources %}
             {% for source in data_sources %}
-                <span class="badge bg-secondary">{{ source.name }}</span>
+                {% if source.restricted %}
+                    <span class="badge bg-warning text-dark"
+                          title="Covered by a data sharing agreement: only members of a group that has this source can see or manage it."><i class="bi bi-lock-fill" aria-hidden="true"></i> {{ source.name }}</span>
+                {% else %}
+                    <span class="badge bg-secondary">{{ source.name }}</span>
+                {% endif %}
             {% endfor %}
         {% else %}
             <span class="text-muted">No data sources</span>
         {% endif %}
     </td>
     <td>
+        {# A group holding a restricted source the viewer is not covered for: nothing to offer
+           (the route refuses too). blocked_group_ids is only non-empty for such a site admin. #}
+        {% if blocked_group_ids and group.id in blocked_group_ids %}
+        <span class="text-muted small"><i class="bi bi-lock-fill" aria-hidden="true"></i> Managed by its members</span>
+        {% else %}
         <div class="dropdown">
             <button class="btn btn-sm invite-action-btn dropdown-toggle"
                     type="button"
@@ -35,5 +45,6 @@
                 </li>
             </ul>
         </div>
+        {% endif %}
     </td>
 </tr>
