@@ -10,8 +10,9 @@ from flask_login import current_user
 from data_viz.database import db
 from data_viz.database.models import User, Invites, UserGroups, Groups, UserActivity, DataSources, GroupDataSources, Visuals, GroupVisuals, SiteAdminKey, VISUAL_VISIBILITY
 from data_viz.auth.role_hierarchy import GROUP_ROLES, ROLE_HIERARCHY
-from data_viz.auth.restricted import (admin_reaches_group, admin_reaches_source,
-                                      blocked_group_ids, uncovered_source_ids)
+from data_viz.auth.restricted import (RestrictedSourceRefusal, admin_reaches_group,
+                                      admin_reaches_source, blocked_group_ids,
+                                      uncovered_source_ids)
 
 def create_user(email, username, password, invited_by = None, status = User.STATUS_ACTIVE, site_admin = False):
     password_hash = hashpw(password.encode('utf-8'), gensalt()).decode('utf-8')
@@ -80,11 +81,33 @@ def _refuse_blocked_site_admin(group_id):
         return
     if not getattr(current_user, "is_authenticated", False) or not current_user.site_admin:
         return
-    if group_id in blocked_group_ids(current_user):
-        raise PermissionError(f"Site admin {current_user.username} may not change membership of "
+    # int(): a str id (straight off a form) would miss the set of int ids and read as allowed.
+    if int(group_id) in blocked_group_ids(current_user):
+        raise RestrictedSourceRefusal(f"Site admin {current_user.username} may not change membership of "
                               f"group {group_id}: it holds a restricted data source.")
 
-def assign_group(user_id, group_id, role, assigned_by = None, remove = False):
+def _refuse_uncovered_source_link(group_id, source_ids):
+    """The same backstop for the group<->source link, the one write that makes someone covered:
+    a signed-in site admin may not change the sources of a group that is blocked for them, nor
+    attach or detach a restricted source they are not covered for. (Without it, a route that
+    forgot its own check would let an outside admin join any open group, attach the restricted
+    source to it, and so put themselves on the agreement.) Same scope as above: requests with a
+    signed-in site admin only -- `flask set-group-source` is the break-glass and is untouched."""
+    if not has_request_context():
+        return
+    if not getattr(current_user, "is_authenticated", False) or not current_user.site_admin:
+        return
+    if int(group_id) in blocked_group_ids(current_user):
+        raise RestrictedSourceRefusal(f"Site admin {current_user.username} may not change the data sources "
+                              f"of group {group_id}: it holds a restricted data source.")
+    uncovered = uncovered_source_ids(current_user) & {int(sid) for sid in source_ids}
+    if uncovered:
+        raise RestrictedSourceRefusal(f"Site admin {current_user.username} may not attach or detach "
+                              f"restricted data source(s) {sorted(uncovered)} on group {group_id}.")
+
+def assign_group(user_id, group_id, role, assigned_by = None, remove = False, actor_label = None):
+    """`actor_label` names a non-user actor for the activity row (the break-glass CLI), so a
+    membership change made from the server is not recorded as merely "without assigner"."""
     _refuse_blocked_site_admin(group_id)
     existing_membership = UserGroups.query.filter_by(user_id = user_id, group_id = group_id).first()
     user = User.query.get(user_id)
@@ -99,6 +122,8 @@ def assign_group(user_id, group_id, role, assigned_by = None, remove = False):
             db.session.commit()
             if assigner:
                 details = f"User {user.username} removed from Group {group.name} by {assigner.username}." 
+            elif actor_label:
+                details = f"User {user.username} removed from Group {group.name} by {actor_label}."
             else:
                 details = f"User ID {user_id} removed from Group ID {group_id} without assigner."
             activity = UserActivity(
@@ -136,6 +161,8 @@ def assign_group(user_id, group_id, role, assigned_by = None, remove = False):
         if assigned_by:
             assigner = User.query.get(assigned_by)
             details = f"User {user.username} assigned to Group {group.name} with role {role} by {assigner.username}." 
+        elif actor_label:
+            details = f"User {user.username} assigned to Group {group.name} with role {role} by {actor_label}."
         else:
             details = f"User ID {user_id} assigned to Group ID {group_id} with role {role} without assigner."
         activity = UserActivity(
@@ -341,10 +368,13 @@ def get_manageable_groups(user):
         return []
     return Groups.query.filter(Groups.id.in_(group_ids)).order_by(Groups.name).all()
 
-def set_group_data_sources(group_id, source_ids, changed_by = None):
+def set_group_data_sources(group_id, source_ids, changed_by = None, actor_label = None):
     """Reconcile a group's GroupDataSources rows to exactly `source_ids` (a collection of
     DataSources ids). Adds/removes the difference and logs a UserActivity row. Returns the
-    list of changes made (empty if nothing changed)."""
+    list of changes made (empty if nothing changed); a detached source's cleared visual grants
+    are one of them ("N visual grant(s) cleared") -- callers should show the list, because
+    re-attaching the source does not bring those grants back. `actor_label` names a non-user
+    actor (the break-glass CLI) in the activity row."""
     group = Groups.query.get(group_id)
     if not group:
         raise ValueError("Group not found. Unable to update data source access.")
@@ -355,6 +385,7 @@ def set_group_data_sources(group_id, source_ids, changed_by = None):
 
     to_add = target_ids - existing_ids
     to_remove = existing_ids - target_ids
+    _refuse_uncovered_source_link(group_id, to_add | to_remove)
 
     for gds in existing:
         if gds.data_source_id in to_remove:
@@ -385,7 +416,7 @@ def set_group_data_sources(group_id, source_ids, changed_by = None):
 
     if changes:
         changer = User.query.get(changed_by) if changed_by else None
-        changer_name = changer.username if changer else f"user ID {changed_by}"
+        changer_name = changer.username if changer else (actor_label or f"user ID {changed_by}")
         activity = UserActivity(
             user_id = changed_by,
             activity_type = "group_data_sources_updated",
@@ -757,7 +788,12 @@ SOURCE_ALIASES = {
 def reconcile_source_aliases(changed_by = None):
     """Merge legacy/seed-named DataSources into their canonical pipeline-named rows: move each
     alias's GroupDataSources onto the canonical row (dropping duplicates) and delete the alias row.
-    Idempotent. Returns the list of "alias -> canonical" merges performed."""
+    Idempotent. Returns the list of "alias -> canonical" merges performed.
+
+    Two exceptions for restricted sources (auth/restricted.py): a restricted CANONICAL source
+    never inherits an alias's group links (they are dropped, and the merge note says so), and a
+    restricted ALIAS row is refused outright -- deleting it would delete the restriction and move
+    its holding groups onto an open source. A restricted source must never be listed as an alias."""
     merges = []
     for canonical_name, alias_names in SOURCE_ALIASES.items():
         canonical = DataSources.query.filter_by(name = canonical_name).first()
@@ -767,6 +803,12 @@ def reconcile_source_aliases(changed_by = None):
             alias = DataSources.query.filter_by(name = alias_name).first()
             if not alias or alias.id == canonical.id:
                 continue
+            if alias.restricted:
+                db.session.rollback()
+                raise ValueError(
+                    f"Data source {alias_name!r} is restricted but is listed in SOURCE_ALIASES as "
+                    f"an alias of {canonical_name!r}. Merging would delete the restricted row and "
+                    f"its restriction; remove it from SOURCE_ALIASES.")
             groups_with_canonical = {gds.group_id for gds in
                                      GroupDataSources.query.filter_by(data_source_id = canonical.id).all()}
             for gds in GroupDataSources.query.filter_by(data_source_id = alias.id).all():
@@ -818,11 +860,13 @@ def get_user_memberships_in_groups(user_id, group_ids):
         query = query.filter(UserGroups.group_id.in_(group_ids))
     return query.all()
 
-def get_assignable_roles(user, group_id):
+def get_assignable_roles(user, group_id, blocked = None):
     """Roles `user` may grant in `group_id`. A site admin may grant any -- unless the group is
     blocked for them (it holds a restricted source they are not covered for), in which case their
-    admin status grants nothing there and, not being a member, neither does a role."""
-    if admin_reaches_group(user, group_id):
+    admin status grants nothing there and, not being a member, neither does a role. A caller
+    rendering many groups passes `blocked` (= blocked_group_ids(user), computed once) so the
+    check is not re-queried per group; a non-admin costs no restricted-source query at all."""
+    if admin_reaches_group(user, group_id, blocked):
         return list(GROUP_ROLES)
 
     membership = UserGroups.query.filter_by(user_id = user.id, group_id = group_id).first()

@@ -28,15 +28,18 @@ def _request_cache():
 
 
 def _viewer_context(user):
-    """Precompute, once per request, what `user` is allowed to leverage for the per-visual visibility
-    test below: whether they are signed in / a site admin, the data_source_ids they own (Data Owner+
-    in a group with the source), the visual ids granted to their groups (GroupVisuals), and the
-    restricted sources they are NOT covered for (data_viz/auth/restricted.py) -- which no other
-    entry in this tuple can override."""
+    """Precompute, once per call (allowed_visuals / accessible_provinces each build their own;
+    nothing here is cached), what `user` is allowed to leverage for the per-visual visibility
+    test below: whether they are signed in / a site admin, the data_source_ids they own (Data
+    Owner+ in a group with the source), the visual ids granted to their groups (GroupVisuals),
+    and the restricted sources they are NOT covered for (data_viz/auth/restricted.py) -- which no
+    other entry in this tuple can override. The last is a DENY set sitting next to two ALLOW
+    sets; for an anonymous viewer it is every restricted source, so it fails closed even for a
+    caller that skips _can_see's signed-in test."""
     signed_in = user is not None and getattr(user, "is_authenticated", False)
     site_admin = signed_in and getattr(user, "site_admin", False)
     owned_sources, granted = set(), set()
-    uncovered = uncovered_source_ids(user) if signed_in else set()
+    uncovered = uncovered_source_ids(user)
     if signed_in and not site_admin:
         memberships = UserGroups.query.filter_by(user_id=user.id).all()
         group_ids = [m.group_id for m in memberships]

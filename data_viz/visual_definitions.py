@@ -18,7 +18,7 @@ import json
 import os
 
 from data_viz.database import db
-from data_viz.database.models import DataSources, Visuals, VisualQuery, GroupVisuals, UserActivity
+from data_viz.database.models import DataSources, GroupDataSources, Visuals, VisualQuery, GroupVisuals, UserActivity
 
 # app_config/visuals/ lives at the project root (one dir above the data_viz package).
 MANIFEST_DIR = os.path.join(
@@ -98,13 +98,36 @@ def visual_options_problems(entry):
 
 
 DATA_SOURCE_KEYS = ("name", "link", "restricted")
+MANIFEST_KEYS = ("_comment", "data_source", "visuals")
+
+
+def manifest_problems(manifest):
+    """What's wrong with a manifest's TOP level (returns a list of problems; [] = fine).
+    data_source_problems below is strict inside the `data_source` block, but that only helps if
+    the block is found: with the key misspelled or lost in a merge, the file would read as a
+    second sourceless scaffolding manifest -- its visuals detached from their source (so the
+    source's `restricted` flag no longer covers them) and pruned against scaffolding's. So the
+    key must be present (explicitly null for the sourceless file) and no unknown key is
+    tolerated, which also catches a `restricted` written one level too high."""
+    if not isinstance(manifest, dict):
+        return [f"a manifest must be an object, got {type(manifest).__name__}"]
+    problems = []
+    unknown = sorted(set(manifest) - set(MANIFEST_KEYS))
+    if unknown:
+        problems.append(f"unknown top-level keys {unknown} (allowed: {list(MANIFEST_KEYS)})")
+    if "data_source" not in manifest:
+        problems.append('missing "data_source" (use null for the sourceless scaffolding manifest)')
+    if not isinstance(manifest.get("visuals"), list):
+        problems.append('"visuals" must be a list')
+    return problems
 
 
 def data_source_problems(data_source):
-    """What's wrong with a manifest's `data_source` block ([] = fine; None = the sourceless
-    scaffolding manifest). Strict on purpose: `restricted` is an access-control switch (see
+    """What's wrong with a manifest's `data_source` block. Returns a list of problems ([] =
+    fine); `data_source` may be None (the sourceless scaffolding manifest), which is fine.
+    Strict on purpose, within this block: `restricted` is an access-control switch (see
     data_viz/auth/restricted.py), so a misspelled key or a truthy non-boolean must fail the sync
-    rather than quietly leave a source open."""
+    rather than quietly leave a source open. (The top level is checked by manifest_problems.)"""
     if data_source is None:
         return []
     if not isinstance(data_source, dict):
@@ -137,20 +160,32 @@ def sync_visual_definitions(manifest_dir=None, prune=True):
     created = updated = pruned = 0
     scopes = []   # (source_id, desired {(province, name)}) per file, for the prune pass
     declared_restricted = {}   # source name -> its `restricted` declaration, to catch two files disagreeing
+    sourceless_file = None     # the one manifest allowed to have no data source
+    restriction_changes = []   # messages from _upsert_source, printed only once the sync commits
 
     try:
         for path in files:
             with open(path) as handle:
                 manifest = json.load(handle)
-            data_source = manifest.get("data_source")
+            problems = manifest_problems(manifest)
+            if problems:
+                raise ValueError(f"{os.path.basename(path)}: " + "; ".join(problems))
+            data_source = manifest["data_source"]
             problems = data_source_problems(data_source)
+            if data_source is None:
+                # Two sourceless files would prune each other's visuals (each is "the full
+                # desired state" for the sourceless scope).
+                if sourceless_file is not None:
+                    problems.append(f"only one manifest may have a null data_source "
+                                    f"({sourceless_file} already does)")
+                sourceless_file = os.path.basename(path)
             if data_source and not problems:
                 restricted = data_source.get("restricted", False)
                 if declared_restricted.setdefault(data_source["name"], restricted) != restricted:
                     problems.append(f"manifests disagree on whether {data_source['name']!r} is restricted")
             if problems:
                 raise ValueError(f"{os.path.basename(path)}: " + "; ".join(problems))
-            source_id = _upsert_source(data_source)
+            source_id = _upsert_source(data_source, restriction_changes)
             desired = set()
             for entry in manifest["visuals"]:
                 key = (entry["province"], entry["visual_id"])
@@ -192,10 +227,30 @@ def sync_visual_definitions(manifest_dir=None, prune=True):
         # retry or the next session user doesn't inherit partial state, then re-raise to fail loudly.
         db.session.rollback()
         raise
+    # Only now, with the flag changes committed: a failure above rolls them back, and a deploy
+    # log that already said "is now restricted" would be wrong about access control.
+    for message in restriction_changes:
+        print(message)
+    for name in unheld_restricted_sources():
+        print(f"WARNING: restricted data source {name!r} is held by NO group, so nobody -- site "
+              f"admins included -- can see or manage its non-public visuals. Give it a group from "
+              f"the server:  flask set-group-source \"<group>\" \"{name}\"   then check who that "
+              f"covers:  flask source-access \"{name}\"")
     return {"created": created, "updated": updated, "pruned": pruned}
 
 
-def _upsert_source(data_source):
+def unheld_restricted_sources():
+    """Names of restricted sources no group holds. Such a source is dark for everyone: the flag
+    went live before its holding group was set up, or the source was renamed (the new row is
+    restricted from birth while the group link stays on the old row). Nothing in the app can
+    attach it -- only someone already covered may -- so it takes `flask set-group-source`."""
+    held = db.session.query(GroupDataSources.data_source_id)
+    return [name for (name,) in db.session.query(DataSources.name)
+            .filter(DataSources.restricted.is_(True), DataSources.id.notin_(held))
+            .order_by(DataSources.name)]
+
+
+def _upsert_source(data_source, restriction_changes):
     """Upsert a DataSources row by name; return its id (None for the sourceless scaffolding file).
     `link` and `restricted` are set here -- about / scrape-date strings stay owned by gen-visuals.
 
@@ -203,7 +258,9 @@ def _upsert_source(data_source):
     in BOTH directions: absent means unrestricted. There is deliberately no other way to set it, so
     lifting a restriction is a reviewed code change plus a deploy. Because rows are keyed by name, a
     renamed source gets a NEW row -- which starts restricted too, since the flag travels with the
-    manifest rather than with the old row. Every change is printed and audited."""
+    manifest rather than with the old row. Every change is audited (a UserActivity row in the
+    same transaction) and its message appended to `restriction_changes`, which the sync prints
+    once it has committed."""
     if not data_source:
         return None
     source = DataSources.query.filter_by(name=data_source["name"]).first()
@@ -218,7 +275,7 @@ def _upsert_source(data_source):
     db.session.flush()
     if changed:
         state = "restricted" if restricted else "NO LONGER restricted"
-        print(f"Data source {source.name!r} is now {state} (set by its manifest).")
+        restriction_changes.append(f"Data source {source.name!r} is now {state} (set by its manifest).")
         db.session.add(UserActivity(
             user_id=None,
             activity_type="source_restriction_changed",

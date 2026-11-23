@@ -7,7 +7,7 @@ import os
 import pytest
 
 from data_viz.visual_definitions import (MANIFEST_DIR, data_source_problems, derive_drill_chain,
-                                         visual_options_problems)
+                                         manifest_problems, visual_options_problems)
 
 
 @pytest.mark.parametrize("shape,dim2,expected", [
@@ -145,3 +145,72 @@ def test_drug_checking_source_is_declared_restricted():
     removing it is a deliberate, reviewed act, not a refactoring accident."""
     with open(os.path.join(MANIFEST_DIR, "drugchecking.json")) as handle:
         assert json.load(handle)["data_source"].get("restricted") is True
+
+
+def test_no_restricted_source_is_listed_as_an_alias():
+    """reconcile_source_aliases deletes alias rows and moves their groups onto the canonical
+    source, so a restricted source listed as an alias would lose its restriction on the next
+    publish (it refuses at run time; this catches it at review time, without a database)."""
+    from data_viz.auth.auth_helpers import SOURCE_ALIASES
+    aliases = {alias for names in SOURCE_ALIASES.values() for alias in names}
+    restricted = set()
+    for path in sorted(glob.glob(os.path.join(MANIFEST_DIR, "*.json"))):
+        with open(path) as handle:
+            data_source = json.load(handle).get("data_source") or {}
+        if data_source.get("restricted") is True:
+            restricted.add(data_source["name"])
+    assert "Pan-Canadian Drug Checking Data Harmonization" in restricted   # the loop found it
+    assert restricted & aliases == set()
+
+
+class TestManifestProblems:
+    """The TOP level of a manifest. data_source_problems is strict inside the `data_source`
+    block, which only helps if the block is found under exactly that key."""
+
+    def test_every_real_manifest_passes(self):
+        paths = sorted(glob.glob(os.path.join(MANIFEST_DIR, "*.json")))
+        assert paths
+        for path in paths:
+            with open(path) as handle:
+                assert manifest_problems(json.load(handle)) == [], os.path.basename(path)
+
+    def test_minimal_manifest_is_fine(self):
+        assert manifest_problems({"data_source": {"name": "x"}, "visuals": []}) == []
+
+    def test_comment_key_is_allowed(self):
+        assert manifest_problems({"_comment": "why", "data_source": {"name": "x"},
+                                  "visuals": []}) == []
+
+    def test_explicit_null_data_source_is_the_sourceless_manifest(self):
+        assert manifest_problems({"data_source": None, "visuals": []}) == []
+
+    def test_missing_data_source_key_is_a_problem(self):
+        # Absent is not the same as null: a key lost in a merge must not read as "sourceless".
+        (problem,) = manifest_problems({"visuals": []})
+        assert "data_source" in problem
+
+    def test_misspelled_data_source_key_is_reported_both_ways(self):
+        problems = manifest_problems({"data_sources": {"name": "x", "restricted": True},
+                                      "visuals": []})
+        assert len(problems) == 2
+        assert any("data_sources" in problem and "unknown" in problem for problem in problems)
+        assert any('missing "data_source"' in problem for problem in problems)
+
+    def test_restricted_one_level_too_high_is_a_problem(self):
+        (problem,) = manifest_problems({"restricted": True, "data_source": {"name": "x"},
+                                        "visuals": []})
+        assert "restricted" in problem
+
+    @pytest.mark.parametrize("visuals", [None, {}, "all"])
+    def test_visuals_must_be_a_list(self, visuals):
+        (problem,) = manifest_problems({"data_source": {"name": "x"}, "visuals": visuals})
+        assert "visuals" in problem
+
+    def test_missing_visuals_is_a_problem(self):
+        (problem,) = manifest_problems({"data_source": {"name": "x"}})
+        assert "visuals" in problem
+
+    @pytest.mark.parametrize("manifest", [[], "manifest", None])
+    def test_a_manifest_must_be_an_object(self, manifest):
+        (problem,) = manifest_problems(manifest)
+        assert "must be an object" in problem

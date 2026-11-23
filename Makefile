@@ -105,14 +105,15 @@ prod-rotate-site-admin-key:
 # Usage: make prod-source-access [source="Source Name"]
 #        make prod-set-group-role email=a@b.org group="Group Name" role="Data Owner" | remove=1
 #        make prod-set-group-source group="Group Name" source="Source Name" [remove=1]
+# Only remove=1 removes: any other value (remove=0, remove=no) is ignored, never read as "remove".
 prod-source-access:
 	$(PROD) exec web flask source-access $(if $(source),"$(source)")
 
 prod-set-group-role:
-	$(PROD) exec web flask set-group-role "$(email)" "$(group)" $(if $(remove),--remove,"$(role)")
+	$(PROD) exec web flask set-group-role "$(email)" "$(group)" $(if $(filter 1,$(remove)),--remove,"$(role)")
 
 prod-set-group-source:
-	$(PROD) exec web flask set-group-source "$(group)" "$(source)" $(if $(remove),--remove)
+	$(PROD) exec web flask set-group-source "$(group)" "$(source)" $(if $(filter 1,$(remove)),--remove)
 
 clear-cache:
 	docker compose --env-file app_config/.env.dev exec web rm -rf data_viz/static/.webassets-cache
@@ -171,13 +172,13 @@ source-access:
 # Usage: make set-group-role email=a@b.org group="Group Name" role="Data Owner"
 #        make set-group-role email=a@b.org group="Group Name" remove=1
 set-group-role:
-	docker compose --env-file app_config/.env.dev exec web flask set-group-role "$(email)" "$(group)" $(if $(remove),--remove,"$(role)")
+	docker compose --env-file app_config/.env.dev exec web flask set-group-role "$(email)" "$(group)" $(if $(filter 1,$(remove)),--remove,"$(role)")
 
 # Break-glass: give a group a data source (or remove=1 take it away) from the server -- for a
 # restricted source that no group holds yet, which nobody can attach in the app.
 # Usage: make set-group-source group="Group Name" source="Source Name" [remove=1]
 set-group-source:
-	docker compose --env-file app_config/.env.dev exec web flask set-group-source "$(group)" "$(source)" $(if $(remove),--remove)
+	docker compose --env-file app_config/.env.dev exec web flask set-group-source "$(group)" "$(source)" $(if $(filter 1,$(remove)),--remove)
 
 # Break-glass set/rotate of the shared site admin key (dev).
 # Usage: make rotate-site-admin-key            -> generate + print a strong secret once

@@ -249,6 +249,24 @@ def register_cli(app):
             db.session.commit()
         print(f"Cleared {len(ids)} {f'invite(s) for {email}' if email else 'revoked invite(s)'}.")
 
+    def _source_by_name(source_name):
+        """The one DataSources row called `source_name`, or exit 1. data_sources.name has no
+        unique constraint, and with two rows of one name these commands would report on (or
+        attach) whichever came back first -- possibly the unrestricted twin."""
+        matches = DataSources.query.filter_by(name = source_name).order_by(DataSources.id).all()
+        if not matches:
+            print(f"No data source named {source_name!r}. Run `flask source-access` to list them.")
+            raise SystemExit(1)
+        if len(matches) > 1:
+            print(f"{len(matches)} data sources are named {source_name!r} (ids "
+                  f"{', '.join(str(s.id) for s in matches)}; restricted: "
+                  f"{', '.join(str(bool(s.restricted)) for s in matches)}). Refusing to guess which "
+                  "one is meant -- merge or rename the duplicates first.")
+            raise SystemExit(1)
+        return matches[0]
+
+    CLI_ACTOR = "the server CLI (break-glass)"
+
     @app.cli.command("source-access",
                      short_help="Show who can see a data source right now (or list every source and its restricted flag).")
     @click.argument("source_name", required=False)
@@ -261,10 +279,7 @@ def register_cli(app):
             for source in DataSources.query.order_by(DataSources.name).all():
                 print(f"{'[restricted]' if source.restricted else '[open]      '} {source.name}")
             return
-        source = DataSources.query.filter_by(name = source_name).first()
-        if source is None:
-            print(f"No data source named {source_name!r}. Run `flask source-access` to list them.")
-            raise SystemExit(1)
+        source = _source_by_name(source_name)
         report = source_access_report(source)
 
         def describe(user):
@@ -292,7 +307,7 @@ def register_cli(app):
                   "granted to their group.")
 
         print(f"\nSite admins who can see and manage it ({len(report['site_admins_covered'])}):")
-        for admin in report["site_admins_covered"] or []:
+        for admin in report["site_admins_covered"]:
             print(f"  {describe(admin)}")
         if report["restricted"]:
             print(f"\nSite admins who can NOT see it ({len(report['site_admins_not_covered'])}):")
@@ -304,16 +319,28 @@ def register_cli(app):
             print(f"  {visual.province} / {visual.name}")
 
         if report["stray_grants"]:
-            note = ("ignored while the source is restricted" if report["restricted"]
-                    else "these groups CAN see the granted visuals")
+            note = ("give nothing to anyone outside the groups above, but a member of one of "
+                    "those groups who is ALSO in the granted group still gets the visual through it"
+                    if report["restricted"]
+                    else "these groups CAN see the granted visuals that are set to Group")
             print(f"\nVisual grants on groups that do not hold this source ({note}):")
-            for group, visuals in report["stray_grants"]:
-                print(f"  {group.name}: {', '.join(v.name for v in visuals)}")
+            for entry in report["stray_grants"]:
+                print(f"  {entry['group'].name}: {', '.join(v.name for v in entry['visuals'])}")
+
+        def invite_line(item, when):
+            invite = item["invite"]
+            flag = ("  [site-admin invite: this group row is ignored when it is accepted]"
+                    if item["site_admin_invite"] else "")
+            return (f"  {invite.email} -> {item['group'].name} ({item['role']}), "
+                    f"{when} {invite.expires_at:%Y-%m-%d}{flag}")
 
         print(f"\nPending invites into these groups ({len(report['pending_invites'])}):")
         for item in report["pending_invites"]:
-            invite = item["invite"]
-            print(f"  {invite.email} -> {item['group'].name} ({item['role']}), expires {invite.expires_at:%Y-%m-%d}")
+            print(invite_line(item, "expires"))
+        print(f"\nExpired invites into these groups -- a manager covered by the agreement can "
+              f"renew them ({len(report['expired_invites'])}):")
+        for item in report["expired_invites"]:
+            print(invite_line(item, "expired"))
 
     @app.cli.command("set-group-role",
                      short_help="Set (or with --remove, drop) a user's role in a group from the server.")
@@ -325,28 +352,41 @@ def register_cli(app):
         # Break-glass for a group that holds a restricted source: once its last Data Owner / member
         # site admin is gone, nobody can manage it in the app (site admins outside it are shut out
         # by design), so membership has to be repaired from the server. Works for any group.
+        from data_viz.auth.role_hierarchy import GROUP_ROLES
         from data_viz.validation import validate_role
         user = User.query.filter_by(email = email).first()
         group = Groups.query.filter_by(name = group_name).first()
         if user is None or group is None:
-            print(f"No {'user with email ' + repr(email) if user is None else 'group named ' + repr(group_name)}.")
+            missing = ([f"user with email {email!r}"] if user is None else []) \
+                    + ([f"group named {group_name!r}"] if group is None else [])
+            print(f"No {' and no '.join(missing)}.")
             raise SystemExit(1)
         if remove:
+            if role:
+                print(f"Both a role ({role!r}) and --remove were given. Pass a role to set it, or "
+                      "--remove alone to drop the membership.")
+                raise SystemExit(1)
             if UserGroups.query.filter_by(user_id = user.id, group_id = group.id).first() is None:
                 print(f"{email} is not a member of {group_name}; nothing to remove.")
                 raise SystemExit(1)
-            assign_group(user.id, group.id, None, remove = True)
+            assign_group(user.id, group.id, None, remove = True, actor_label = CLI_ACTOR)
             print(f"Removed {email} from {group_name}.")
             return
         valid, message = validate_role(role)
         if not valid:
-            print(f"Refusing to set role {role!r}: {message} Use Data Owner, Group Admin or Data Viewer.")
+            print(f"Refusing to set role {role!r}: {message} Use one of: {', '.join(GROUP_ROLES)}.")
+            raise SystemExit(1)
+        # This command exists to give a group a manager who can act; an account that cannot
+        # sign in is not one, and "X is now Data Owner" would read as the repair having worked.
+        if user.status != User.STATUS_ACTIVE:
+            print(f"Refusing: {email}'s account is {user.status}, so they cannot sign in to use "
+                  "the role. Pick an active account.")
             raise SystemExit(1)
         existing = UserGroups.query.filter_by(user_id = user.id, group_id = group.id).first()
         if existing is not None and existing.role == role:
             print(f"{email} already has the role {role} in {group_name}.")
             return
-        assign_group(user.id, group.id, role)
+        assign_group(user.id, group.id, role, actor_label = CLI_ACTOR)
         print(f"{email} is now {role} in {group_name}.")
 
     @app.cli.command("set-group-source",
@@ -361,17 +401,31 @@ def register_cli(app):
         # only be given its first group from here. Other sources on the group are left alone.
         from data_viz.auth.auth_helpers import set_group_data_sources
         group = Groups.query.filter_by(name = group_name).first()
-        source = DataSources.query.filter_by(name = source_name).first()
-        if group is None or source is None:
-            print(f"No {'group named ' + repr(group_name) if group is None else 'data source named ' + repr(source_name)}.")
+        if group is None:
+            print(f"No group named {group_name!r}.")
             raise SystemExit(1)
+        source = _source_by_name(source_name)
         current = {gds.data_source_id for gds in GroupDataSources.query.filter_by(group_id = group.id).all()}
+        if remove and source.id not in current:
+            # Exit 1 like `set-group-role --remove` on a non-member: there was nothing to remove.
+            print(f"{group_name} does not have {source_name}; nothing to remove.")
+            raise SystemExit(1)
         wanted = current - {source.id} if remove else current | {source.id}
-        changes = set_group_data_sources(group.id, wanted, changed_by = None)
+        changes = set_group_data_sources(group.id, wanted, changed_by = None, actor_label = CLI_ACTOR)
         if not changes:
-            print(f"{group_name} {'does not have' if remove else 'already has'} {source_name}; nothing changed.")
-        else:
-            print(f"{group_name} {'no longer has' if remove else 'now has'} {source_name}.")
+            print(f"{group_name} already has {source_name}; nothing changed.")
+            return
+        print(f"{group_name} {'no longer has' if remove else 'now has'} {source_name}.")
+        if remove:
+            cleared = [change for change in changes if "cleared" in change]
+            if cleared:
+                print(f"  {cleared[0]} -- its Group-level visual grants for this source are gone, "
+                      "and attaching the source again does not bring them back.")
+        elif source.restricted:
+            members = UserGroups.query.filter_by(group_id = group.id).count()
+            print(f"  {source_name} is restricted: this covers all {members} member(s) of "
+                  f"{group_name}, and any site admin among them now manages the source. Check the "
+                  f"list against the agreement:  flask source-access \"{source_name}\"")
 
     @app.cli.command("rotate-site-admin-key",
                      short_help="Set or rotate the shared site admin key (break-glass: no current key needed).")

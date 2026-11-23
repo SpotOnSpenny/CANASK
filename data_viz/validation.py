@@ -16,7 +16,7 @@ from urllib.parse import urlsplit
 
 from email_validator import validate_email as _validate_email, EmailNotValidError
 
-from data_viz.auth.role_hierarchy import ROLE_HIERARCHY
+from data_viz.auth.role_hierarchy import GROUP_ROLES, ROLE_HIERARCHY
 
 # --- Length / format limits -------------------------------------------------------------------
 MAX_EMAIL = 254            # RFC 5321 practical maximum; fits String(255)
@@ -138,6 +138,6 @@ def validate_role(role):
     Returns (True, role) or (False, message)."""
     if role not in ROLE_HIERARCHY:
         return False, "Unknown role."
-    if role == "Site Admin":
+    if role not in GROUP_ROLES:
         return False, "Invalid role for a group assignment."
     return True, role

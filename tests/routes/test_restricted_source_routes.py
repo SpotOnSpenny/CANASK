@@ -4,32 +4,48 @@ account, or anyone else); a site admin who IS a member keeps every power.
 
 `outsider` = non-member site admin, `insider` = member site admin (Data Viewer role, to prove
 the role doesn't matter for an admin), `owner` = member Data Owner without site admin."""
+import json
 from types import SimpleNamespace
 
 import pytest
 from flask_login import login_user
 
-from data_viz.auth.auth_helpers import assign_group
+import data_viz.auth.auth as auth_module
+from data_viz.auth.auth_helpers import (
+    assign_group,
+    can_manage_source,
+    set_group_data_sources,
+)
+from data_viz.auth.restricted import admin_reaches_group, uncovered_source_ids
+from data_viz.database import db
 from data_viz.database.models import (
     GroupDataSources,
     GroupVisuals,
     InviteGroups,
     Invites,
+    User,
     UserActivity,
     UserGroups,
 )
+from data_viz.visual_definitions import sync_visual_definitions
+from data_viz.visual_query import allowed_visuals
 
 from tests.factories import (
+    TEST_PASSWORD,
     grant_data_source,
     grant_visual,
     make_data_source,
+    make_datapoint,
     make_group,
     make_invite,
     make_restricted_source,
     make_user,
     make_visual,
+    make_visual_query,
     unique,
 )
+
+HX = {"HX-Request": "true"}
 
 
 @pytest.fixture()
@@ -64,6 +80,22 @@ def memberships(user, group):
 def holds(group, source):
     return GroupDataSources.query.filter_by(group_id=group.id,
                                             data_source_id=source.id).count() == 1
+
+
+def swapped(response):
+    """What htmx would swap into the target: the body without the out-of-band flash container
+    the after_request hook appends to an HTMX response."""
+    return response.get_data(as_text=True).split('<div id="flashed-messages-container"')[0].strip()
+
+
+def hold_fixture_rows():
+    """For a test whose request ends in an app-level db.session.rollback(): commit the fixture
+    rows, then open a SAVEPOINT on every bound connection, so the rollback lands on the savepoint
+    instead of wiping the db_session fixture's outer transaction (see _flaky_commit in
+    test_feedback_admin_routes.py)."""
+    db.session.commit()
+    for connection in db.engines.values():
+        connection.begin_nested()
 
 
 class TestViewingThroughTheApi:
@@ -507,6 +539,103 @@ class TestHelperBackstop:
         assign_group(target.id, agreement.group.id, "Data Viewer")
         assert len(memberships(target, agreement.group)) == 1
 
+    def test_assign_group_refuses_a_str_group_id_too(self, app, db_session, agreement, outsider):
+        # A group id straight off a form is a str; it must not miss the set of int ids.
+        target = make_user()
+        with app.test_request_context():
+            login_user(outsider)
+            with pytest.raises(PermissionError):
+                assign_group(target.id, str(agreement.group.id), "Data Viewer",
+                             assigned_by=outsider.id)
+        assert memberships(target, agreement.group) == []
+
+    def _invite_rows(self, invite):
+        return [(ig.group_id, ig.role) for ig in InviteGroups.query.filter_by(invite_id=invite.id)]
+
+    def test_add_invite_group_refuses_a_blocked_site_admin(self, app, db_session, agreement,
+                                                           outsider):
+        """The invite-side backstop: no InviteGroups row for a blocked group, whatever the
+        calling route did or forgot to check."""
+        invite = make_invite()
+        with app.test_request_context():
+            login_user(outsider)
+            with pytest.raises(PermissionError):
+                auth_module._add_invite_group(invite, agreement.group.id, "Data Viewer")
+        assert self._invite_rows(invite) == []
+
+    def test_add_invite_group_refuses_a_str_group_id_too(self, app, db_session, agreement,
+                                                         outsider):
+        invite = make_invite()
+        with app.test_request_context():
+            login_user(outsider)
+            with pytest.raises(PermissionError):
+                auth_module._add_invite_group(invite, str(agreement.group.id), "Data Viewer")
+        assert self._invite_rows(invite) == []
+
+    def test_add_invite_group_allows_an_insider(self, app, db_session, agreement, insider):
+        invite = make_invite()
+        with app.test_request_context():
+            login_user(insider)
+            auth_module._add_invite_group(invite, agreement.group.id, "Data Viewer")
+        assert self._invite_rows(invite) == [(agreement.group.id, "Data Viewer")]
+
+    def test_add_invite_group_allows_the_groups_own_data_owner(self, app, db_session, agreement,
+                                                               owner):
+        # The backstop is about site admins outside the agreement; a non-admin's reach is
+        # bounded by their roles, which the routes check.
+        invite = make_invite()
+        with app.test_request_context():
+            login_user(owner)
+            auth_module._add_invite_group(invite, agreement.group.id, "Data Viewer")
+        assert self._invite_rows(invite) == [(agreement.group.id, "Data Viewer")]
+
+    def test_str_group_id_reads_as_blocked(self, db_session, agreement, outsider):
+        assert admin_reaches_group(outsider, str(agreement.group.id)) is False
+
+
+class TestSourceLinkBackstop:
+    """set_group_data_sources refuses on its own too: the group<->source link is the one write
+    that puts people on an agreement, so a route that forgets its check still cannot make it."""
+
+    def test_outsider_cannot_attach_the_source_to_an_open_group(self, app, db_session,
+                                                                agreement, outsider):
+        open_group = make_group()
+        with app.test_request_context():
+            login_user(outsider)
+            with pytest.raises(PermissionError):
+                set_group_data_sources(open_group.id, [agreement.source.id],
+                                       changed_by=outsider.id)
+        assert not holds(open_group, agreement.source)
+
+    def test_outsider_cannot_change_the_blocked_groups_sources(self, app, db_session, agreement,
+                                                               outsider):
+        ordinary = make_data_source()
+        with app.test_request_context():
+            login_user(outsider)
+            with pytest.raises(PermissionError):   # attach something else to it
+                set_group_data_sources(agreement.group.id,
+                                       [agreement.source.id, ordinary.id],
+                                       changed_by=outsider.id)
+            with pytest.raises(PermissionError):   # detach the restricted source
+                set_group_data_sources(agreement.group.id, [], changed_by=outsider.id)
+        assert holds(agreement.group, agreement.source)
+        assert not holds(agreement.group, ordinary)
+
+    def test_insider_can_attach_it_to_a_second_group(self, app, db_session, agreement, insider):
+        second = make_group()
+        with app.test_request_context():
+            login_user(insider)
+            set_group_data_sources(second.id, [agreement.source.id], changed_by=insider.id)
+        assert holds(second, agreement.source)
+
+    def test_outside_a_request_it_works_for_anyone(self, db_session, agreement):
+        # The CLI path (`flask set-group-source`, the break-glass): no signed-in actor to refuse.
+        second = make_group()
+        set_group_data_sources(second.id, [agreement.source.id])
+        set_group_data_sources(agreement.group.id, [])
+        assert holds(second, agreement.source)
+        assert not holds(agreement.group, agreement.source)
+
 
 class TestAddGroupsToExistingInvite:
     """Regression: adding several groups to an existing pending invite saved only the first
@@ -650,6 +779,32 @@ class TestOtherPathsStayClosed:
         response = client.get("/v1/national/drug-checking/restricted-entry")
         assert response.status_code == 302
 
+    def test_deep_link_serves_the_insider(self, client, login_as, agreement, insider):
+        agreement.visual.slug = "restricted-entry"
+        login_as(insider)
+        response = client.get("/v1/national/drug-checking/restricted-entry")
+        assert response.status_code == 200
+
+    def test_facts_of_a_restricted_visual_reach_the_insider_only(self, client, login_as,
+                                                                 agreement, outsider, insider):
+        # A metric-bearing visual, so the payload carries real facts and not just a menu entry.
+        name = unique("restricted_facts")
+        visual = make_visual(province=agreement.province, name=name, visibility="private",
+                             data_source=agreement.source, metric="samples",
+                             geo_type="province", chart_type="bar", menu_parent="Drug Supply",
+                             menu_name=name, level="1")
+        make_visual_query(visual, "geo", "canada")
+        make_datapoint(agreement.source, geo="canada", data_metric="samples", data_value=7.0)
+        login_as(insider)
+        payload = client.get(f"/api/v1/province/{agreement.province}/data").get_json()
+        assert payload["data"][name]["facts"] == [
+            {"dt": "counts", "geo": "canada", "t": "2024", "g": "year", "d": None, "d2": None,
+             "v": 7}]
+        login_as(outsider)
+        payload = client.get(f"/api/v1/province/{agreement.province}/data").get_json()
+        assert name not in payload["data"]
+        assert name not in payload["config"]
+
     def test_setting_another_default_never_renders_the_restricted_section(
             self, client, login_as, agreement, outsider):
         other = make_data_source()
@@ -661,6 +816,23 @@ class TestOtherPathsStayClosed:
         assert f'id="vis-section-{other.id}"' in body
         assert f'id="vis-section-{agreement.source.id}"' not in body
         assert agreement.source.name not in body
+
+    def test_pinned_setting_another_default_clears_the_restricted_visuals_default(
+            self, client, login_as, agreement, outsider):
+        """Pinned behaviour: the landing default is one per province ACROSS sources
+        (set_province_default_visual), so an outsider who sets an open "canada" visual as the
+        default clears the flag on the restricted visual they can neither see nor manage. It
+        changes which visual the page opens on, not who can see anything."""
+        agreement.visual.is_default = True
+        db.session.flush()
+        other = make_data_source()
+        open_visual = make_visual(province="canada", name=unique("open_vis"),
+                                  visibility="private", data_source=other, metric=None,
+                                  level="1")
+        login_as(outsider)
+        client.post(f"/v1/visuals/{open_visual.id}/default")
+        assert open_visual.is_default is True
+        assert agreement.visual.is_default is False
 
     def test_public_restricted_visual_shows_the_nav_link_to_anonymous(self, client,
                                                                       agreement):
@@ -756,8 +928,394 @@ class TestSiteAdminOwnMembership:
         group = make_group()
         manager = make_user(group=group, role="Group Admin")
         login_as(manager)
-        client.post(f"/v1/users/{manager.id}/adjust-permissions",
-                    data={f"role_{group.id}": "Data Viewer"}, headers={"HX-Request": "true"})
+        # The adjust route would change nothing for them anyway (nobody out-ranks themselves),
+        # so the refusal itself is what is pinned: nothing swapped, and the reason as a flash --
+        # for the modal's GET as much as for its POST.
+        own = f"/v1/users/{manager.id}/adjust-permissions"
+        for response in (client.get(own, headers=HX),
+                         client.post(own, data={f"role_{group.id}": "Data Viewer"}, headers=HX)):
+            assert response.status_code == 200
+            assert response.headers.get("HX-Reswap") == "none"
+            assert swapped(response) == ""
+            assert "You cannot change your own access" in response.get_data(as_text=True)
         client.post("/v1/add-user", data={
             "email": manager.email, "group_assignment_1": f"{group.name}__Data Viewer"})
         assert [m.role for m in memberships(manager, group)] == ["Group Admin"]
+
+
+class TestLosingCoverage:
+    """Coverage is membership, read fresh on every request: a site admin who leaves the holding
+    group, or whose group loses the source, is an outsider from the next request on."""
+
+    def test_insider_who_leaves_the_group_is_an_outsider_at_once(self, client, login_as,
+                                                                 agreement, insider):
+        api = f"/api/v1/province/{agreement.province}/data"
+        own = f"/v1/users/{insider.id}/adjust-permissions"
+        login_as(insider)
+        assert agreement.visual.name in client.get(api).get_json()["config"]
+        # "Adjust My Groups" with the holding group unchecked.
+        response = client.post(own, data={}, headers=HX)
+        assert response.status_code == 200
+        assert memberships(insider, agreement.group) == []
+        payload = client.get(api).get_json()
+        assert agreement.visual.name not in payload["config"]
+        assert agreement.visual.name not in payload["data"]
+        assert TestDrugCheckingNavLink.LINK not in client.get("/").get_data(as_text=True)
+        # ...and there is no way back in on their own.
+        client.post(own, data={f"role_{agreement.group.id}": "Data Owner"}, headers=HX)
+        assert memberships(insider, agreement.group) == []
+
+    def test_group_losing_the_source_uncovers_its_member_admins(self, db_session, agreement,
+                                                                insider):
+        def visible():
+            return {v.id for v in allowed_visuals(insider, agreement.province)}
+        assert agreement.visual.id in visible()
+        set_group_data_sources(agreement.group.id, [])   # outside a request: the CLI path
+        assert agreement.source.id in uncovered_source_ids(insider)
+        assert agreement.visual.id not in visible()
+
+
+class TestCoveredActorsAdjustMembers:
+    """Controls for the adjust-permissions scope: the people covered by the agreement keep the
+    ordinary powers over the protected group's members."""
+
+    def _re_role_then_remove(self, client, member, group):
+        url = f"/v1/users/{member.id}/adjust-permissions"
+        client.post(url, data={f"role_{group.id}": "Group Admin"}, headers=HX)
+        assert [m.role for m in memberships(member, group)] == ["Group Admin"]
+        client.post(url, data={}, headers=HX)
+        assert memberships(member, group) == []
+
+    def test_insider_re_roles_then_removes_a_member(self, client, login_as, agreement, insider):
+        member = make_user(group=agreement.group, role="Data Viewer")
+        login_as(insider)
+        self._re_role_then_remove(client, member, agreement.group)
+
+    def test_owner_re_roles_then_removes_a_lower_ranked_member(self, client, login_as,
+                                                               agreement, owner):
+        member = make_user(group=agreement.group, role="Data Viewer")
+        login_as(owner)
+        self._re_role_then_remove(client, member, agreement.group)
+
+    def test_site_admin_moves_between_two_groups_holding_the_same_source(self, client,
+                                                                         login_as, db_session):
+        """Regression: "Adjust My Groups" from G1 to G2, both holding the restricted source.
+        Removing G1 first dropped the admin's coverage, so the backstop refused the G2 join and
+        half the change was applied; joins now run before removals."""
+        source, first = make_restricted_source()
+        second = make_group()
+        grant_data_source(second, source)
+        assert first.id < second.id
+        admin = make_user(site_admin=True, group=first, role="Data Owner")
+        login_as(admin)
+        response = client.post(f"/v1/users/{admin.id}/adjust-permissions",
+                               data={f"role_{second.id}": "Data Viewer"}, headers=HX)
+        assert response.status_code == 200
+        assert memberships(admin, first) == []
+        assert [m.role for m in memberships(admin, second)] == ["Data Viewer"]
+        assert uncovered_source_ids(admin) == set()
+
+    def test_role_submitted_for_a_blocked_group_is_reported(self, client, login_as, agreement,
+                                                            outsider):
+        # A modal rendered before the group became blocked, or a crafted POST: the answer must
+        # say why nothing happened instead of re-rendering an unchanged row in silence.
+        target = make_user()
+        login_as(outsider)
+        response = client.post(f"/v1/users/{target.id}/adjust-permissions",
+                               data={f"role_{agreement.group.id}": "Data Viewer"}, headers=HX)
+        assert memberships(target, agreement.group) == []
+        flash = response.get_data(as_text=True).split('id="flashed-messages-container"')[1]
+        assert "Some changes were not applied" in flash
+        assert agreement.group.name in flash and "data sharing agreement" in flash
+
+    def test_manager_removing_a_deactivated_user_from_their_only_group_drops_the_row(
+            self, client, login_as, db_session):
+        # Nothing is left to show for it: "My groups" no longer includes the account and the
+        # directory lists active accounts only.
+        group = make_group()
+        login_as(make_user(group=group, role="Data Owner"))
+        gone = make_user(status=User.STATUS_DEACTIVATED, group=group, role="Data Viewer")
+        response = client.post(f"/v1/users/{gone.id}/adjust-permissions", data={}, headers=HX)
+        assert response.status_code == 200
+        assert response.headers.get("HX-Reswap") == "delete"
+        assert swapped(response) == ""
+        assert memberships(gone, group) == []
+
+    def test_manager_removing_an_active_user_keeps_their_directory_row(self, client, login_as,
+                                                                       db_session):
+        group = make_group()
+        login_as(make_user(group=group, role="Data Owner"))
+        member = make_user(group=group, role="Data Viewer")
+        response = client.post(f"/v1/users/{member.id}/adjust-permissions", data={}, headers=HX)
+        assert response.headers.get("HX-Reswap") is None
+        assert f'id="user-row-{member.id}"' in swapped(response)
+        assert memberships(member, group) == []
+
+
+class TestWhoMayConferCoverage:
+    def test_pinned_a_group_admin_of_the_holding_group_can_cover_a_site_admin(
+            self, client, login_as, agreement, outsider):
+        """Pinned decision: member of any role + site admin = manages the source, and a Group
+        Admin can make that grant. Whoever may add a Data Viewer to the holding group can thereby
+        put an existing site admin on the agreement with full powers over the source."""
+        manager = make_user(group=agreement.group, role="Group Admin")
+        assert can_manage_source(outsider, agreement.source.id) is False
+        login_as(manager)
+        client.post("/v1/add-user", data={
+            "email": outsider.email,
+            "group_assignment_1": f"{agreement.group.name}__Data Viewer"})
+        assert [m.role for m in memberships(outsider, agreement.group)] == ["Data Viewer"]
+        assert can_manage_source(outsider, agreement.source.id) is True
+
+
+class TestCoveredAdminControls:
+    """The member site admin keeps every power the outsider tests above take away."""
+
+    def test_insider_can_resend(self, client, login_as, agreement, insider, ses_outbox,
+                                celery_stub):
+        invite = make_invite(groups=[(agreement.group, "Data Viewer")])
+        login_as(insider)
+        client.post(f"/v1/invites/{invite.id}/resend", headers=HX)
+        (mail,) = ses_outbox
+        assert mail.to == [invite.email]
+        resent = UserActivity.query.filter_by(activity_type="invite_resent",
+                                              activity_target_id=invite.id).all()
+        assert [row.user_id for row in resent] == [insider.id]
+
+    def test_insider_can_add_a_group_to_an_invite_into_the_group(self, client, login_as,
+                                                                 agreement, insider,
+                                                                 celery_stub):
+        ordinary = make_group()
+        invite = make_invite(groups=[(agreement.group, "Data Viewer")])
+        login_as(insider)
+        client.post("/v1/invite-user", data={
+            "email": invite.email, "group_assignment_1": f"{ordinary.name}__Group Admin"})
+        assert {(ig.group_id, ig.role) for ig in invite.invite_groups} == {
+            (agreement.group.id, "Data Viewer"), (ordinary.id, "Group Admin")}
+
+    def test_insider_can_add_the_group_to_an_existing_invite(self, client, login_as, agreement,
+                                                             insider, celery_stub):
+        ordinary = make_group()
+        invite = make_invite(groups=[(ordinary, "Data Viewer")])
+        login_as(insider)
+        client.post("/v1/invite-user", data={
+            "email": invite.email,
+            "group_assignment_1": f"{agreement.group.name}__Data Viewer"})
+        assert {ig.group_id for ig in invite.invite_groups} == {ordinary.id, agreement.group.id}
+
+    def test_insider_can_bulk_publish(self, client, login_as, agreement, insider):
+        second = make_visual(province=agreement.province, name=unique("restricted_vis"),
+                             visibility="private", data_source=agreement.source, metric=None,
+                             level="1")
+        login_as(insider)
+        client.post(f"/v1/sources/{agreement.source.id}/visibility",
+                    data={"visibility": "public"})
+        assert (agreement.visual.visibility, second.visibility) == ("public", "public")
+
+    def test_insider_can_grant_visuals_to_the_holding_group(self, client, login_as, agreement,
+                                                            insider):
+        agreement.visual.visibility = "group"
+        login_as(insider)
+        response = client.post(
+            f"/v1/groups/{agreement.group.id}/sources/{agreement.source.id}/visuals",
+            data={"visual_ids": [str(agreement.visual.id)]})
+        assert response.status_code == 200
+        assert GroupVisuals.query.filter_by(group_id=agreement.group.id,
+                                            visual_id=agreement.visual.id).count() == 1
+
+
+class TestInviteReissueByAnotherGroupsManager:
+    """Renew and resend put the WHOLE invite back in the invitee's inbox, and the role decorator
+    admits anyone who manages just one group on it -- so a Group Admin of another group on the
+    same invite must not be able to re-issue it into the agreement's group either."""
+
+    def _invite(self, agreement, status):
+        third = make_group()
+        invite = make_invite(status=status, groups=[(agreement.group, "Data Viewer"),
+                                                    (third, "Data Viewer")])
+        return invite, third
+
+    def test_other_groups_admin_cannot_renew(self, client, login_as, agreement, ses_outbox,
+                                             celery_stub):
+        invite, third = self._invite(agreement, "expired")
+        login_as(make_user(group=third, role="Group Admin"))
+        response = client.post(f"/v1/invites/{invite.id}/renew", headers=HX)
+        assert invite.status == "expired"
+        assert ses_outbox == []
+        assert celery_stub.scheduled == []
+        body = response.get_data(as_text=True)
+        assert "also covers a group you do not manage" in body
+        # Which group the invitee is headed for is not theirs to learn.
+        assert agreement.group.name not in body
+
+    def test_other_groups_admin_cannot_resend(self, client, login_as, agreement, ses_outbox,
+                                              celery_stub):
+        invite, third = self._invite(agreement, "pending")
+        login_as(make_user(group=third, role="Group Admin"))
+        response = client.post(f"/v1/invites/{invite.id}/resend", headers=HX)
+        assert ses_outbox == []
+        assert UserActivity.query.filter_by(activity_type="invite_resent").count() == 0
+        assert "also covers a group you do not manage" in response.get_data(as_text=True)
+
+    def test_holding_groups_admin_can_renew_the_same_invite(self, client, login_as, agreement,
+                                                            ses_outbox, celery_stub):
+        invite, _ = self._invite(agreement, "expired")
+        login_as(make_user(group=agreement.group, role="Group Admin"))
+        client.post(f"/v1/invites/{invite.id}/renew", headers=HX)
+        assert invite.status == "pending"
+        assert [mail.to for mail in ses_outbox] == [[invite.email]]
+
+    def test_without_a_restricted_source_one_groups_admin_still_renews(self, client, login_as,
+                                                                       db_session, ses_outbox,
+                                                                       celery_stub):
+        # Behaviour unchanged where no agreement is involved.
+        mine, other = make_group(), make_group()
+        invite = make_invite(status="expired", groups=[(mine, "Data Viewer"),
+                                                       (other, "Data Viewer")])
+        login_as(make_user(group=mine, role="Group Admin"))
+        client.post(f"/v1/invites/{invite.id}/renew", headers=HX)
+        assert invite.status == "pending"
+        assert len(ses_outbox) == 1
+
+
+class TestBackstopRefusalIsHandled:
+    """The app-level handler for RestrictedSourceRefusal (data_viz/__init__.py): when a backstop
+    is the thing that refuses -- the route's own check missed -- the admin gets a visible refusal
+    and an audit row, not a bare 500 that htmx would drop."""
+
+    def _post_past_the_route_check(self, client, login_as, agreement, outsider, monkeypatch,
+                                   headers):
+        target = make_user()
+        hold_fixture_rows()   # the handler rolls the request back
+        # The route believes nothing is blocked; assign_group's backstop reads the real rule.
+        monkeypatch.setattr(auth_module, "_admin_blocked_group_ids", lambda: set())
+        login_as(outsider)
+        url = f"/v1/users/{target.id}/adjust-permissions"
+        response = client.post(url, data={f"role_{agreement.group.id}": "Data Viewer"},
+                               headers=headers)
+        assert memberships(target, agreement.group) == []
+        (audit,) = UserActivity.query.filter_by(activity_type="restricted_source_refusal").all()
+        assert audit.user_id == outsider.id
+        assert f"POST {url}" in audit.details
+        return response
+
+    def test_htmx_request_gets_a_flash_and_swaps_nothing(self, client, login_as, agreement,
+                                                         outsider, monkeypatch):
+        response = self._post_past_the_route_check(client, login_as, agreement, outsider,
+                                                   monkeypatch, HX)
+        assert response.status_code == 200
+        assert response.headers.get("HX-Reswap") == "none"
+        assert swapped(response) == ""
+        assert "refused" in response.get_data(as_text=True)
+
+    def test_direct_request_is_redirected_home(self, client, login_as, agreement, outsider,
+                                               monkeypatch):
+        response = self._post_past_the_route_check(client, login_as, agreement, outsider,
+                                                   monkeypatch, {})
+        assert response.status_code == 302
+        assert response.headers["Location"] in ("/", "http://localhost/")
+        assert "That change was refused" in client.get("/").get_data(as_text=True)
+
+
+class TestGroupDataSourcesRoute:
+    def test_blocked_group_is_refused_by_the_role_decorator(self, client, login_as, agreement,
+                                                            outsider):
+        """A route scoped to one group by its URL is closed to an outside site admin in
+        require_role itself: the modal opens on the refusal, the POST swaps nothing."""
+        ordinary = make_data_source()
+        url = f"/v1/groups/{agreement.group.id}/data-sources"
+        login_as(outsider)
+        modal = client.get(url, headers=HX)
+        assert modal.status_code == 200
+        assert "data sharing agreement" in swapped(modal)
+        assert f'id="source_{ordinary.id}"' not in modal.get_data(as_text=True)
+        post = client.post(url, data={"source_ids": [str(ordinary.id)]}, headers=HX)
+        assert post.headers.get("HX-Reswap") == "none"
+        assert swapped(post) == ""
+        assert "data sharing agreement" in post.get_data(as_text=True)
+        # Without htmx both are plain redirects.
+        assert client.get(url).status_code == 302
+        assert client.post(url, data={"source_ids": [str(ordinary.id)]}).status_code == 302
+        assert holds(agreement.group, agreement.source)
+        assert not holds(agreement.group, ordinary)
+
+    def test_detach_flash_says_how_many_visual_grants_were_cleared(self, client, login_as,
+                                                                   agreement, owner):
+        # Re-attaching the source does not bring the grants back, so the owner is told.
+        extra = make_data_source()
+        granted = make_visual(visibility="group", data_source=extra)
+        grant_data_source(agreement.group, extra)
+        grant_visual(agreement.group, granted)
+        login_as(owner)
+        response = client.post(f"/v1/groups/{agreement.group.id}/data-sources",
+                               data={"source_ids": [str(agreement.source.id)]}, headers=HX)
+        assert not holds(agreement.group, extra)
+        assert holds(agreement.group, agreement.source)
+        assert GroupVisuals.query.filter_by(group_id=agreement.group.id,
+                                            visual_id=granted.id).count() == 0
+        assert "1 visual grant cleared" in response.get_data(as_text=True)
+
+
+class TestSiteAdminAssignmentByANonAdmin:
+    def test_group_admin_submitting_site_admin_for_a_new_email_creates_nothing(
+            self, client, login_as, db_session, ses_outbox, celery_stub):
+        """The form never offers "Site Admin" to a non-admin. A crafted POST for an email with no
+        account used to fall through to an invite carrying no permissions at all."""
+        group = make_group()
+        email = f"{unique('nobody')}@example.org"
+        login_as(make_user(group=group, role="Group Admin"))
+        response = client.post("/v1/add-user", data={
+            "email": email, "group_assignment_1": "Site Wide__Site Admin",
+            "group_assignment_2": f"{group.name}__Data Viewer"}, follow_redirects=True)
+        assert Invites.query.filter_by(email=email).count() == 0
+        assert ses_outbox == []
+        assert celery_stub.scheduled == []
+        assert "Only site admins can grant site admin access." in response.get_data(as_text=True)
+
+
+class TestAcceptingAnInviteIntoTheGroup:
+    def test_logged_out_acceptance_lands_the_membership(self, client, app, agreement, insider,
+                                                        celery_stub):
+        # assign_group's backstop refuses a signed-in outside site admin; an invitee accepting
+        # is signed out, so it must not fire.
+        invite = make_invite(sent_by=insider, groups=[(agreement.group, "Data Viewer")])
+        invite.generate_jwt(app.config["INVITE_JWT_SECRET"])
+        client.get(f"/v1/accept-invite/{invite.token}")
+        username = unique("joiner")
+        response = client.post("/v1/accept-invite", data={
+            "username": username, "password": TEST_PASSWORD,
+            "confirm_password": TEST_PASSWORD})
+        assert response.status_code == 302
+        assert "/v1/login" in response.headers["Location"]
+        user = User.query.filter_by(username=username).one()
+        assert [m.role for m in memberships(user, agreement.group)] == ["Data Viewer"]
+        assert invite.status == "accepted"
+
+
+class TestManifestToRouteSeam:
+    def test_manifest_flag_cli_attach_then_the_api_filters_by_membership(
+            self, app, client, login_as, db_session, tmp_path):
+        """End to end across the seam: the manifest declares the source restricted, the server
+        CLI gives it its first group, and the province API then serves its visual to a member
+        site admin only."""
+        source_name, visual_name = unique("seam_source"), unique("seam_visual")
+        (tmp_path / "seam.json").write_text(json.dumps({
+            "data_source": {"name": source_name, "restricted": True},
+            "visuals": [{
+                "province": "canada", "visual_id": visual_name, "shape": "map_none",
+                "metric": None, "dimension2_type": None, "key_kind": "plain",
+                "chart_type": "map", "data_types": ["counts"], "menu_parent": "Drug Supply",
+                "menu_name": visual_name, "level": 1, "vis_parent": None, "next_vis": None,
+                "is_default": False}]}))
+        sync_visual_definitions(manifest_dir=str(tmp_path))
+        group = make_group()
+        result = app.test_cli_runner().invoke(args=["set-group-source", group.name, source_name])
+        assert result.exit_code == 0, result.output
+
+        outsider = make_user(site_admin=True)
+        insider = make_user(site_admin=True, group=group, role="Data Viewer")
+        login_as(outsider)
+        payload = client.get("/api/v1/province/canada/data").get_json()
+        assert visual_name not in payload["config"] and visual_name not in payload["data"]
+        login_as(insider)
+        assert visual_name in client.get("/api/v1/province/canada/data").get_json()["config"]

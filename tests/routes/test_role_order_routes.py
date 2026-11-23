@@ -19,8 +19,9 @@ def offered_order(body, marker):
 
 
 def test_group_roles_constant_is_most_to_least_and_matches_the_hierarchy():
-    assert GROUP_ROLES == MOST_TO_LEAST
-    assert sorted(GROUP_ROLES, key=ROLE_HIERARCHY.get, reverse=True) == GROUP_ROLES
+    assert isinstance(GROUP_ROLES, tuple)      # shared module state: must not be mutable
+    assert list(GROUP_ROLES) == MOST_TO_LEAST
+    assert sorted(GROUP_ROLES, key=ROLE_HIERARCHY.get, reverse=True) == list(GROUP_ROLES)
     assert set(GROUP_ROLES) == set(ROLE_HIERARCHY) - {"Site Admin"}
 
 

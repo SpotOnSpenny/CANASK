@@ -2,9 +2,11 @@
 import os
 
 # External Dependency Imports
-from flask import Flask, redirect, current_app, request, render_template, flash, get_flashed_messages, jsonify, make_response
+from flask import Flask, redirect, current_app, request, render_template, flash, get_flashed_messages, jsonify, make_response, url_for
 from flask_assets import Environment, Bundle
+from flask_login import current_user
 from flask_wtf.csrf import CSRFProtect
+from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 # Internal Dependency Imports
@@ -13,6 +15,8 @@ from data_viz.main import main_blueprint
 from data_viz.database import db, migrate
 from data_viz.auth import login_manager
 from data_viz.auth.auth import auth_blueprint
+from data_viz.auth.restricted import RestrictedSourceRefusal
+from data_viz.database.models import UserActivity
 from data_viz.feedback_admin import feedback_admin_blueprint
 from data_viz.cli import register_cli
 from celery_worker.celery import init_celery
@@ -205,6 +209,33 @@ app.register_blueprint(feedback_admin_blueprint)
 @app.errorhandler(404)
 def page_not_found(e):
     return redirect("/not-found")
+
+# A restricted-source backstop fired (data_viz/auth/restricted.py): a signed-in site admin tried
+# to grant through a group or source they are not covered for, and the route did not refuse it
+# first (it forgot its check, or the admin's own coverage changed between the check and the
+# write). Unhandled this was a bare 500, which htmx does not swap -- the modal just closed with no
+# message. Roll back whatever the request had pending, leave an audit row, and say what happened.
+@app.errorhandler(RestrictedSourceRefusal)
+def restricted_source_refused(e):
+    db.session.rollback()
+    app.logger.warning("Restricted-source backstop refused a change at %s: %s", request.path, e)
+    try:
+        db.session.add(UserActivity(
+            user_id = current_user.id if current_user.is_authenticated else None,
+            activity_type = "restricted_source_refusal",
+            details = f"{request.method} {request.path}: {e}"[:5000],
+            ip_address = request.remote_addr))
+        db.session.commit()
+    except SQLAlchemyError:
+        db.session.rollback()
+        app.logger.exception("Could not record the restricted-source refusal.")
+    flash("That change was refused: it involves a group or data source covered by a data sharing "
+          "agreement you are not part of. Earlier parts of the same request may already have "
+          "been saved -- reload the page to see the current state.", "danger")
+    if request.headers.get("HX-Request"):
+        # 200 + swap nothing, so the flash rides back out-of-band (htmx drops a 4xx/5xx body).
+        return "", 200, {"HX-Reswap": "none"}
+    return redirect(url_for("main.index"))
 
 # Error handling for 429 (rate limit exceeded). Shape the response per caller: JSON for the
 # data API and feedback endpoints (their callers parse JSON), an HTML page otherwise. Flask-Limiter's

@@ -3,7 +3,10 @@ status counts only when the admin is also a member of a group that holds the sou
 
 Three recurring actors: a non-member site admin (the person the restriction is for), a
 member site admin (keeps full powers) and a member Data Owner (the agreement's own lead)."""
+import pytest
+
 from data_viz.auth.auth_helpers import can_manage_source, get_assignable_roles, owned_data_sources
+from data_viz.auth.role_hierarchy import GROUP_ROLES
 from data_viz.auth.restricted import (
     admin_reaches_group,
     admin_reaches_source,
@@ -86,6 +89,24 @@ class TestTheRule:
         user = make_user(group=group, role="Data Owner")
         assert admin_reaches_source(user, source.id) is False
         assert admin_reaches_group(user, group.id) is False
+
+    def test_ids_are_coerced_so_a_wrong_kind_of_key_cannot_read_as_reachable(self, db_session):
+        # Both helpers test membership of a set of int ids: None or a str would simply miss it.
+        source, group = make_restricted_source()
+        admin = make_user(site_admin=True)
+        with pytest.raises(TypeError):
+            admin_reaches_source(admin, None)
+        assert admin_reaches_source(admin, str(source.id)) is False
+        assert admin_reaches_group(admin, str(group.id)) is False
+
+    def test_anonymous_viewer_context_fails_closed(self, db_session):
+        # The 5th element is a DENY set: for an anonymous viewer it is every restricted source,
+        # so a caller that skips _can_see's signed-in test still cannot open one.
+        from data_viz.visual_query import _viewer_context
+        assert _viewer_context(None)[4] == set()   # nothing restricted yet
+        source, _ = make_restricted_source()
+        make_data_source()
+        assert _viewer_context(None)[4] == {source.id}
 
 
 class TestViewing:
@@ -194,6 +215,22 @@ class TestAssignableRoles:
         assert sorted(get_assignable_roles(admin, group.id)) == [
             "Data Owner", "Data Viewer", "Group Admin"]
 
+    def test_precomputed_blocked_set_gives_the_same_answers(self, db_session):
+        _, group = make_restricted_source()
+        admin = make_user(site_admin=True)
+        blocked = blocked_group_ids(admin)
+        assert get_assignable_roles(admin, group.id, blocked=blocked) == []
+        assert get_assignable_roles(admin, make_group().id, blocked=blocked) == list(GROUP_ROLES)
+
+    def test_blocked_parameter_is_trusted_as_given(self, db_session):
+        """Documents the contract: `blocked` is the caller's responsibility. Passing an empty set
+        for a group that IS blocked returns every role -- the helper does not re-check, so a
+        caller must pass blocked_group_ids(user) for that same user, or nothing."""
+        _, group = make_restricted_source()
+        admin = make_user(site_admin=True)
+        assert get_assignable_roles(admin, group.id, blocked=set()) == list(GROUP_ROLES)
+        assert get_assignable_roles(admin, group.id) == []
+
 
 class TestSourceAliasReconcile:
     """reconcile_source_aliases folds a legacy-named DataSources row into its canonical one and
@@ -226,6 +263,27 @@ class TestSourceAliasReconcile:
         auth_helpers.reconcile_source_aliases()
         assert GroupDataSources.query.filter_by(group_id=group.id,
                                                 data_source_id=canonical.id).count() == 1
+
+    def test_a_restricted_alias_row_is_refused_not_merged(self, db_session, monkeypatch):
+        # Merging deletes the alias row -- and with it the restriction -- and moves its holding
+        # group onto the open canonical source.
+        from data_viz.auth import auth_helpers
+        from data_viz.database import db
+        from data_viz.database.models import DataSources, GroupDataSources
+        canonical = make_data_source()
+        alias, holders = make_restricted_source()
+        # The refusal rolls back: land it on a savepoint, not on the fixture's transaction.
+        db.session.commit()
+        for connection in db.engines.values():
+            connection.begin_nested()
+        monkeypatch.setattr(auth_helpers, "SOURCE_ALIASES", {canonical.name: [alias.name]})
+        with pytest.raises(ValueError, match="SOURCE_ALIASES"):
+            auth_helpers.reconcile_source_aliases()
+        row = DataSources.query.filter_by(name=alias.name).one()
+        assert row.restricted is True
+        assert {g.group_id for g in
+                GroupDataSources.query.filter_by(data_source_id=row.id)} == {holders.id}
+        assert GroupDataSources.query.filter_by(data_source_id=canonical.id).count() == 0
 
 
 class TestDetachingASourceClearsItsGrants:

@@ -4,8 +4,8 @@ import pytest
 
 from tests.confluence_data import (GRAIN_FRAMES, das_gate, seed_confluence, seed_grain_visuals,
                                    seed_month_visuals, seed_rates_heatmap)
-from tests.factories import (grant_visual, make_data_source, make_datapoint, make_group,
-                             make_user, make_visual, make_visual_query)
+from tests.factories import (grant_data_source, grant_visual, make_data_source, make_datapoint,
+                             make_group, make_user, make_visual, make_visual_query)
 
 API = "/api/v1/confluence/data"
 SK_FLAT = {"province": "saskatchewan", "visual": "deaths_by_opioid_type"}
@@ -312,3 +312,37 @@ class TestPage:
         assert b"/v1/national/confluence" not in client.get("/").data
         seed_confluence()
         assert b"/v1/national/confluence" in client.get("/").data
+
+
+class TestRestrictedSource:
+    """A restricted source (data sharing agreement) stays closed here too: the open DAS half
+    does not widen the visual half, so a site admin outside the agreement can neither pair its
+    heatmap nor see it offered; a member site admin can."""
+    SK_HEAT = {"province": "saskatchewan", "visual": "drug_death_heatmap"}
+
+    @pytest.fixture()
+    def holders(self, db_session):
+        """The Saskatchewan source restricted and held by one group, with the DAS gate public."""
+        seeded = seed_confluence(visibility="private", gate_visibility="public")
+        seeded["source"].restricted = True
+        group = make_group()
+        grant_data_source(group, seeded["source"])
+        db_session.flush()
+        return group
+
+    def test_outsider_admin_is_refused_and_not_offered_it(self, client, login_as, holders):
+        login_as(make_user(site_admin=True))
+        assert client.get(url(**self.SK_HEAT)).status_code == 403
+        assert client.get(url(**SK_FLAT)).status_code == 403
+        page = client.get("/v1/national/confluence")
+        assert page.status_code == 200   # the DAS half is open to them
+        assert '"saskatchewan"' not in page.data.decode()
+        assert "drug_death_heatmap" not in page.data.decode()
+
+    def test_insider_admin_gets_the_overlay(self, client, login_as, holders):
+        login_as(make_user(site_admin=True, group=holders, role="Data Viewer"))
+        response = client.get(url(**self.SK_HEAT))
+        assert response.status_code == 200
+        assert response.get_json()["das"]["mode"] == "cities"
+        page = client.get("/v1/national/confluence").data.decode()
+        assert '"saskatchewan"' in page and "drug_death_heatmap" in page
