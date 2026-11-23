@@ -65,7 +65,7 @@
         </div>
     </section>
 
-    {% if current_user.is_authenticated %}
+    {% if 'canada' in accessible_provinces %}
     <section class="home-section">
         <h2 class="home-section-title">National</h2>
         <a class="region-tile region-tile-wide htmx-element" href="/v1/national/drug-checking"

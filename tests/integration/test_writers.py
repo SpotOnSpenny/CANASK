@@ -37,6 +37,18 @@ class TestUpsertSource:
         assert first == second
         assert db.session.get(DataSources, first).about == "v2"
 
+    def test_existing_restricted_row_keeps_its_flag_and_id(self, writer):
+        # gen-visuals refreshes about / scrape dates on the row define-visuals flagged; it must
+        # neither clear the restriction nor mint an unrestricted twin of the same name.
+        source = make_data_source(restricted=True)
+        source_id = writer.upsert_source(
+            {"name": source.name, "link": "https://x", "about": "refreshed",
+             "last_updated": "July 1, 2026", "data_until": "June 30, 2026"})
+        assert source_id == source.id
+        (row,) = DataSources.query.filter_by(name=source.name).all()
+        assert row.restricted is True
+        assert row.about == "refreshed"
+
 
 class TestVisualWriter:
     def _visual(self, **kw):

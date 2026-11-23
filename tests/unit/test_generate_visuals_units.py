@@ -1068,3 +1068,41 @@ class TestDrugcheckColumnRenames:
         assert [ren[f"FTIR ({i}.1) drug category"] for i in range(1, 6)] == [f"{c} Drug Category" for c in FTIR_COLS]
         assert sorted(ren[c] for c in ["Fentanyl Test Strip", "Benzodiazepine Test Strip", "Nitazene Test Strip",
                                        "Xylazine Test Strip", "MDMA Test Strip", "Medetomidine Test Strip"]) == sorted(STRIP_COLS)
+
+
+class TestDrugcheckSourceName:
+    def test_cleaner_writes_under_the_manifests_source_name(self, monkeypatch):
+        """The drug checking source is restricted through its manifest, and the restriction
+        lives on the DataSources row of that NAME. The cleaner names the source in a dict
+        literal of its own (there is no shared constant), so a drift between the two would
+        write the facts under a second, unrestricted row."""
+        import json
+        import os
+
+        import data_viz.generate_visuals as gv
+        from data_viz.visual_definitions import MANIFEST_DIR
+
+        used = []
+
+        class _Recorder:
+            def use_source(self, source):
+                used.append(source)
+
+            def retire_geo(self, geo):
+                pass
+
+        class _Writer:
+            def visual(self, province, visual_id):
+                return _Recorder()
+
+        monkeypatch.setattr(gv, "_drugcheck_load",
+                            lambda: ({"date_updated": "x", "data_until": "y"}, None))
+        for emitter in ("_emit_drugcheck_treemap", "_emit_drugcheck_expected_actual",
+                        "_emit_drugcheck_found_substances"):
+            monkeypatch.setattr(gv, emitter, lambda visual, frame: None)
+        gv.v1_drugchecking_export_clean(_Writer(), "canada")
+
+        with open(os.path.join(MANIFEST_DIR, "drugchecking.json")) as handle:
+            manifest = json.load(handle)
+        assert len(used) == len(manifest["visuals"]) == 3
+        assert {source["name"] for source in used} == {manifest["data_source"]["name"]}

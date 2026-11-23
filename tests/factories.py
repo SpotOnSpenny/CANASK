@@ -98,8 +98,9 @@ def add_membership(user, group, role="Data Viewer"):
     return membership
 
 
-def make_data_source(name=None, link=None, about=None):
-    source = DataSources(name=name or unique("source"), link=link, about=about)
+def make_data_source(name=None, link=None, about=None, restricted=False):
+    source = DataSources(name=name or unique("source"), link=link, about=about,
+                         restricted=restricted)
     db.session.add(source)
     db.session.flush()
     return source
@@ -143,6 +144,15 @@ def grant_data_source(group, source):
     db.session.add(grant)
     db.session.flush()
     return grant
+
+
+def make_restricted_source(name=None):
+    """A restricted data source plus the group that holds it (the "agreement" group).
+    Returns (source, group); add members with add_membership / make_user(group=...)."""
+    source = make_data_source(name=name, restricted=True)
+    group = make_group()
+    grant_data_source(group, source)
+    return source, group
 
 
 def make_datapoint(source, geo="ontario", time_frame="2024", data_metric="deaths",

@@ -11,27 +11,41 @@ def visual(id=1, visibility="public", data_source_id=None, name="v", vis_parent_
 
 class TestCanSee:
     def test_public_visible_to_anonymous(self):
-        assert _can_see(visual(visibility="public"), False, False, set(), set()) is True
+        assert _can_see(visual(visibility="public"), False, False, set(), set(), set()) is True
 
     def test_non_public_hidden_from_anonymous(self):
-        assert _can_see(visual(visibility="group"), False, False, set(), set()) is False
-        assert _can_see(visual(visibility="private"), False, False, set(), set()) is False
+        assert _can_see(visual(visibility="group"), False, False, set(), set(), set()) is False
+        assert _can_see(visual(visibility="private"), False, False, set(), set(), set()) is False
 
     def test_site_admin_sees_everything(self):
-        assert _can_see(visual(visibility="private"), True, True, set(), set()) is True
+        assert _can_see(visual(visibility="private"), True, True, set(), set(), set()) is True
 
     def test_source_owner_sees_private(self):
         v = visual(visibility="private", data_source_id=7)
-        assert _can_see(v, True, False, {7}, set()) is True
-        assert _can_see(v, True, False, {8}, set()) is False
+        assert _can_see(v, True, False, {7}, set(), set()) is True
+        assert _can_see(v, True, False, {8}, set(), set()) is False
 
     def test_group_visibility_needs_grant(self):
         v = visual(id=42, visibility="group")
-        assert _can_see(v, True, False, set(), {42}) is True
-        assert _can_see(v, True, False, set(), {41}) is False
+        assert _can_see(v, True, False, set(), {42}, set()) is True
+        assert _can_see(v, True, False, set(), {41}, set()) is False
 
     def test_unrecognized_visibility_fails_closed(self):
-        assert _can_see(visual(visibility="banana"), True, False, set(), set()) is False
+        assert _can_see(visual(visibility="banana"), True, False, set(), set(), set()) is False
+
+    def test_uncovered_restricted_source_beats_site_admin(self):
+        v = visual(visibility="private", data_source_id=7)
+        assert _can_see(v, True, True, set(), set(), {7}) is False
+        assert _can_see(v, True, True, set(), set(), {8}) is True
+
+    def test_uncovered_restricted_source_beats_ownership_and_grants(self):
+        v = visual(id=42, visibility="group", data_source_id=7)
+        assert _can_see(v, True, False, {7}, {42}, {7}) is False
+
+    def test_public_visual_ignores_the_restriction(self):
+        v = visual(visibility="public", data_source_id=7)
+        assert _can_see(v, True, True, set(), set(), {7}) is True
+        assert _can_see(v, False, False, set(), set(), {7}) is True
 
 
 class TestPruneOrphans:

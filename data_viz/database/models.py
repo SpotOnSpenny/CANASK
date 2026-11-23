@@ -283,6 +283,11 @@ class DataSources(db.Model):
     about = db.Column(db.Text, nullable = True)
     last_updated_str = db.Column(db.String(255), nullable = True)
     data_until_str = db.Column(db.String(255), nullable = True)
+    # Covered by a data sharing agreement: site-admin status alone does not reach this source --
+    # only members of a group that holds it (GroupDataSources) do. The whole rule lives in
+    # data_viz/auth/restricted.py. Declared in the source's manifest (`"restricted": true`) and
+    # synced by define-visuals; deliberately no in-app or CLI toggle.
+    restricted = db.Column(db.Boolean, nullable = False, default = False, server_default = db.false())
 
     def __repr__(self):
         return f"<DataSource {self.name}>"
