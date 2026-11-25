@@ -17,10 +17,15 @@ var CONFLUENCE_API = "/api/v1/confluence/data";
 // Survives HTMX swaps (the bundle loads once per full page load); initConfluence rebuilds it.
 var confluenceState = null;
 
+var CONFLUENCE_PAGE_PATH = "/v1/national/confluence";
+
 function initConfluence(cfg) {
     if (!document.getElementById("confluence-chart")) return;
     // seq/controller: only the newest Overlay request may draw (see confluenceApply).
-    confluenceState = { cfg: cfg, data: null, geojson: null, geojsons: {}, seq: 0, controller: null };
+    // period: a map pairing's slider position (null = the latest); addressParams: the settings of
+    // the overlay on screen, which confluenceSyncAddress writes to the address with the period.
+    confluenceState = { cfg: cfg, data: null, geojson: null, geojsons: {}, seq: 0, controller: null,
+                        period: null, addressParams: null };
 
     const provinceSelect = document.getElementById("confluence-province");
     const slugs = Object.keys(cfg.provinces).sort((a, b) =>
@@ -207,10 +212,12 @@ function confluenceCheckedKeys() {
 // Returns true when it found a valid pairing and kicked off the fetch. A link that no longer
 // resolves (or names unknown substances) says so rather than quietly showing something else.
 function confluenceReplayFromUrl() {
-    const params = new URLSearchParams(window.location.search);
+    // The address's own settings, else the signed-in user's saved starting view (dasExplorer.js).
+    const params = pageStartingParams("confluence-page", CONFLUENCE_PAGE_PATH);
     const cfg = confluenceState.cfg;
     const province = params.get("province");
     if (!province) return false;
+    confluenceState.period = params.get("period");   // dropped at render if it isn't on the map
     if (!cfg.provinces[province]) {
         confluenceSetNote("confluence-link-note", "The linked province isn't available, so the default pairing is shown instead.");
         return false;
@@ -372,8 +379,9 @@ async function confluenceApply() {
         // Plotly.react draws beside existing children rather than replacing them, so the
         // skeleton must go before the first render (dasApplyPivot does the same).
         chart.innerHTML = "";
-        window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}`);
-        confluenceRender();
+        state.addressParams = params;
+        confluenceRender();          // settles state.period (a map keeps it if that period exists)
+        confluenceSyncAddress();
     } catch (error) {
         if (stale()) return;   // superseded (and aborted) by a newer Overlay
         console.error("Confluence failed:", error);
@@ -441,11 +449,25 @@ function confluenceExportInfo() {
     return { title: heading ? heading.textContent.trim() : "", place: d && d.province ? d.province.label : "" };
 }
 
+// Write the overlay on screen into the address: its settings plus, for a map parked on an earlier
+// period, that period. Not `window.location.pathname`: on arrival through the side menu the
+// address still shows the previous page for a moment (see writePageQuery in dasExplorer.js).
+function confluenceSyncAddress() {
+    writePageQuery("confluence-page", CONFLUENCE_PAGE_PATH, function () {
+        const state = confluenceState;
+        if (!state || !state.addressParams) return null;
+        const query = new URLSearchParams(state.addressParams);
+        if (state.period) query.set("period", state.period);
+        return query.toString();
+    });
+}
+
 function confluenceRender() {
     const state = confluenceState;
     const d = state && state.data;
     const chart = document.getElementById("confluence-chart");
     if (!d || !chart) return;
+    if (d.das.mode !== "cities") state.period = null;   // only a map pairing has a slider
     const perCapita = d.measure === "rates" ? " per 100,000 population" : "";
     const title = `${d.visual_label}${perCapita} · DAS samples (${d.das.basis} date, ${d.province.label})`;
     document.getElementById("confluence-chart-title").textContent = title;
@@ -649,6 +671,8 @@ function confluenceRenderCities(d, chart) {
             step.args = ["visible", traces.map((_, i) => Math.floor(i / 2) === j)];
         });
     }
+    // Park the slider where the link / the last render left it (needs the pair masks above).
+    confluenceState.period = dasApplyMapPeriod(traces, layout, confluenceState.period);
     const notes = [];
     if (unmatchedAreas.length) {
         notes.push(`${unmatchedAreas.length} ${unmatchedAreas.length === 1 ? "area has" : "areas have"} no map outline and ${unmatchedAreas.length === 1 ? "isn't" : "aren't"} drawn (see the table): ${unmatchedAreas.join("; ")}.`);
@@ -666,6 +690,11 @@ function confluenceRenderCities(d, chart) {
             dasFitMapHeight(chart);
             attachGeoHoverTip(chart, (point) => (point.location == null ? null
                 : { name: point.location, value: `${point.z} ${measure.label}` }));
+            dasWatchMapSlider(chart, function (period) {
+                if (!confluenceState) return;
+                confluenceState.period = period;
+                confluenceSyncAddress();
+            });
         })
         .catch(error => {
             console.error("Confluence map render failed:", error);

@@ -93,6 +93,22 @@ class Config():
     RATELIMIT_PASSWORD_RESET_SUBMIT = os.environ.get("RATELIMIT_PASSWORD_RESET_SUBMIT", "10 per minute")  # per IP, POST only
     RATELIMIT_API = os.environ.get("RATELIMIT_API", "60 per minute")                   # per IP
     RATELIMIT_LOGIN = os.environ.get("RATELIMIT_LOGIN", "10 per minute")               # per IP, POST only
+    RATELIMIT_USERNAME_CHANGE = os.environ.get("RATELIMIT_USERNAME_CHANGE", "10 per hour")  # per IP, every attempt
+
+    # How often ONE account may change its username from the account page: successful changes only,
+    # counted from the activity log. Enough to fix a typo, not enough to cycle through names (audit
+    # rows quote the name as it was) or to take one somebody else just gave up. The per-IP limit
+    # above is the other half: it also covers the "already taken" answers, which would otherwise
+    # let a signed-in user test which usernames exist as fast as they can post.
+    USERNAME_CHANGE_LIMIT = int(os.environ.get("USERNAME_CHANGE_LIMIT", "2"))
+    USERNAME_CHANGE_WINDOW = timedelta(hours=int(os.environ.get("USERNAME_CHANGE_WINDOW_HOURS", "24")))
+    # The same kind of per-account cap on ASKING to change your email. Every request can send a
+    # confirmation email (and a confirmed change sends a notice to the old address), so this is
+    # what bounds one account's mail volume: RATELIMIT_PASSWORD_RESET is per IP and can be
+    # sidestepped by changing address, and the global ceiling is shared with password resets, so
+    # an account left uncapped could also use up everybody's reset emails for the day.
+    EMAIL_CHANGE_LIMIT = int(os.environ.get("EMAIL_CHANGE_LIMIT", "3"))
+    EMAIL_CHANGE_WINDOW = timedelta(hours=int(os.environ.get("EMAIL_CHANGE_WINDOW_HOURS", "24")))
 
     # Per-account login lockout (complements the per-IP RATELIMIT_LOGIN, which a distributed attacker
     # can sidestep by rotating IPs). Counts recent failed attempts for one account; time-windowed so it

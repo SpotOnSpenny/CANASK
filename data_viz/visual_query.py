@@ -9,8 +9,9 @@ from collections import defaultdict
 
 from flask import g
 
-from data_viz.database.models import (Visuals, VisualQuery, DataPoints, DataSources,
-                                       UserGroups, GroupVisuals, GroupDataSources)
+from data_viz.database.models import (Visuals, VisualQuery, DataPoints, DataSources, Groups,
+                                       UserGroups, GroupVisuals, GroupDataSources,
+                                       GroupLandingVisuals, UserLandingChoices)
 from data_viz.auth.role_hierarchy import ROLE_HIERARCHY
 from data_viz.auth.restricted import uncovered_source_ids
 
@@ -223,21 +224,88 @@ def build_province_menu(province, user=None):
             "vis-parent": visual.vis_parent_name,
             "next-vis": visual.next_vis_name,
         }
-    # Landing visual: the flagged default if the user may see it, else the first allowed level-1 visual.
-    default = next((v.name for v in allowed if v.is_default), None)
-    if default is None:
-        default = next((v.name for v in allowed if v.level == "1"), None)
-    if default is None and allowed:
-        # No level-1 visual at all (a degenerate menu): land on the shallowest available rather than an
-        # arbitrary row, so we never open straight into a deep drill child without its parent in view.
-        default = min(allowed, key=lambda v: _menu_level(v) or 99).name
+    default, landing = landing_for(user, province, allowed)
     # Top-level menu dropdowns, derived from the level-1 visuals' menu_parent (ordered by first
     # appearance) -- the frontend builds its menu categories from this instead of a hard-coded list.
     categories = []
     for visual in allowed:
         if visual.level == "1" and visual.menu_parent and visual.menu_parent not in categories:
             categories.append(visual.menu_parent)
-    return {"config": config, "default": default, "categories": categories}
+    return {"config": config, "default": default, "categories": categories, "landing": landing}
+
+
+def landing_for(user, province, allowed, personal=True):
+    """What `province`'s page opens on for `user`: (visual name or None, landing). `allowed` is
+    the user's displayable_visuals for the province. In order:
+      1. their own starting chart, then their groups' picks (resolve_landing);
+      2. the site-wide flagged default, if they can see it;
+      3. the first top-level visual they can see, else the shallowest one (a degenerate menu with
+         no level-1 visual: never open straight into a deep drill child without its parent).
+    `personal=False` skips the user's own choice -- what the page would open on WITHOUT it, which
+    the account page shows as the "Default" option."""
+    default, landing = resolve_landing(user, province, allowed, personal=personal)
+    if default is None:
+        default = next((v.name for v in allowed if v.is_default), None)
+    if default is None:
+        default = next((v.name for v in allowed if v.level == "1"), None)
+    if default is None and allowed:
+        default = min(allowed, key=lambda v: _menu_level(v) or 99).name
+    return default, landing
+
+
+def resolve_landing(user, province, allowed, personal=True):
+    """The starting chart set for `user` on `province` by themselves or their groups:
+    (visual name, landing). (None, None) when neither applies -- landing_for then falls back to
+    the site-wide default. `allowed` is the user's displayable_visuals for the province, and only
+    a level-1 visual in it ever counts: a choice or pick whose grant was removed, whose visibility
+    was lowered or whose data is gone is skipped, never served.
+
+    1. The user's OWN choice (UserLandingChoices, set on their account page from any chart they
+       can see) wins outright. Skipped when `personal` is False.
+    2. Otherwise their groups' picks (GroupLandingVisuals), ranked by the user's role in each
+       group (highest first), then by membership row order (oldest first); the top one applies.
+
+    `landing` is only non-None in case 2 when the groups picked DIFFERENT visuals: it is
+    {"options": [{group, visual, visual_id, label}], "active": visual name} -- one option per
+    visual (the best-ranked group stands for it), in rank order -- and makes the province page
+    show its one-time "which chart do you want to see first?" notice. Answering it stores the
+    user's own choice, after which this returns None for `landing`."""
+    if user is None or not getattr(user, "is_authenticated", False):
+        return None, None
+    entry_points = {v.id: v for v in allowed if v.level == "1"}
+    if personal:
+        choice = UserLandingChoices.query.filter_by(user_id=user.id, province=province).first()
+        if choice is not None and choice.visual_id in entry_points:
+            return entry_points[choice.visual_id].name, None
+
+    memberships = UserGroups.query.filter_by(user_id=user.id).all()
+    if not memberships:
+        return None, None
+    picks = {row.group_id: entry_points[row.visual_id]
+             for row in GroupLandingVisuals.query.filter(
+                 GroupLandingVisuals.province == province,
+                 GroupLandingVisuals.group_id.in_([m.group_id for m in memberships])).all()
+             if row.visual_id in entry_points}
+    if not picks:
+        return None, None
+
+    ranked = sorted((m for m in memberships if m.group_id in picks),
+                    key=lambda m: (-ROLE_HIERARCHY.get(m.role, -1), m.id))
+    by_visual = {}   # visual id -> the best-ranked group that picked it (insertion = rank order)
+    for membership in ranked:
+        by_visual.setdefault(picks[membership.group_id].id, membership.group_id)
+    top = picks[ranked[0].group_id]
+    if len(by_visual) == 1:
+        return top.name, None
+
+    group_names = dict(Groups.query.with_entities(Groups.id, Groups.name)
+                       .filter(Groups.id.in_(by_visual.values())).all())
+    options = [{"group": group_names.get(group_id),
+                "visual": entry_points[visual_id].name,
+                "visual_id": visual_id,
+                "label": entry_points[visual_id].menu_name or entry_points[visual_id].name}
+               for visual_id, group_id in by_visual.items()]
+    return top.name, {"options": options, "active": top.name}
 
 
 # --------------------------------------------------------------------------------------- #

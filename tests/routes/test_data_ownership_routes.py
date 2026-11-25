@@ -163,3 +163,81 @@ class TestGroupSourceVisualsBulkGrant:
         granted = {gv.visual_id for gv in
                    GroupVisuals.query.filter_by(group_id=group.id).all()}
         assert granted == {other_visual.id}
+
+
+class TestSiteDefaultStar:
+    """The page-wide default is a site-admin setting: a Data Owner sees only their own
+    sources, and used to be able to move a page off another owner's visual."""
+
+    def test_owner_cannot_set_the_site_default(self, client, db_session, login_as):
+        source, _, owner = _owned_source()
+        visual = make_visual(visibility="public", data_source=source, level="1")
+        login_as(owner)
+        response = client.post(f"/v1/visuals/{visual.id}/default")
+        assert response.status_code == 302
+        assert not visual.is_default
+
+    def test_owner_cannot_clear_the_site_default(self, client, db_session, login_as):
+        source, _, owner = _owned_source()
+        visual = make_visual(visibility="public", data_source=source, level="1",
+                             is_default=True)
+        login_as(owner)
+        client.post(f"/v1/visuals/{visual.id}/default")
+        assert visual.is_default is True
+
+    def test_owner_is_pointed_at_opening_views(self, client, db_session, login_as):
+        source, _, owner = _owned_source()
+        visual = make_visual(visibility="public", data_source=source, level="1")
+        login_as(owner)
+        client.post(f"/v1/visuals/{visual.id}/default")
+        followup = client.get("/v1/data-ownership").get_data(as_text=True)
+        assert "Starting charts" in followup
+
+    def test_site_admin_sets_the_site_default(self, client, db_session, login_as):
+        source, _, _ = _owned_source()
+        visual = make_visual(visibility="public", data_source=source, level="1")
+        login_as(make_user(site_admin=True))
+        response = client.post(f"/v1/visuals/{visual.id}/default",
+                               headers={"HX-Request": "true"})
+        assert response.status_code == 200
+        assert visual.is_default is True
+
+    def test_owner_page_has_no_default_button(self, client, db_session, login_as):
+        source, _, owner = _owned_source()
+        visual = make_visual(visibility="public", data_source=source, level="1")
+        login_as(owner)
+        body = client.get("/v1/data-ownership").get_data(as_text=True)
+        assert f"/v1/visuals/{visual.id}/visibility" in body
+        assert f"/v1/visuals/{visual.id}/default" not in body
+
+    def test_site_admin_page_has_the_default_button(self, client, db_session, login_as):
+        source, _, _ = _owned_source()
+        visual = make_visual(visibility="public", data_source=source, level="1")
+        login_as(make_user(site_admin=True))
+        body = client.get("/v1/data-ownership").get_data(as_text=True)
+        assert f"/v1/visuals/{visual.id}/default" in body
+
+    def test_owner_page_has_no_site_default_column(self, client, db_session, login_as):
+        """A column of controls only site admins can use has no business on an owner's page."""
+        source, _, owner = _owned_source()
+        make_visual(visibility="public", data_source=source, level="1", is_default=True)
+        login_as(owner)
+        body = client.get("/v1/data-ownership").get_data(as_text=True)
+        assert "Site default" not in body
+        assert "bi-star" not in body
+
+    def test_site_admin_page_has_the_site_default_column(self, client, db_session, login_as):
+        source, _, _ = _owned_source()
+        make_visual(visibility="public", data_source=source, level="1")
+        login_as(make_user(site_admin=True))
+        assert "Site default" in client.get("/v1/data-ownership").get_data(as_text=True)
+
+    def test_visibility_change_keeps_the_column_out_for_an_owner(self, client, db_session,
+                                                                 login_as):
+        """The section is re-rendered by the visibility routes too, not only the page."""
+        source, _, owner = _owned_source()
+        visual = make_visual(visibility="private", data_source=source, level="1")
+        login_as(owner)
+        body = client.post(f"/v1/visuals/{visual.id}/visibility", data={"visibility": "public"},
+                           headers={"HX-Request": "true"}).get_data(as_text=True)
+        assert "Site default" not in body

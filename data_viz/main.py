@@ -180,6 +180,7 @@ STATIC_PAGE_TITLES = {
     "auth.user_management": "User Management",
     "auth.group_management": "Group Management",
     "auth.data_ownership": "Data Ownership",
+    "auth.account": "My Account",
     "auth.accept_invite": "Accept Invite",
     "auth.forgot_password": "Forgot Password",
     "auth.reset_password": "Reset Password",
@@ -273,6 +274,16 @@ def _render_dash(template, **context):
     return render_template("base.jinja", include_partials="index", dash_template=template, **context)
 
 
+def _starting_view_context(page):
+    """What a starting-view page (DAS Explorer, Confluence) needs in its template: the signed-in
+    user's saved view for it (a query string, "" if none -- the page's script applies it when the
+    address carries no settings of its own) and whether to offer the save button."""
+    from flask_login import current_user
+    from .auth.auth_helpers import saved_starting_view
+    return {"starting_view": saved_starting_view(current_user, page),
+            "can_save_view": current_user.is_authenticated}
+
+
 # DAS Explorer: a row-level data table + pivot builder over its own das_* tables, not the visuals
 # chart machinery -- so it gets its own template and JSON endpoints instead of provincial_vis.jinja
 # + /api/v1/province/<...>/data. Access is still the standard per-visual model: the metric-less
@@ -286,7 +297,8 @@ def das_explorer_page():
     denied = _das_gate_or_redirect()
     if denied is not None:
         return denied
-    return _render_dash("v1/das_explorer.jinja", das_config=explorer_config(), das_source=das_source())
+    return _render_dash("v1/das_explorer.jinja", das_config=explorer_config(), das_source=das_source(),
+                        **_starting_view_context("das-explorer"))
 
 
 # Confluence: overlay DAS seizures with one V1 visual of a province (data_viz/confluence.py holds
@@ -301,7 +313,7 @@ def confluence_page():
     if denied is not None:
         return denied
     return _render_dash("v1/confluence.jinja", confluence_config=confluence_config(current_user),
-                        das_source=das_source())
+                        das_source=das_source(), **_starting_view_context("confluence"))
 
 
 # JSON APIs the DAS Explorer fetches: one page of table rows (Tabulator's remote pagination/sort/

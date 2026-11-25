@@ -16,6 +16,11 @@ let visuals = {};
 // Ordered top-level menu dropdown names for the current province, served by the DB (build_province_menu)
 // rather than hard-coded -- derived from the visuals' menu-parent values.
 let menuCategories = [];
+// payload.landing: only for a viewer who has not set their own starting chart for this page and
+// whose groups picked DIFFERENT ones -- {options: [{group, visual, visual_id, label}], active:
+// visual name}. null for everyone else. It drives a one-time notice (renderLandingNotice); the
+// lasting control, where they can pick any chart they can see, is on the My account page.
+let landingChoice = null;
 
 // Province-scale `geo` layout settings, spread into each map's `layout.geo` alongside `fitbounds`.
 // Two Plotly defaults fight province maps:
@@ -117,7 +122,7 @@ let suppressInitialPush = true;
 // appends it whenever the active visual is one of them, so the existing syncUrl push/replace +
 // Back/Forward machinery deep-links the selection for free.
 let activeRendererParams = "";
-const SELF_CONTAINED_URL_TYPES = new Set(["treemap", "found_substance_lines", "stacked_hbar"]);
+const SELF_CONTAINED_URL_TYPES = new Set(["treemap", "found_substance_lines", "stacked_hbar", "grouped_bar", "stacked_bar"]);
 // Time grain + alternate chart type for grain-capable visuals (manifest visual_options.time_grains /
 // chart_types). Module state like the treemap params: masterLoop clamps both to what the current
 // visual offers, the toggles set them and re-run masterLoop, and buildVisualUrl serializes them as
@@ -128,6 +133,13 @@ let activeChartType = null;   // null = the visual's own chart_type
 // Map/Trend toggles and carries into the drilled child. null = the visual's first data type; rides
 // the URL as ?measure= (omitted at that default).
 let activeMeasure = null;
+// Where each heatmap's slider is parked, by visual id. Absent = the latest period, the default,
+// which is deliberately NOT recorded: a link without it keeps opening on the newest data. Rides
+// the URL as ?period=<key> for that visual's map view only. A key that isn't on the slider
+// (another grain: "2025" vs "2025-Q2" vs "2025-04") is dropped by the renderer. Reset per page
+// by fetchRegionData. (createVisualPie has a year slider too, but no visual is a pie today, so
+// it is not wired up.)
+let activePeriods = {};
 const GRAIN_ORDER = ["year", "quarter", "month"];
 const GRAIN_LABELS = { year: "Year", quarter: "Quarter", month: "Month" };
 const CHART_TYPE_LABELS = { heatmap: "Map", line: "Trend" };
@@ -202,6 +214,12 @@ function buildVisualUrl(location, year, category) {
   if (rootCfg && rootCfg["type"] === "heatmap" && activeMeasure && activeMeasure !== rootTypes[0]
       && rootTypes.includes(activeMeasure)) {
     query.push("measure=" + encodeURIComponent(activeMeasure));
+  }
+  // The map's slider position: only on the map itself (not drilled, not its Trend view).
+  const shownPeriod = activePeriods[rootVid];
+  if (shownPeriod && location == null && rootCfg && rootCfg["type"] === "heatmap"
+      && (activeChartType || "heatmap") === "heatmap") {
+    query.push("period=" + encodeURIComponent(shownPeriod));
   }
   return path + (query.length ? "?" + query.join("&") : "");
 }
@@ -441,6 +459,108 @@ function createMenu(province) {
     // append the menu item to the appropriate parent category
     document.getElementById(`${slugify(details["menu-parent"])}-dropdown-menu`).appendChild(li);
   }
+  renderLandingNotice();
+}
+
+// One-time notice above the page (#vis-landing-notice) for someone whose groups picked different
+// starting charts for this page and who has not set their own yet (landingChoice is non-null).
+// It asks which chart they want to see first and lists every pick as a button, the one showing
+// now included -- pressing any of them is saved as their own starting chart, so the notice does
+// not come back. The x only hides it for this browser session. Group and visual names go in via
+// textContent only.
+function landingNoticeKey(scope) { return `canask-landing-notice-dismissed:${scope}`; }
+
+function renderLandingNotice() {
+  const host = document.getElementById("vis-landing-notice");
+  if (!host) return;
+  host.innerHTML = "";
+  host.classList.add("d-none");
+  if (!landingChoice || !Array.isArray(landingChoice.options) || landingChoice.options.length < 2) return;
+  try { if (sessionStorage.getItem(landingNoticeKey(province))) return; } catch (e) { /* storage blocked */ }
+
+  const box = document.createElement("div");
+  box.className = "alert alert-info landing-notice mb-0";
+  box.setAttribute("role", "status");
+
+  const text = document.createElement("div");
+  text.className = "landing-notice-text";
+  const lead = document.createElement("strong");
+  lead.textContent = "Which chart do you want to see first on this page?";
+  text.appendChild(lead);
+  text.appendChild(document.createTextNode(" You're in more than one group, and each has picked a different one. You can choose any other chart, or change your mind later, in "));
+  const link = document.createElement("a");
+  link.href = "/v1/account/starting-charts";
+  link.className = "alert-link";
+  link.textContent = "My account";
+  text.appendChild(link);
+  text.appendChild(document.createTextNode("."));
+  box.appendChild(text);
+
+  const actions = document.createElement("div");
+  actions.className = "landing-notice-actions";
+  for (const option of landingChoice.options) {
+    const showing = option.visual === landingChoice.active;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = showing ? "btn btn-sm btn-outline-secondary" : "btn btn-sm btn-primary";
+    button.textContent = showing ? `${option.label} (${option.group}, showing now)` : `${option.label} (${option.group})`;
+    button.onclick = () => chooseLanding(option);
+    actions.appendChild(button);
+  }
+  box.appendChild(actions);
+
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "btn-close landing-notice-close";
+  close.setAttribute("aria-label", "Not now");
+  close.title = "Not now";
+  close.onclick = () => {
+    try { sessionStorage.setItem(landingNoticeKey(province), "1"); } catch (e) { /* storage blocked */ }
+    host.innerHTML = "";
+    host.classList.add("d-none");
+  };
+  box.appendChild(close);
+
+  host.appendChild(box);
+  host.classList.remove("d-none");
+}
+
+// Save the chart picked in the notice as the viewer's own starting chart (also when it is the one
+// already showing: that is what stops the notice coming back), then show it. A failed save leaves
+// the page as it was and says so. `province`, `landingChoice` and `visuals` are page globals that
+// an HTMX navigation replaces, so the ones this click belongs to are captured first and nothing
+// is written if the page changed during the save.
+async function chooseLanding(option) {
+  const scope = province;
+  const choice = landingChoice;
+  const body = new FormData();
+  body.append("visual_id", option.visual_id);
+  let saved;
+  try {
+    const response = await fetch(`/v1/landing-choice/${encodeURIComponent(scope)}`, {
+      method: "POST",
+      headers: { "X-CSRFToken": document.querySelector("meta[name='csrf-token']").getAttribute("content") },
+      body,
+      signal: AbortSignal.timeout(10000),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data["default"]) throw new Error(data.error || `status ${response.status}`);
+    saved = data["default"];
+  } catch (error) {
+    console.error("Could not save the starting chart:", error);
+    // A timeout only aborts this side; the server may still have saved it, so point at a reload.
+    showFlash("We couldn't confirm that was saved. Reload the page to check.", "danger");
+    return;
+  }
+  if (province !== scope || landingChoice !== choice) return;   // navigated away meanwhile
+  landingChoice = null;   // they have their own starting chart now: nothing left to ask
+  visuals["default-visuals"][scope] = saved;
+  renderLandingNotice();
+  showFlash(`Saved. This page will open on ${option.label} from now on.`, "success");
+  if (saved === currentVisual || !visuals[scope] || !visuals[scope][saved]) return;
+  if (visuals[scope][saved]["type"] !== "map") resetVisualControl();
+  currentVisual = saved;
+  masterLoop();
 }
 
 // ---- Client-side adapter from the generic fact contract to the legacy block shape ----
@@ -824,6 +944,8 @@ async function fetchRegionData(province){
         "default-visuals": { [province]: payload["default"] },
     };
     menuCategories = payload.categories || [];
+    activePeriods = {};   // slider positions belong to the page they were set on
+    landingChoice = payload.landing || null;
     currentData = payload.data;   // generic blocks; renderers derive their data from .facts (above)
     currentGeojson = (geojson && geojson.ok) ? await geojson.json() : null;   // null = province has no map
 }
@@ -1122,6 +1244,14 @@ async function createVisualHeatMap(province, visualToGen, geojson, heatByType, m
   activeMeasure = dataType;
   const mapData = heatByType[dataType];
   const periods = (Object.values(mapData)[0] || {}).x || [];
+  // Where the slider starts: the linked / last-used period for THIS map if it exists at this
+  // grain, else the latest. Anything else recorded for this map is stale (e.g. the grain changed).
+  let startIndex = periods.length - 1;
+  if (activePeriods[visualToGen] != null) {
+    const wanted = periods.indexOf(activePeriods[visualToGen]);
+    if (wanted >= 0 && wanted < periods.length - 1) startIndex = wanted;
+    else delete activePeriods[visualToGen];
+  }
   const measure = HEATMAP_MEASURE_LABELS[dataType] || HEATMAP_MEASURE_LABELS.counts;
   const mapTitle = dataType === "counts" ? mapOptions["heatmap-title"] : mapOptions[`heatmap-${dataType}-title`];
 
@@ -1148,7 +1278,7 @@ async function createVisualHeatMap(province, visualToGen, geojson, heatByType, m
         // colorbar would put its own label up against the chart title: centre a shorter bar.
         ...(window.innerWidth > 768 ? {} : { len: 0.6, y: 0.5, yanchor: "middle", thickness: 12, nticks: 4 }),
       },
-      visible: year_index === periods.length - 1,   // the latest period, matching the slider's start
+      visible: year_index === startIndex,   // matches the slider's start (the latest unless linked)
       hoverinfo: "none",   // label drawn by attachGeoHoverTip (events still fire)
     };
     dataSlider.push(chartData);
@@ -1181,7 +1311,7 @@ async function createVisualHeatMap(province, visualToGen, geojson, heatByType, m
     },
     sliders: [
       {
-        active: steps.length - 1,
+        active: startIndex,
         steps: steps,
         x: 0.5,
         xanchor: "center",
@@ -1220,6 +1350,15 @@ async function createVisualHeatMap(province, visualToGen, geojson, heatByType, m
     // rewrites a string colorbar title into {text} on gd.data.
     attachGeoHoverTip(visDiv, (point) => (point.location == null ? null
       : { name: point.location, value: `${measure.hover}: ${point.z}` }));
+    // Moving the slider records the period in the address (replaceState: not a step to go Back
+    // through), so a copied link opens on the same map. The latest period is the default and is
+    // left out. visDiv was purged before this render, so the listener does not stack.
+    visDiv.on("plotly_sliderchange", function (event) {
+      const index = event.slider.active;
+      if (index === steps.length - 1) delete activePeriods[visualToGen];
+      else activePeriods[visualToGen] = steps[index].label;
+      if (!isReplaying) history.replaceState(history.state, "", buildVisualUrl(null, null, null));
+    });
     visDiv.on("plotly_click", function (data) {
       if (!canDrill(province, visualToGen)) {
         console.warn("No accessible next-level visual for this visual");
@@ -2332,7 +2471,20 @@ async function createVisualStratifiedBar(province, block, currentVisual, source,
 
   const substances = Array.from(new Set(parsed.map(p => p.substance))).sort();
   const years = _sortYears(parsed.map(p => p.year));
-  const sel = { substance: substances[0], year: years[years.length - 1] };   // default: first substance, latest year
+  const latestYear = years[years.length - 1];
+  const sel = { substance: substances[0], year: latestYear };   // default: first substance, latest year
+  // Deep link / Back-Forward: sb.s (substance slug) and sb.y (year); each is left out at its
+  // default, so a link without sb.y keeps opening on the newest year.
+  const urlParams = new URLSearchParams(window.location.search || "");
+  sel.substance = matchSlug(substances, urlParams.get("sb.s")) || substances[0];
+  if (years.includes(urlParams.get("sb.y"))) sel.year = urlParams.get("sb.y");
+  function selToParams() {
+    const p = new URLSearchParams();
+    if (sel.substance !== substances[0]) p.set("sb.s", slugify(sel.substance));
+    if (sel.year !== latestYear) p.set("sb.y", sel.year);
+    return p.toString();
+  }
+  function syncBarUrl() { activeRendererParams = selToParams(); syncUrl(null, null, null); }
   const substanceLabel = s => (SUBSTANCE_DISPLAY[s] || s.toSentenceCase());
 
   // Layout: title (header), chart, controls row (footer) -- all inside #vis-div so the next visual's
@@ -2357,7 +2509,7 @@ async function createVisualStratifiedBar(province, block, currentVisual, source,
     const select = document.createElement("select"); select.className = "form-select form-select-sm";
     options.forEach(o => { const opt = document.createElement("option"); opt.value = o.value; opt.innerText = o.label; select.appendChild(opt); });
     select.value = current;
-    select.onchange = () => { onChange(select.value); render(); };
+    select.onchange = () => { onChange(select.value); render(); syncBarUrl(); };
     wrap.appendChild(lab); wrap.appendChild(select); controlHost.appendChild(wrap);
   }
 
@@ -2373,6 +2525,7 @@ async function createVisualStratifiedBar(province, block, currentVisual, source,
     slider.max = Math.max(0, values.length - 1); slider.value = currentIdx;
     const readout = document.createElement("div"); readout.className = "small text-muted"; readout.innerText = values[currentIdx];
     slider.oninput = () => { const i = parseInt(slider.value, 10) || 0; readout.innerText = values[i]; onChange(values[i]); render(); };
+    slider.onchange = () => { syncBarUrl(); };   // on release, like the treemap: one history entry per pick
     wrap.appendChild(lab); wrap.appendChild(slider); wrap.appendChild(readout); controlHost.appendChild(wrap);
   }
 
@@ -2438,8 +2591,9 @@ async function createVisualStratifiedBar(province, block, currentVisual, source,
   }
 
   makeSelect(cfg.filter_label || "Substance", substances.map(s => ({ value: s, label: substanceLabel(s) })), sel.substance, v => { sel.substance = v; });
-  makeSlider(cfg.time_label || "Year", years, years.length - 1, v => { sel.year = v; });
+  makeSlider(cfg.time_label || "Year", years, years.indexOf(sel.year), v => { sel.year = v; });
   render();
+  syncBarUrl();
 }
 
 
@@ -3244,32 +3398,41 @@ function parseVisualPath(pathname, search) {
 // URL to the resolved state). entryVid is a level-1 visual id (server-resolved, or slugToVisualId'd).
 function replayFromPath(entryVid, locationSlug, categorySlug, yearParam) {
   seedGrainFromUrl();
+  // ?period= is the slider position of the map this link lands on, so it is assigned just before
+  // that visual renders; the renderer drops a period that isn't on its slider, and no ?period=
+  // means the latest.
+  const linkedPeriod = new URLSearchParams(window.location.search || "").get("period");
+  const show = function (...args) {
+    if (linkedPeriod) activePeriods[currentVisual] = linkedPeriod;
+    else delete activePeriods[currentVisual];
+    masterLoop(...args);
+  };
   if (!entryVid || !visuals[province] || !visuals[province][entryVid] || !currentData[entryVid]) {
     currentVisual = visuals["default-visuals"][province];
-    masterLoop();
+    show();
     return;
   }
   currentVisual = entryVid;
   route = [];
   lastLocation = null;
 
-  if (!locationSlug) { masterLoop(); return; }                       // level 1
-  if (!canDrill(province, currentVisual)) { masterLoop(); return; }
+  if (!locationSlug) { show(); return; }                       // level 1
+  if (!canDrill(province, currentVisual)) { show(); return; }
   // The location lives in the DRILL TARGET's facts, not the entry's: a level-1 map (map_none) has no
   // facts of its own, and even for a heatmap the drilled child carries the same geo. Resolve the slug
   // against next-vis's geo values so map and heatmap entries both drill correctly.
   const nextVid = visuals[province][currentVisual]["next-vis"];
   const location = reverseSlugGeo((currentData[nextVid] || {}).facts || [], locationSlug);
-  if (location == null) { masterLoop(); return; }                    // unknown region -> stay level 1
+  if (location == null) { show(); return; }                    // unknown region -> stay level 1
   moveUpOneLevel(province);
-  if (!categorySlug) { masterLoop(location); return; }               // level 2
-  if (!canDrill(province, currentVisual)) { masterLoop(location); return; }
+  if (!categorySlug) { show(location); return; }               // level 2
+  if (!canDrill(province, currentVisual)) { show(location); return; }
   const pieFacts = currentData[currentVisual].facts || [];
   const category = reverseSlugCategory(pieFacts, location, categorySlug);
-  if (category == null) { masterLoop(location); return; }            // unknown category -> stay level 2
+  if (category == null) { show(location); return; }            // unknown category -> stay level 2
   const year = resolveYear(pieFacts, location, category, yearParam);
   moveUpOneLevel(province);
-  masterLoop(location, year, category);                              // level 3
+  show(location, year, category);                              // level 3
 }
 
 // Seed the time grain, chart type and heatmap measure from ?grain= / ?chart= / ?measure= (deep link

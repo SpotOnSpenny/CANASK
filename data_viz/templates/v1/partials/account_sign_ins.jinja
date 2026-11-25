@@ -1,0 +1,29 @@
+{# The "Sign-in activity" tab of My account: the signed-in user's own recent sign-ins and
+   security changes (auth._account_context). Labels come from auth._account_activity_label,
+   never the raw activity details. Read-only. #}
+<div id="account-tab-sign-ins">
+    {% if not activity %}
+        <p class="text-muted mb-0">No recent activity to show.</p>
+    {% else %}
+        <p class="form-intro">Your last {{ activity_limit }} sign-ins and account changes, newest
+            first. If something here wasn't you, change your password.</p>
+        <table class="table table-sm align-middle mb-0">
+            <thead>
+                <tr>
+                    <th scope="col">When (UTC)</th>
+                    <th scope="col">What happened</th>
+                    <th scope="col">IP address</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in activity %}
+                <tr>
+                    <td class="text-nowrap">{{ item.when.strftime("%Y-%m-%d %H:%M") }}</td>
+                    <td>{{ item.what }}</td>
+                    <td class="text-body-secondary">{{ item.ip or "Not recorded" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+</div>

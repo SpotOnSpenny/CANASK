@@ -345,6 +345,76 @@ function feedbackSubmit(token) {
   }
 }
 
+// --- Show / hide password ---------------------------------------------------------------------
+// Every password-type field on the site (sign-in, invite, reset, the account page, and the
+// "your password" / "site admin key" confirmations in the admin modals) gets an eye button that
+// reveals what was typed. It is added here, once, rather than in each template: a field added
+// later gets it for free, including fields that arrive in an HTMX swap (modals, account tabs).
+function enhancePasswordFields(root) {
+  const scope = root && root.querySelectorAll ? root : document;
+  const fields = Array.from(scope.querySelectorAll('input[type="password"]'));
+  if (scope.matches && scope.matches('input[type="password"]')) fields.unshift(scope);
+  fields.forEach((input) => {
+    if (input.dataset.passwordToggle) return;
+    input.dataset.passwordToggle = "on";
+
+    // The button sits in an input group with the field. A Bootstrap ".invalid-feedback" message
+    // only shows as a LATER SIBLING of its field, so one that followed the field moves in too.
+    let group = input.parentElement;
+    if (!group.classList.contains("input-group")) {
+      const feedback = input.nextElementSibling;
+      group = document.createElement("div");
+      group.className = "input-group password-toggle-group";
+      input.parentElement.insertBefore(group, input);
+      group.appendChild(input);
+      if (feedback && feedback.classList.contains("invalid-feedback")) {
+        group.classList.add("has-validation");
+        group.appendChild(feedback);
+      }
+    }
+
+    // Name the button after the field's own label ("Show site admin key"), not just "password".
+    const label = input.id ? document.querySelector(`label[for="${CSS.escape(input.id)}"]`) : null;
+    const what = (label ? label.textContent.trim().toLowerCase() : "") || "password";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "btn btn-outline-secondary password-toggle"
+      + (input.classList.contains("form-control-sm") ? " btn-sm" : "");
+    const icon = document.createElement("i");
+    icon.className = "bi bi-eye";
+    icon.setAttribute("aria-hidden", "true");
+    button.appendChild(icon);
+    const show = (visible) => {
+      input.type = visible ? "text" : "password";
+      icon.className = visible ? "bi bi-eye-slash" : "bi bi-eye";
+      button.setAttribute("aria-pressed", visible ? "true" : "false");
+      button.setAttribute("aria-label", `${visible ? "Hide" : "Show"} ${what}`);
+      button.title = `${visible ? "Hide" : "Show"} ${what}`;
+    };
+    show(false);
+    button.addEventListener("click", () => show(input.type === "password"));
+    input.insertAdjacentElement("afterend", button);
+    input._hidePassword = () => show(false);
+  });
+}
+
+// A revealed field goes back to hidden when its form is sent, so the browser treats it as a
+// password again (autofill, "save password") and it is not left readable on screen.
+document.addEventListener("submit", (event) => {
+  if (!event.target || !event.target.querySelectorAll) return;
+  event.target.querySelectorAll("input[data-password-toggle]").forEach((input) => {
+    if (input._hidePassword) input._hidePassword();
+  });
+}, true);
+
+// htmx:load fires for the page itself and for every piece of content swapped in afterwards.
+document.body.addEventListener("htmx:load", (event) => enhancePasswordFields(event.detail.elt));
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", () => enhancePasswordFields(document));
+} else {
+  enhancePasswordFields(document);
+}
+
 // Watch for HTMX signals to know when to run the mobile nav and feedback init functions
 document.body.addEventListener("htmx:afterSettle", (event) => {
   if (event.detail.target && event.detail.target.id == "page-container") {

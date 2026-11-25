@@ -6,11 +6,11 @@ import json
 import pytest
 
 from data_viz.database import db
-from data_viz.database.models import (DataSources, GroupDataSources, GroupVisuals, UserActivity,
-                                      Visuals, VisualQuery)
+from data_viz.database.models import (DataSources, GroupDataSources, GroupLandingVisuals,
+                                      GroupVisuals, UserActivity, Visuals, VisualQuery)
 from data_viz.visual_definitions import sync_visual_definitions
 
-from tests.factories import make_group, unique
+from tests.factories import make_group, set_landing, unique
 
 
 def hold_synced_rows():
@@ -135,6 +135,25 @@ class TestPrune:
         assert GroupVisuals.query.filter_by(visual_id=dropped.id).count() == 0
         assert VisualQuery.query.filter_by(for_visual_id=dropped.id).count() == 0
         assert Visuals.query.filter_by(province=province, name="keep").count() == 1
+
+    def test_pruned_visual_takes_its_opening_view_picks_with_it(self, db_session, tmp_path,
+                                                                province):
+        """A group that picked the visual as its starting chart must not block the prune (a
+        foreign key into visuals) nor keep a row pointing at nothing."""
+        source = unique("src")
+        write_manifest(tmp_path, source, [entry(province, "keep"), entry(province, "drop")])
+        sync_visual_definitions(manifest_dir=str(tmp_path))
+        dropped = Visuals.query.filter_by(province=province, name="drop").one()
+        kept = Visuals.query.filter_by(province=province, name="keep").one()
+        leaving, staying = make_group(), make_group()
+        set_landing(leaving, dropped)
+        set_landing(staying, kept)
+
+        write_manifest(tmp_path, source, [entry(province, "keep")])
+        assert sync_visual_definitions(manifest_dir=str(tmp_path))["pruned"] == 1
+        db.session.expire_all()
+        assert GroupLandingVisuals.query.filter_by(group_id=leaving.id).count() == 0
+        assert GroupLandingVisuals.query.filter_by(group_id=staying.id).count() == 1
 
     def test_prune_scoped_to_own_source(self, db_session, tmp_path, province):
         """A manifest prunes only within its source's scope - other sources' visuals

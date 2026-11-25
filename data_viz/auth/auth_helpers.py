@@ -1,5 +1,7 @@
 # Standard Library Imports
 import re
+from collections import defaultdict
+from datetime import datetime, timezone
 
 # External Imports
 from bcrypt import hashpw, gensalt, checkpw
@@ -8,11 +10,16 @@ from flask_login import current_user
 
 # Internal Imports
 from data_viz.database import db
-from data_viz.database.models import User, Invites, UserGroups, Groups, UserActivity, DataSources, GroupDataSources, Visuals, GroupVisuals, SiteAdminKey, VISUAL_VISIBILITY
+from data_viz.database.models import (User, Invites, UserGroups, Groups, UserActivity, DataSources, GroupDataSources, Visuals,
+                                       GroupVisuals, GroupLandingVisuals, UserLandingChoices, UserStartingViews, VisualQuery, SiteAdminKey,
+                                       VISUAL_VISIBILITY)
 from data_viz.auth.role_hierarchy import GROUP_ROLES, ROLE_HIERARCHY
 from data_viz.auth.restricted import (RestrictedSourceRefusal, admin_reaches_group,
                                       admin_reaches_source, blocked_group_ids,
-                                      uncovered_source_ids)
+                                      restricted_source_ids, uncovered_source_ids)
+from data_viz.provinces import PROVINCE_LABELS
+from data_viz.starting_views import PAGES as STARTING_VIEW_PAGES, clean_view_query
+from data_viz.visual_query import _visual_has_data, accessible_provinces, displayable_visuals, landing_for
 
 def create_user(email, username, password, invited_by = None, status = User.STATUS_ACTIVE, site_admin = False):
     password_hash = hashpw(password.encode('utf-8'), gensalt()).decode('utf-8')
@@ -32,6 +39,11 @@ def create_user(email, username, password, invited_by = None, status = User.STAT
         invite = Invites.query.filter_by(email = email, status = "pending").first()
         if invite:
             invite.status = "accepted"
+            # Tie the invite to the account it created, with the name they signed up with: the
+            # invite keeps the address it was sent to, the account can change both later.
+            invite.accepted_user_id = user.id
+            invite.accepted_username = username
+            invite.accepted_at = datetime.now(timezone.utc).replace(tzinfo = None)
             db.session.add(invite)
         inviter = User.query.get(invited_by)
         details = f"Account created for {username} with email {email} with invite from {inviter.username}."
@@ -139,7 +151,7 @@ def assign_group(user_id, group_id, role, assigned_by = None, remove = False, ac
     except Exception as e:
         print(f"Error in assign_group: {e}")
         if has_request_context():
-            flash(f"An error occured while removing group access: {str(e)}", "danger")
+            flash(f"An error occurred while removing group access: {str(e)}", "danger")
         raise e
 
     try:
@@ -174,7 +186,7 @@ def assign_group(user_id, group_id, role, assigned_by = None, remove = False, ac
     except Exception as e:
         print(f"Error in assign_group: {e}")
         if has_request_context():
-            flash(f"An error occured while assigning group access: {str(e)}", "danger")
+            flash(f"An error occurred while assigning group access: {str(e)}", "danger")
         raise e
     
     db.session.add(activity)
@@ -264,8 +276,11 @@ def set_site_admin_key(new_password, changed_by = None, ip_address = None):
     db.session.commit()
     return row
 
-def set_user_password(user, new_password, ip_address = None):
-    # Strength validation is the caller's job (same convention as set_site_admin_key).
+def set_user_password(user, new_password, ip_address = None, details = None):
+    # Strength validation is the caller's job (same convention as set_site_admin_key). `details`
+    # words the activity row for a caller other than the emailed reset link (the account page's
+    # "change password"); the activity TYPE stays "password reset" either way, because
+    # auth.recent_login_failures treats that type as the boundary that clears earlier failures.
     user.password_hash = hashpw(new_password.encode("utf-8"), gensalt()).decode("utf-8")
     # Bump so every OTHER session for this account fails load_user's version check on its next
     # request -- the standard "reset my password to kick out whoever's in my account" expectation.
@@ -276,7 +291,7 @@ def set_user_password(user, new_password, ip_address = None):
         activity_type = "password reset",
         activity_target_type = "account",
         activity_target_id = user.id,
-        details = f"Password reset completed for {user.username}",
+        details = details or f"Password reset completed for {user.username}",
         ip_address = ip_address
     )
 
@@ -372,8 +387,8 @@ def set_group_data_sources(group_id, source_ids, changed_by = None, actor_label 
     """Reconcile a group's GroupDataSources rows to exactly `source_ids` (a collection of
     DataSources ids). Adds/removes the difference and logs a UserActivity row. Returns the
     list of changes made (empty if nothing changed); a detached source's cleared visual grants
-    are one of them ("N visual grant(s) cleared") -- callers should show the list, because
-    re-attaching the source does not bring those grants back. `actor_label` names a non-user
+    and starting charts are among them ("N visual grant(s) cleared", "N starting chart(s) cleared")
+    -- callers should show the list, because re-attaching the source does not bring them back. `actor_label` names a non-user
     actor (the break-glass CLI) in the activity row."""
     group = Groups.query.get(group_id)
     if not group:
@@ -393,14 +408,23 @@ def set_group_data_sources(group_id, source_ids, changed_by = None, actor_label 
     # A group that loses a source loses its visual grants for that source: left behind they
     # would still be live access to an open source's Group-level visuals, with no way to revoke
     # them in the app (team grants are only editable for groups that hold the source).
-    grants_cleared = 0
+    # The same goes for a starting chart (GroupLandingVisuals) that rested on one of those grants:
+    # members can no longer see it, and left behind it would come back to life unasked if the
+    # source were re-attached and re-granted. A pick on a Public visual stays -- still visible.
+    grants_cleared = landing_cleared = 0
     if to_remove:
-        detached_visual_ids = [visual_id for (visual_id,) in db.session.query(Visuals.id).filter(
-            Visuals.data_source_id.in_(to_remove))]
+        detached = db.session.query(Visuals.id, Visuals.visibility).filter(
+            Visuals.data_source_id.in_(to_remove)).all()
+        detached_visual_ids = [visual_id for visual_id, _ in detached]
         if detached_visual_ids:
             grants_cleared = GroupVisuals.query.filter(
                 GroupVisuals.group_id == group_id,
                 GroupVisuals.visual_id.in_(detached_visual_ids)).delete(synchronize_session = False)
+        no_longer_visible = [visual_id for visual_id, visibility in detached if visibility != "public"]
+        if no_longer_visible:
+            landing_cleared = GroupLandingVisuals.query.filter(
+                GroupLandingVisuals.group_id == group_id,
+                GroupLandingVisuals.visual_id.in_(no_longer_visible)).delete(synchronize_session = False)
     for source_id in to_add:
         db.session.add(GroupDataSources(group_id = group_id, data_source_id = source_id))
 
@@ -413,6 +437,8 @@ def set_group_data_sources(group_id, source_ids, changed_by = None, actor_label 
         changes.extend(f"-{name}" for name in removed_names)
     if grants_cleared:
         changes.append(f"{grants_cleared} visual grant{'' if grants_cleared == 1 else 's'} cleared")
+    if landing_cleared:
+        changes.append(f"{landing_cleared} starting chart{'' if landing_cleared == 1 else 's'} cleared")
 
     if changes:
         changer = User.query.get(changed_by) if changed_by else None
@@ -709,24 +735,23 @@ def set_source_visibility(source_id, visibility, changed_by = None):
     return len(changed)
 
 def set_province_default_visual(visual_id, changed_by = None):
-    """Set (or unset) the landing visual for a province page. The caller must already have verified
-    the user may manage the visual's data source (can_manage_source).
+    """Set (or unset) the SITE-WIDE landing visual for a province page: what the page opens on for
+    anyone whose own groups picked nothing they can see (see set_group_landing for the per-group
+    starting charts, and visual_query.resolve_landing for the order). The caller must already have
+    verified the actor is a site admin who may manage the visual's data source.
 
     Only a root/level-1 visual may be the default -- the landing visual renders without drill-chain
     context, so a drill child would have no access point above it (raises ValueError). The default is
     a single per-province pointer: setting one clears is_default on every other visual in that
-    province (across all sources). Clicking the current default again unsets it, reverting the page to
-    the automatic level-1 fallback. Logs a UserActivity row and returns the new is_default state.
+    province, across all sources (two flagged visuals would be resolved by row order). Clicking the
+    current default again unsets it, reverting the page to the automatic level-1 fallback. Logs a
+    UserActivity row and returns the new is_default state.
 
-    INTENTIONAL cross-source clear: a province's visuals can live in several data sources, but the
-    landing default is one-per-province by design (build_province_menu picks a single is_default
-    visual). So setting a default necessarily clears whatever default another source held for the same
-    province -- even one set by a different source's Data Owner. Scoping the clear to only the actor's
-    manageable sources would let two visuals in the same province both stay flagged, which
-    build_province_menu would then resolve nondeterministically (first by query order). The route
-    (set_default_visual) re-renders every owned source card so the moved star stays visually in sync.
-    The actor still needs can_manage_source on the visual they are *setting*; this shared-province
-    coupling is accepted."""
+    The cross-source clear is why this is a site-admin setting: a Data Owner sees only their own
+    sources, and used to be able to move the page off another owner's visual. One case is still
+    refused (ValueError, nothing changed): the province's current default sits on a restricted
+    source the actor is not covered for -- they can neither see nor manage that visual, so they
+    may not decide the page stops opening on it."""
     visual = Visuals.query.get(visual_id)
     if not visual:
         raise ValueError("Visual not found.")
@@ -734,14 +759,21 @@ def set_province_default_visual(visual_id, changed_by = None):
         raise ValueError(f'"{_label(visual)}" is a drill-down and can\'t be the page default. '
                          "Only top-level visuals can be the landing visual.")
 
+    changer = User.query.get(changed_by) if changed_by else None
+    others = Visuals.query.filter(Visuals.province == visual.province,
+                                  Visuals.id != visual.id, Visuals.is_default.is_(True)).all()
+    if changer is not None and others:
+        uncovered = uncovered_source_ids(changer)
+        if any(other.data_source_id in uncovered for other in others):
+            raise ValueError("You can't change this page's default. It is currently set to a visual "
+                             "covered by a data sharing agreement you aren't part of.")
+
     new_state = not visual.is_default   # toggle
     # The landing visual is one per province: clear every other flagged visual in this province.
-    for other in Visuals.query.filter(Visuals.province == visual.province,
-                                      Visuals.id != visual.id, Visuals.is_default.is_(True)).all():
+    for other in others:
         other.is_default = False
     visual.is_default = new_state
 
-    changer = User.query.get(changed_by) if changed_by else None
     changer_name = changer.username if changer else f"user ID {changed_by}"
     action = "set as" if new_state else "cleared as"
     db.session.add(UserActivity(
@@ -754,6 +786,307 @@ def set_province_default_visual(visual_id, changed_by = None):
     ))
     db.session.commit()
     return new_state
+
+# --------------------------------------------------------------------------------------- #
+# Starting charts: the visual a GROUP's members open a province page on (GroupLandingVisuals),
+# and any user's own choice for a page (UserLandingChoices), which beats it. The read side --
+# what a viewer actually lands on -- is visual_query.landing_for / resolve_landing.
+# --------------------------------------------------------------------------------------- #
+
+def landing_scope_label(province):
+    """Readable name for a Visuals.province scope key: a province, or a national dashboard's
+    title for a national scope such as "canada"."""
+    if province in PROVINCE_LABELS:
+        return PROVINCE_LABELS[province]
+    from data_viz.main import NATIONAL_DASHBOARDS   # lazy: main imports the auth package
+    for dashboard in NATIONAL_DASHBOARDS.values():
+        if dashboard["scope"] == province:
+            return dashboard["title"]
+    return province.replace("-", " ").title()
+
+def _landing_pool(group_id, province = None):
+    """What a group may pick as a starting chart: ({province: [Visuals]}, owners_only_ids).
+
+    Level-1 visuals with data that the group's members have access to:
+      - Public ones, and Group-level ones granted to this group (for a restricted source only
+        if the group also holds it: a stray grant on a non-holding group shows its members
+        nothing, see visual_query._can_see) -- every member sees these;
+      - any other visual of a data source the group HOLDS (Private, or Group-level but not
+        shared with the group itself): the group's own data, which its Data Owners see at any
+        level and its other members do not. Their ids come back in `owners_only_ids`, so the
+        modal can say so.
+    A pick is only ever served to a viewer who can see it (visual_query.resolve_landing), so an
+    owners-only pick opens for the group's Data Owners and leaves everyone else on the site
+    default. Ordered by visual id."""
+    granted = {gv.visual_id for gv in GroupVisuals.query.filter_by(group_id = group_id).all()}
+    held = {gds.data_source_id for gds in GroupDataSources.query.filter_by(group_id = group_id).all()}
+    query = Visuals.query.filter(Visuals.level == "1", db.or_(
+        Visuals.visibility == "public",
+        Visuals.id.in_(granted),
+        Visuals.data_source_id.in_(held)))
+    if province is not None:
+        query = query.filter(Visuals.province == province)
+    visuals = query.order_by(Visuals.id).all()
+    if not visuals:
+        return {}, set()
+    restricted = restricted_source_ids()
+    # Batch the geo predicates the has-data check reads (one query, as accessible_provinces does).
+    geo_preds = defaultdict(list)
+    for row in VisualQuery.query.filter(VisualQuery.filter_type == "geo",
+                                        VisualQuery.for_visual_id.in_([v.id for v in visuals])).all():
+        geo_preds[row.for_visual_id].append(row.filter_value)
+
+    pool, owners_only = {}, set()
+    for visual in visuals:
+        source_id = visual.data_source_id
+        everyone = visual.visibility == "public" or (
+            visual.visibility == "group" and visual.id in granted
+            and (source_id not in restricted or source_id in held))
+        if not everyone and source_id not in held:
+            continue
+        if not _visual_has_data(visual, geo_preds.get(visual.id, [])):
+            continue
+        if not everyone:
+            owners_only.add(visual.id)
+        pool.setdefault(visual.province, []).append(visual)
+    return pool, owners_only
+
+def landing_candidates(group_id, province):
+    """The visuals `group_id` may pick as its starting chart for `province` (see _landing_pool)."""
+    return _landing_pool(group_id, province)[0].get(province, [])
+
+def landing_scopes_for(group_id):
+    """Rows for a group's "Starting charts" modal: one per scope where there is something to choose
+    (two or more candidates) or a pick is already stored --
+    [{province, label, candidates, owners_only, current, stale}]. `owners_only` is the ids of
+    the candidates only the group's Data Owners can see (see _landing_pool). `current` is the
+    picked Visuals row (or None = the site default); `stale` flags a pick that is no longer a
+    candidate (its grant or visibility changed), which members are not served. The modal must
+    not NAME a stale pick: whoever opens it may no longer be allowed to see that visual (e.g. a
+    restricted source). Scopes where the group has visuals beyond the Public ones come first,
+    then alphabetical."""
+    pool, owners_only = _landing_pool(group_id)
+    current = {row.province: row for row in GroupLandingVisuals.query.filter_by(group_id = group_id).all()}
+    scopes = []
+    for province in set(pool) | set(current):
+        candidates = pool.get(province, [])
+        row = current.get(province)
+        if len(candidates) < 2 and row is None:
+            continue
+        scopes.append({
+            "province": province,
+            "label": landing_scope_label(province),
+            "candidates": candidates,
+            "owners_only": {c.id for c in candidates} & owners_only,
+            "current": row.visual if row is not None else None,
+            "stale": row is not None and row.visual_id not in {c.id for c in candidates},
+            "own": any(c.visibility != "public" for c in candidates),
+        })
+    scopes.sort(key = lambda scope: (not scope["own"], scope["label"]))
+    return scopes
+
+def set_group_landing(group_id, picks, changed_by = None):
+    """Set a group's starting charts. `picks` maps a scope (Visuals.province) to a visual id, or
+    to None to go back to the site default; scopes not in `picks` are untouched. The caller must
+    already have verified the actor may manage the group.
+
+    Every NEW pick must be one of landing_candidates for its scope, otherwise ValueError is raised
+    before anything is written (an unchanged pick is kept as it is, even if it has gone stale).
+    Logs one UserActivity row and returns the list of changes (empty, and nothing logged, for a
+    no-op)."""
+    group = db.session.get(Groups, group_id)
+    if not group:
+        raise ValueError("Group not found.")
+    existing = {row.province: row for row in GroupLandingVisuals.query.filter_by(group_id = group_id).all()}
+
+    wanted = {}   # province -> Visuals row (None = clear), only where something changes
+    for province, visual_id in picks.items():
+        row = existing.get(province)
+        if visual_id is None:
+            if row is not None:
+                wanted[province] = None
+            continue
+        visual_id = int(visual_id)
+        if row is not None and row.visual_id == visual_id:
+            continue
+        # Candidates are looked up only for a scope that actually changes (the has-data check
+        # is a query per visual, so a one-scope save must not sweep every province).
+        visual = next((c for c in landing_candidates(group_id, province) if c.id == visual_id), None)
+        if visual is None:
+            raise ValueError(f"That can't be {group.name}'s starting chart for "
+                             f"{landing_scope_label(province)} because the group doesn't have access to it.")
+        wanted[province] = visual
+
+    changes = []
+    for province, visual in wanted.items():
+        row = existing.get(province)
+        if visual is None:
+            db.session.delete(row)
+            changes.append(f"{landing_scope_label(province)}: site default")
+            continue
+        if row is None:
+            db.session.add(GroupLandingVisuals(group_id = group_id, province = province,
+                                               visual_id = visual.id, set_by = changed_by))
+        else:
+            row.visual_id = visual.id
+            row.set_by = changed_by
+        changes.append(f"{landing_scope_label(province)}: {_label(visual)}")
+    if not changes:
+        return []
+
+    changer = db.session.get(User, changed_by) if changed_by else None
+    changer_name = changer.username if changer else f"user ID {changed_by}"
+    db.session.add(UserActivity(
+        user_id = changed_by,
+        activity_type = "group_landing_updated",
+        activity_target_type = "group",
+        activity_target_id = group_id,
+        details = (f"Starting charts for group {group.name} updated by {changer_name}: "
+                   f"{'; '.join(changes)}.")[:5000]
+    ))
+    db.session.commit()
+    return changes
+
+def _page_scopes():
+    """The scope keys that have a page of their own: the active provinces plus the national
+    dashboards' scopes (so not e.g. "canada-das", which backs the DAS Explorer)."""
+    from data_viz.main import active_provinces, national_scopes   # lazy: main imports the auth package
+    return set(active_provinces) | set(national_scopes)
+
+def user_starting_charts(user, provinces = None):
+    """Rows for the "Starting charts" section of a user's account page: one per page they can
+    open (`provinces` defaults to their accessible page scopes), ordered by label --
+    [{province, label, charts, by_category, chosen_id, default}]. `charts` is every top-level
+    visual they can see there (`by_category` the same list grouped by menu category, in menu
+    order), `chosen_id` their own choice (None if they made none, or can no longer see it) and
+    `default` the Visuals row the page opens on WITHOUT their choice (their group's pick, else
+    the site default...). A page with nothing they can see is left out."""
+    if provinces is None:
+        provinces = accessible_provinces(user) & _page_scopes()
+    chosen = {row.province: row.visual_id
+              for row in UserLandingChoices.query.filter_by(user_id = user.id).all()}
+    rows = []
+    for province in provinces:
+        allowed = displayable_visuals(user, province)
+        charts = [v for v in allowed if v.level == "1"]
+        if not charts:
+            continue
+        default_name, _ = landing_for(user, province, allowed, personal = False)
+        chosen_id = chosen.get(province)
+        # The same grouping and order as the page's own menu (menu_parent, first appearance).
+        by_category = {}
+        for chart in charts:
+            by_category.setdefault(chart.menu_parent or "Other", []).append(chart)
+        rows.append({
+            "province": province,
+            "label": landing_scope_label(province),
+            "charts": charts,
+            "by_category": list(by_category.items()),
+            "chosen_id": chosen_id if chosen_id in {c.id for c in charts} else None,
+            "default": next((v for v in allowed if v.name == default_name), None),
+        })
+    rows.sort(key = lambda row: row["label"])
+    return rows
+
+def set_user_landing_choice(user, province, visual_id):
+    """Set `user`'s own starting chart for `province` to `visual_id`, or clear it with None (the
+    page goes back to their group's pick / the site default). The visual must be a top-level one
+    they can see on that page, otherwise ValueError and nothing is written. Returns the name of
+    the visual the page now opens on for them."""
+    allowed = displayable_visuals(user, province)
+    choice = UserLandingChoices.query.filter_by(user_id = user.id, province = province).first()
+
+    if visual_id is None:
+        if choice is None:
+            return landing_for(user, province, allowed)[0]
+        db.session.delete(choice)
+        visual, details = None, (f"{user.username} went back to the default starting chart for "
+                                 f"{landing_scope_label(province)}.")
+    else:
+        try:
+            visual_id = int(visual_id)
+        except (TypeError, ValueError):
+            raise ValueError("That isn't a chart you can start this page on.")
+        visual = next((v for v in allowed if v.id == visual_id and v.level == "1"), None)
+        if visual is None:
+            raise ValueError("That isn't a chart you can start this page on.")
+        if choice is None:
+            db.session.add(UserLandingChoices(user_id = user.id, province = province, visual_id = visual.id))
+        elif choice.visual_id != visual.id:
+            choice.visual_id = visual.id
+        else:
+            return visual.name
+        details = (f"{user.username} set their starting chart for {landing_scope_label(province)} "
+                   f"to {_label(visual)}.")
+
+    db.session.add(UserActivity(
+        user_id = user.id,
+        activity_type = "landing_choice_updated",
+        activity_target_type = "visual",
+        activity_target_id = visual.id if visual is not None else None,
+        details = details
+    ))
+    db.session.commit()
+    return visual.name if visual is not None else landing_for(user, province, displayable_visuals(user, province))[0]
+
+# Starting views: the same personal setting for the two pages that have no chart list. What they
+# show is a set of settings in the address, so the user saves one such set per page
+# (data_viz/starting_views.py knows the pages and cleans what is saved).
+
+def can_open_view_page(user, page):
+    """Whether `user` may open a starting-view page -- the same rules that show its nav link:
+    the DAS gate visual for both, plus at least one province to overlay for Confluence."""
+    if page not in STARTING_VIEW_PAGES:
+        return False
+    accessible = accessible_provinces(user)
+    if "canada-das" not in accessible:
+        return False
+    return page != "confluence" or bool(accessible & set(PROVINCE_LABELS))
+
+def saved_starting_view(user, page):
+    """The query string `user` saved for `page`, or "" (also for an anonymous visitor)."""
+    if user is None or not getattr(user, "is_authenticated", False):
+        return ""
+    row = UserStartingViews.query.filter_by(user_id = user.id, page = page).first()
+    return row.query_string if row is not None else ""
+
+def user_starting_views(user):
+    """Rows for the account page: one per starting-view page the user can open --
+    [{page, label, path, query}] with `query` the saved query string or ""."""
+    saved = {row.page: row.query_string for row in UserStartingViews.query.filter_by(user_id = user.id).all()}
+    return [{"page": page, "label": spec["label"], "path": spec["path"], "query": saved.get(page, "")}
+            for page, spec in STARTING_VIEW_PAGES.items() if can_open_view_page(user, page)]
+
+def set_user_starting_view(user, page, raw):
+    """Save `raw` (the page's query string, or a pasted link to it) as `user`'s starting view for
+    `page`, or clear it with None. Raises ValueError (message fit to show) when it carries nothing
+    the page recognises -- see clean_view_query. The caller checks can_open_view_page. Returns
+    the stored query string ("" after a clear)."""
+    row = UserStartingViews.query.filter_by(user_id = user.id, page = page).first()
+    label = STARTING_VIEW_PAGES[page]["label"]
+    if raw is None:
+        if row is None:
+            return ""
+        db.session.delete(row)
+        cleaned, details = "", f"{user.username} cleared their starting view for {label}."
+    else:
+        cleaned = clean_view_query(page, raw)
+        if row is None:
+            db.session.add(UserStartingViews(user_id = user.id, page = page, query_string = cleaned))
+        elif row.query_string != cleaned:
+            row.query_string = cleaned
+        else:
+            return cleaned
+        details = f"{user.username} saved a starting view for {label}: {cleaned}"
+    db.session.add(UserActivity(
+        user_id = user.id,
+        activity_type = "starting_view_updated",
+        activity_target_type = "account",
+        activity_target_id = user.id,
+        details = details[:5000]
+    ))
+    db.session.commit()
+    return cleaned
 
 def visibility_rows_for_source(source_id):
     """Flatten a source's drill-trees into ordered display rows for the Data Ownership visibility

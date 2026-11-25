@@ -1,0 +1,97 @@
+{# The signed-in user's own starting chart for every page they can open
+   (auth_helpers.user_starting_charts): any top-level chart they can see there, or Default to go
+   with their group's pick / the site default. Swapped back in whole by /v1/landing-choice/<scope>
+   after every change. #}
+<div id="starting-charts-section">
+    {% if not scopes %}
+        <p class="text-muted mb-0">There are no pages for you to set up yet. Once you have access
+            to a province's data, it will show up here.</p>
+    {% else %}
+        <p class="form-intro">Choose the chart each page shows first when you open it. This is
+            your own setting and nobody else sees it. Leave a page on Default to go with what
+            your group or the site has set.</p>
+        {# One compact row per page: the page on the left, what it opens on to the right. #}
+        <table class="table table-sm align-middle mb-0 starting-charts-table">
+            <thead>
+                <tr>
+                    <th scope="col">Page</th>
+                    <th scope="col">Opens on</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for scope in scopes %}
+                <tr>
+                    {# A td, not a row-header th: the site's table styles treat a th as a column heading. #}
+                    <td class="fw-semibold text-nowrap">
+                        <label class="mb-0" for="starting-chart-{{ scope.province }}">{{ scope.label }}</label>
+                    </td>
+                    <td>
+                        {% if scope.charts | length < 2 %}
+                        <span class="text-body-secondary" id="starting-chart-{{ scope.province }}">{{ scope.charts[0] | visual_label }} <span class="small">(the only chart on this page)</span></span>
+                        {% else %}
+                        <select class="form-select form-select-sm" id="starting-chart-{{ scope.province }}" name="visual_id"
+                                hx-post="/v1/landing-choice/{{ scope.province }}"
+                                hx-trigger="change"
+                                hx-target="#starting-charts-section"
+                                hx-swap="outerHTML">
+                            <option value=""{% if not scope.chosen_id %} selected{% endif %}>Default{% if scope.default %} ({{ scope.default | visual_label }}){% endif %}</option>
+                            {% for parent, charts in scope.by_category %}
+                            <optgroup label="{{ parent }}">
+                                {% for chart in charts %}
+                                <option value="{{ chart.id }}"{% if chart.id == scope.chosen_id %} selected{% endif %}>{{ chart | visual_label }}</option>
+                                {% endfor %}
+                            </optgroup>
+                            {% endfor %}
+                        </select>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+    {% if views %}
+    {# The two pages with no chart list: their view is a set of settings in the address, saved
+       from the page's own button or by pasting a link to it here. #}
+    <h6 class="mt-4 mb-1">Confluence and DAS Explorer</h6>
+    <p class="form-intro">These pages don't have a list of charts. Set one up the way you like it
+        and press &ldquo;Save as my starting view&rdquo; on the page, or paste a link to it here.</p>
+    <table class="table table-sm align-middle mb-0 starting-charts-table">
+        <thead>
+            <tr>
+                <th scope="col">Page</th>
+                <th scope="col">Opens on</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for view in views %}
+            <tr>
+                <td class="fw-semibold text-nowrap">{{ view.label }}</td>
+                <td>
+                    <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+                        {% if view.query %}
+                        <span>Your saved view</span>
+                        <a class="btn btn-sm btn-outline-secondary" href="{{ view.path }}?{{ view.query }}">Open it</a>
+                        <form class="d-inline" hx-post="/v1/starting-view/{{ view.page }}"
+                              hx-target="#starting-charts-section" hx-swap="outerHTML">
+                            <input type="hidden" name="clear" value="1">
+                            <button type="submit" class="btn btn-sm btn-outline-danger">Clear</button>
+                        </form>
+                        {% else %}
+                        <span class="text-body-secondary">The page's usual view</span>
+                        {% endif %}
+                    </div>
+                    <form class="input-group input-group-sm" hx-post="/v1/starting-view/{{ view.page }}"
+                          hx-target="#starting-charts-section" hx-swap="outerHTML">
+                        <input type="text" class="form-control" name="link" maxlength="2100" required
+                               aria-label="Link to a {{ view.label }} view"
+                               placeholder="Paste a link to the {{ view.label }} page">
+                        <button type="submit" class="btn btn-outline-primary">Save</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+</div>

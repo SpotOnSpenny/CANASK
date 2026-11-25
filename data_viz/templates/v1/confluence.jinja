@@ -1,4 +1,5 @@
-<div class="container h-100 mobile-height-adjust py-2">
+<div class="container h-100 mobile-height-adjust py-2" id="confluence-page"
+     data-starting-view="{{ starting_view }}">
     <!-- Header -->
     <div class="row justify-content-center align-items-center py-2 mb-2 g-2">
         <div class="col">
@@ -8,6 +9,13 @@
                         <span class="crumb crumb-current">Confluence</span>
                     </nav>
                     <span class="text-muted small">Overlay drug-supply seizures with harm trends</span>
+                    {% if can_save_view %}
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="save-starting-view"
+                        onclick="saveStartingView('confluence')"
+                        title="Open this page on the overlay you have now. Change or clear it under My account.">
+                        <i class="bi bi-bookmark"></i> Save as my starting view
+                    </button>
+                    {% endif %}
                 </div>
             </div>
         </div>

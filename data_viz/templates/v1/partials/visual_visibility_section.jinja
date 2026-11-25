@@ -22,7 +22,9 @@
             <tr>
                 <th>Visual</th>
                 <th>Who can see it</th>
-                <th>Page default</th>
+                {% if current_user.site_admin %}
+                <th title="What the page opens on for anyone whose own group has not picked a starting chart. Set by site admins.">Site default</th>
+                {% endif %}
             </tr>
         </thead>
         <tbody>

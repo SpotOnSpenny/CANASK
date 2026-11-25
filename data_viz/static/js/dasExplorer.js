@@ -27,15 +27,153 @@ var DAS_MAP_ROWS_DIM = { map_province: "province", map_city: "city" };
 // rebuilds it, destroying any previous Tabulator instance bound to removed DOM.
 var dasState = null;
 
+// ---------------- deep links and saved starting views (shared with confluence.js) ----------------
+// The two pages with no chart list keep their view in the address. A signed-in user can save one
+// such view per page (the template's "Save as my starting view" button, or a pasted link on My
+// account); the template hands it back as data-starting-view on the page's root element.
+
+// The settings a page should open on: the address's own query string if it has one (a deep link
+// always wins), else the user's saved starting view, else nothing.
+//
+// "The address's own" needs care. Arriving through the side menu is an HTMX swap, and the page's
+// script runs BEFORE htmx pushes the new URL: the address still shows the page being left, query
+// string and all. So the query only counts when the path is already this page's.
+function pageStartingParams(rootId, pagePath) {
+    const own = window.location.pathname === pagePath ? window.location.search : "";
+    if (own && own.length > 1) return new URLSearchParams(own);
+    const root = document.getElementById(rootId);
+    return new URLSearchParams((root && root.dataset.startingView) || "");
+}
+
+// Write a page's settings into the address (replaceState: refinements of one page, not steps to go
+// Back through). `buildQuery` is called at write time so it reflects what is on screen then. For
+// the same reason as above, if the address still shows the previous page, wait for htmx to push
+// this one rather than writing this page's settings onto that one; give up if the page is left.
+function writePageQuery(rootId, pagePath, buildQuery, tries) {
+    if (!document.getElementById(rootId)) return;
+    if (window.location.pathname !== pagePath) {
+        if ((tries || 0) < 16) setTimeout(() => writePageQuery(rootId, pagePath, buildQuery, (tries || 0) + 1), 250);
+        return;
+    }
+    const query = buildQuery();
+    if (query == null) return;
+    window.history.replaceState(window.history.state, "", query ? `${pagePath}?${query}` : pagePath);
+}
+
+// The page's "Save as my starting view" button: store whatever the address carries right now.
+async function saveStartingView(page) {
+    const query = window.location.search.replace(/^\?/, "");
+    if (!query) {
+        showFlash(page === "confluence" ? "Build an overlay first, then save it as your starting view."
+                                        : "There is nothing to save yet.", "warning");
+        return;
+    }
+    const body = new FormData();
+    body.append("query", query);
+    try {
+        const response = await fetch(`/v1/starting-view/${encodeURIComponent(page)}`, {
+            method: "POST",
+            headers: { "X-CSRFToken": document.querySelector("meta[name='csrf-token']").getAttribute("content") },
+            body: body,
+            signal: AbortSignal.timeout(10000),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            showFlash(data.error || "Could not save that. Please try again.", "danger");
+            return;
+        }
+        showFlash("Saved. This page will open on this view from now on. You can clear it under My account.", "success");
+    } catch (error) {
+        console.error("Could not save the starting view:", error);
+        showFlash("We couldn't confirm that was saved. Reload the page to check.", "danger");
+    }
+}
+
+var DAS_PAGE_PATH = "/v1/national/das-explorer";
+
 function initDasExplorer(cfg) {
     if (!document.getElementById("das-table")) return;
     if (dasState && dasState.table) {
         try { dasState.table.destroy(); } catch (e) { /* already-removed DOM */ }
     }
-    dasState = { cfg: cfg, dataset: Object.keys(cfg.datasets)[0], table: null, pivot: null };
+    // Deep link / saved starting view: ?ds=&f_<field>=&sort=<field>.<dir>&rows=&cols=&measure=&chart=
+    // (written back by dasSyncUrl). Anything that no longer resolves is simply ignored.
+    const params = pageStartingParams("das-explorer-page", DAS_PAGE_PATH);
+    const wanted = params.get("ds");
+    // `view` is the chart last built (what the address records); `pivot` its data. `wantedPeriod`
+    // is a linked map-slider position, claimed by the first chart built.
+    dasState = { cfg: cfg, dataset: cfg.datasets[wanted] ? wanted : Object.keys(cfg.datasets)[0],
+                 table: null, pivot: null, view: null, wantedPeriod: params.get("period") }; 
     dasBuildDatasetToggle();
     dasBuildPivotControls();
-    dasBuildTable();
+    const buildChart = dasRestorePivotControls(params);
+    dasBuildTable(params);
+    if (buildChart) {
+        // The chart respects the table's header filters, so wait until the table has them.
+        dasState.table.on("tableBuilt", function () {
+            const card = document.getElementById("das-visualize-card");
+            if (card && window.bootstrap) bootstrap.Collapse.getOrCreateInstance(card, { toggle: false }).show();
+            dasApplyPivot();
+        });
+    }
+}
+
+// Point the chart builder's selects at a linked chart. Returns true when the link asks for a
+// chart this dataset can build (a `chart` type on offer), i.e. when it should be built on load.
+function dasRestorePivotControls(params) {
+    const setIfOffered = function (id, value) {
+        const select = document.getElementById(id);
+        if (!select || value == null) return false;
+        const offered = Array.from(select.options).some(o => o.value === value);
+        if (offered) select.value = value;
+        return offered;
+    };
+    setIfOffered("das-pivot-rows", params.get("rows"));
+    setIfOffered("das-pivot-cols", params.get("cols"));
+    setIfOffered("das-pivot-measure", params.get("measure"));
+    return setIfOffered("das-pivot-type", params.get("chart"));
+}
+
+// The table's opening header filters and sort from a link: only for columns this dataset has.
+// A multiselect dropdown takes every repeated f_<field> value; anything else takes the first.
+function dasInitialTableState(params) {
+    const ds = dasDatasetCfg();
+    const state = { filters: [], sort: [] };
+    if (!params) return state;
+    ds.columns.forEach(col => {
+        const values = params.getAll(`f_${col.field}`).filter(v => v !== "");
+        if (!values.length) return;
+        const multi = (ds.kinds || {})[col.field] === "select" && col.headerFilterParams && col.headerFilterParams.multiselect;
+        state.filters.push({ field: col.field, value: multi ? values : values[0] });
+    });
+    const fields = ds.columns.map(col => col.field);
+    params.getAll("sort").forEach(entry => {
+        const cut = entry.lastIndexOf(".");
+        const field = entry.slice(0, cut), dir = entry.slice(cut + 1);
+        if (cut > 0 && fields.includes(field) && (dir === "asc" || dir === "desc")) state.sort.push({ column: field, dir: dir });
+    });
+    return state;
+}
+
+// Keep the address in step with what is on screen (dataset, header filters, sort, and the chart
+// last built), so the page can be linked to, reloaded, or saved as a starting view.
+function dasSyncUrl() {
+    writePageQuery("das-explorer-page", DAS_PAGE_PATH, function () {
+        if (!dasState || !document.getElementById("das-table")) return null;
+        const query = new URLSearchParams({ ds: dasState.dataset });
+        if (dasState.table) {
+            dasAppendFilterParams(query, dasState.table.getHeaderFilters());
+            dasState.table.getSorters().forEach(s => query.append("sort", `${s.field}.${s.dir}`));
+        }
+        if (dasState.view) {
+            query.set("rows", dasState.view.rows);
+            if (dasState.view.cols) query.set("cols", dasState.view.cols);
+            query.set("measure", dasState.view.measure);
+            query.set("chart", dasState.view.chart);
+            if (dasState.view.period) query.set("period", dasState.view.period);
+        }
+        return query.toString();
+    });
 }
 
 function dasDatasetCfg() {
@@ -58,6 +196,7 @@ function dasBuildDatasetToggle() {
         input.onchange = function () {
             dasState.dataset = key;
             dasState.pivot = null;
+            dasState.view = null;
             dasResetChart(document.getElementById("das-pivot-chart"), "");
             document.getElementById("das-pivot-truncated").classList.add("d-none");
             dasSetUnmappedNote("");
@@ -171,8 +310,9 @@ function dasRowsUrl(url, config, params) {
     return `${url}?${query.toString()}`;
 }
 
-function dasBuildTable() {
+function dasBuildTable(params) {
     const ds = dasDatasetCfg();
+    const initial = dasInitialTableState(params);
     document.getElementById("das-table-title").textContent = ds.label;
     if (dasState.table) {
         try { dasState.table.destroy(); } catch (e) { /* already-removed DOM */ }
@@ -198,6 +338,9 @@ function dasBuildTable() {
         paginationSizeSelector: [25, 50, 100, 200],
         sortMode: "remote",
         filterMode: "remote",
+        // From a deep link or the user's saved starting view (empty otherwise).
+        initialHeaderFilter: initial.filters,
+        initialSort: initial.sort,
         ajaxURL: `${DAS_API_BASE}/${dasState.dataset}/rows`,
         ajaxURLGenerator: dasRowsUrl,
         // Don't fire a request the server would 400: while a text filter holds a (usually
@@ -226,6 +369,8 @@ function dasBuildTable() {
         else if (message.includes("400")) hint = " (check your filter syntax)";
         document.getElementById("das-table-title").textContent = `${ds.label}: data failed to load${hint}`;
     });
+    // Every load reflects the current filters and sort: record them in the address.
+    dasState.table.on("dataLoaded", dasSyncUrl);
     dasWireFilterValidation();
 }
 
@@ -391,7 +536,14 @@ async function dasApplyPivot() {
             data: pivot, chartType: chartType,
             exportInfo: dasPivotDescribe(rows, chartType === "pie" ? "" : cols, headerFilters, pivot.measure),
         };
+        // A map's slider position carries over a rebuild with the same time split (and comes from
+        // the link on the first build); dasRenderPivot drops it if that period is not on the map.
+        const period = dasState.wantedPeriod
+            || (dasState.view && dasState.view.cols === cols ? dasState.view.period : null);
+        dasState.wantedPeriod = null;
+        dasState.view = { rows: rows, cols: cols, measure: measure, chart: chartType, period: period };
         dasRenderPivot();
+        dasSyncUrl();
     } catch (error) {
         console.error("DAS pivot failed:", error);
         dasResetChart(chart, '<p class="text-danger text-center py-3">Sorry, that chart couldn\'t be built. Please try again.</p>');
@@ -479,6 +631,33 @@ function dasMapLayout(layout, frames, t) {
             })),
         }];
     }
+}
+
+// Park a slider map (traces + layout from dasMapLayout, steps possibly re-masked by the caller)
+// on `period`: that step becomes active and its mask decides which traces are visible. Returns
+// the period now showing, or null when it is the latest one -- the default, which is deliberately
+// not recorded, so a link without it keeps opening on the newest data. An unknown period is the
+// latest too. Shared with confluence.js.
+function dasApplyMapPeriod(traces, layout, period) {
+    const slider = layout.sliders && layout.sliders[0];
+    if (!slider || period == null) return null;
+    const index = slider.steps.findIndex(step => step.label === period);
+    if (index < 0 || index === slider.steps.length - 1) return null;
+    slider.active = index;
+    const mask = slider.steps[index].args[1];
+    traces.forEach((trace, i) => { trace.visible = mask[i]; });
+    return period;
+}
+
+// Tell `onChange(period)` when the user moves a slider map (null = back on the latest period).
+// Plotly.react keeps listeners on the same element, so the previous one is dropped first.
+function dasWatchMapSlider(chart, onChange) {
+    if (chart.removeAllListeners) chart.removeAllListeners("plotly_sliderchange");
+    chart.on("plotly_sliderchange", function (event) {
+        const steps = event.slider.steps || [];
+        const index = event.slider.active;
+        onChange(index === steps.length - 1 || !steps[index] ? null : steps[index].label);
+    });
 }
 
 function dasMapColorbar(p, t) {
@@ -659,8 +838,18 @@ function dasRenderPivot() {
 
     document.getElementById("das-pivot-truncated").classList.toggle("d-none", !p.truncated);
     const isMap = chartType === "map_province" || chartType === "map_city";
+    // Park the map's slider where the link / the last render left it (a theme redraw comes
+    // through here too); any other chart has no slider.
+    if (dasState.view) dasState.view.period = isMap ? dasApplyMapPeriod(traces, layout, dasState.view.period) : null;
     const plotted = Plotly.react(chart, traces, themeChartLayout(layout), chartConfig({ responsive: true }, dasPivotExportInfo));
-    if (isMap) plotted.then(() => dasFitMapHeight(chart));
+    if (isMap) plotted.then(() => {
+        dasFitMapHeight(chart);
+        dasWatchMapSlider(chart, function (period) {
+            if (!dasState || !dasState.view) return;
+            dasState.view.period = period;
+            dasSyncUrl();
+        });
+    });
 }
 
 // Geo subplots keep the map's true geographic aspect ratio, so the flat height used for every

@@ -360,12 +360,44 @@ a { text-decoration: none; }
   border-top-left-radius: var(--radius) !important;
   border-top-right-radius: var(--radius) !important;
 }
+/* Tabs in a card header (the My account page). Bootstrap fills the active tab from --bs-card-bg
+   (its own body colour) and draws its own borders; the site paints cards with --c-surface
+   without touching that variable, so the tab only happens to match the card in the light theme
+   and is a grey slab on the dark one. Point the tab at the card's own tokens, so the active tab
+   is one piece with the panel under it in both themes. (Two classes: must outrank Bootstrap's
+   own .nav-tabs defaults.) */
+.nav-tabs.card-header-tabs {
+  --bs-card-bg: var(--c-surface);
+  --bs-nav-tabs-link-active-bg: var(--c-surface);
+  --bs-nav-tabs-link-active-color: var(--c-text);
+  --bs-nav-tabs-link-active-border-color: var(--c-border) var(--c-border) var(--c-surface);
+  --bs-nav-tabs-link-hover-border-color: var(--c-border) var(--c-border) transparent;
+}
+/* Keep them on one line: a tab that wraps onto a second row is cut off from the panel it belongs
+   to. On a narrow card the row scrolls sideways instead. */
+.nav-tabs.card-header-tabs { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+.nav-tabs.card-header-tabs .nav-link { white-space: nowrap; }
 .card hr { border-color: var(--c-border); opacity: 1; }
 
 /* Dashboard fold rows. Definite (viewport-relative) heights give the chart a
    tall area AND let percentage-height children (.col.h-100 → #viz-card) resolve,
    while the parent container is allowed to grow (rule below) so the table and
    "About these data" rows sit below the fold and stay inside the scroll region. */
+/* The show / hide button main.js adds beside every password field (enhancePasswordFields): it
+   takes the field's own border so the pair reads as one control, in both themes. */
+.password-toggle-group .password-toggle,
+.input-group .password-toggle { border-color: var(--bs-border-color); color: var(--c-muted); background: transparent; }
+.input-group .password-toggle:hover,
+.input-group .password-toggle:focus-visible { color: var(--c-text); background: var(--c-surface-2, rgba(127, 127, 127, 0.12)); }
+
+/* The one-time "your groups start this page on different charts" notice above the menu row
+   (renderLandingNotice): the sentence on its own line, then the buttons with the dismiss x at the
+   far end of that second line -- not in the top-right corner, where the floating theme toggle
+   sits over it on a page scrolled to the top. */
+.landing-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; padding: 0.6rem 0.9rem; }
+.landing-notice-text { flex: 1 1 100%; }
+.landing-notice-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.landing-notice-close { margin-left: auto; }
 .menu-row { height: 15vh; min-height: 124px; }
 .data-row { height: 80vh; min-height: 440px; }
 

@@ -2,14 +2,16 @@
     <h5 class="modal-title">Data Sources — {{ group.name }}</h5>
     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
 </div>
-<form hx-post="/v1/groups/{{ group.id }}/data-sources"
+<form id="group-sources-form"
+      hx-post="/v1/groups/{{ group.id }}/data-sources"
       hx-target="#group-row-{{ group.id }}"
       hx-swap="outerHTML"
       hx-on::after-request="bootstrap.Modal.getInstance(document.getElementById('adjustPermissionsModal')).hide()">
     <div class="modal-body">
         {% if not source_rows %}
-            <p class="text-muted mb-0">There are no data sources to assign yet. Seed the data source
-                catalog first.</p>
+            <p class="text-muted mb-0">{% if current_user.site_admin %}There are no data sources to assign yet. Seed the data source
+                catalog first.{% else %}You don't own any data sources to share with this group. A
+                site admin can attach one.{% endif %}</p>
         {% else %}
             <p class="form-intro">Choose which data sources <strong>{{ group.name }}</strong> can access.</p>
             {% for item in source_rows %}
@@ -22,6 +24,7 @@
                            name="source_ids"
                            value="{{ item.source.id }}"
                            id="source_{{ item.source.id }}"
+                           data-source-name="{{ item.source.name }}"
                            {% if item.checked %}checked{% endif %}
                            {% if item.locked %}disabled{% endif %}>
                     <label class="form-check-label fw-semibold" for="source_{{ item.source.id }}">
@@ -34,13 +37,29 @@
                         <a href="{{ item.source.link }}" target="_blank" rel="noopener"
                            class="ms-2 small text-decoration-none">source ↗</a>
                     {% endif %}
-                    {% if item.locked %}
+                    {% if item.locked == "agreement" %}
                         <div class="form-text mb-0">Covered by a data sharing agreement. Only members
                             of a group that already has this source can share it.</div>
+                    {% elif item.locked %}
+                        <div class="form-text mb-0">Only a site admin can change this one.</div>
                     {% endif %}
                 </div>
             </div>
             {% endfor %}
+            {# Second step for a removal (see the script below): shown on the first Save that would
+               detach a source; the next press of the button confirms it. The route refuses a
+               removal that arrives without confirm_remove=1. #}
+            <div id="source-remove-warning" class="alert alert-danger d-none mt-3 mb-0" role="alert">
+                <p class="fw-semibold mb-1">Remove from {{ group.name }}?</p>
+                <ul id="source-remove-list" class="mb-2"></ul>
+                <p class="mb-0">The group will lose everything from this source that isn't Public.
+                    Visuals shared with the group from it, and any starting charts that use it, are
+                    cleared and don't come back if the source is added again.
+                    {% if not current_user.site_admin %}<strong>You won't be able to add it back
+                    yourself</strong> unless you also own it through another group. A site admin
+                    can.{% endif %}
+                    Press the button again to confirm.</p>
+            </div>
         {% endif %}
     </div>
     <div class="modal-footer">
@@ -51,30 +70,65 @@
 
 <script>
     (function() {
-        // Initial state so we can block a no-op submit
+        const form = document.getElementById('group-sources-form');
+        if (!form) return;
+        const checks = Array.from(form.querySelectorAll('.source-check'));
+        // Initial state so we can block a no-op submit and tell a removal from an addition
         const initial = {};
-        document.querySelectorAll('.source-check').forEach(cb => {
-            initial[cb.value] = cb.checked;
-        });
+        checks.forEach(function(cb) { initial[cb.value] = cb.checked; });
 
-        const form = document.querySelector('form');
-        if (form) {
-            form.addEventListener('htmx:configRequest', function(event) {
-                let changed = false;
-                document.querySelectorAll('.source-check').forEach(cb => {
-                    if (cb.checked !== initial[cb.value]) changed = true;
-                });
-                if (!changed) {
-                    event.preventDefault();
-                    const modalBody = document.querySelector('.modal-body');
-                    if (!modalBody.querySelector('.no-change-alert')) {
-                        const alert = document.createElement('div');
-                        alert.className = 'alert alert-warning alert-dismissible fade show no-change-alert';
-                        alert.innerHTML = `No changes were made. <button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
-                        modalBody.insertBefore(alert, modalBody.firstChild);
-                    }
-                }
-            });
+        const warning = document.getElementById('source-remove-warning');
+        const removeList = document.getElementById('source-remove-list');
+        const submit = form.querySelector('button[type="submit"]');
+        const submitLabel = submit.textContent;
+        let armed = false;   // the removal warning is showing: the next submit is the confirmation
+
+        function disarm() {
+            armed = false;
+            if (warning) warning.classList.add('d-none');
+            submit.textContent = submitLabel;
+            submit.classList.remove('btn-danger');
+            submit.classList.add('btn-primary');
         }
+        // Any change after the warning appeared is a new decision: ask again.
+        checks.forEach(function(cb) { cb.addEventListener('change', disarm); });
+
+        form.addEventListener('htmx:configRequest', function(event) {
+            const changed = checks.some(function(cb) { return cb.checked !== initial[cb.value]; });
+            if (!changed) {
+                event.preventDefault();
+                const modalBody = form.querySelector('.modal-body');
+                if (!modalBody.querySelector('.no-change-alert')) {
+                    const alert = document.createElement('div');
+                    alert.className = 'alert alert-warning alert-dismissible fade show no-change-alert';
+                    alert.innerHTML = `No changes were made. <button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
+                    modalBody.insertBefore(alert, modalBody.firstChild);
+                }
+                return;
+            }
+
+            const removing = checks.filter(function(cb) { return initial[cb.value] && !cb.checked && !cb.disabled; });
+            if (!removing.length || !warning) return;   // additions only: nothing to confirm
+            if (!armed) {
+                // First press: hold the request and show what is about to be removed.
+                event.preventDefault();
+                removeList.innerHTML = '';
+                removing.forEach(function(cb) {
+                    const li = document.createElement('li');
+                    li.textContent = cb.dataset.sourceName;   // textContent: names are data
+                    removeList.appendChild(li);
+                });
+                warning.classList.remove('d-none');
+                submit.textContent = removing.length === 1
+                    ? 'Yes, remove it' : 'Yes, remove ' + removing.length + ' data sources';
+                submit.classList.remove('btn-primary');
+                submit.classList.add('btn-danger');
+                armed = true;
+                warning.scrollIntoView({ block: 'nearest' });
+                return;
+            }
+            // Second press: this is the confirmation the route requires.
+            event.detail.parameters['confirm_remove'] = '1';
+        });
     })();
 </script>

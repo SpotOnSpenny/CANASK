@@ -40,7 +40,7 @@ try:
 except Exception as e:
     # Re-raise: swallowing this leaves `app` undefined, so the module would die a few lines later
     # with an unrelated NameError that buries this root cause. The app cannot run half-initialized.
-    print(f"An error occured while initializing the Flask app:")
+    print(f"An error occurred while initializing the Flask app:")
     print(e)
     raise
 
