@@ -2073,6 +2073,8 @@ def _account_context(tab):
         # At the cap, the username form is switched off and says when it opens up again.
         wait = _username_change_wait(current_user)
         context["username_wait"] = _about(wait) if wait is not None else None
+        wait = _email_change_wait(current_user)
+        context["email_wait"] = _about(wait) if wait is not None else None
         context["memberships"] = (UserGroups.query.filter_by(user_id = current_user.id)
                                   .join(Groups, Groups.id == UserGroups.group_id).order_by(Groups.name).all())
     elif tab == "starting-charts":
@@ -2172,28 +2174,42 @@ def _about(delta):
     minutes = max(-(-int(seconds) // 60), 1)
     return f"about {minutes} minute{'s' if minutes != 1 else ''}"
 
-def _username_change_wait(user):
-    """How long until `user` may change their username again (a timedelta), or None if they may
-    now: at most USERNAME_CHANGE_LIMIT successful changes per USERNAME_CHANGE_WINDOW, counted from
-    their `username_changed` activity rows. Attempts that were refused (taken, invalid) never
-    wrote a row, so they don't count here -- the route's per-IP limit covers those."""
-    limit = current_app.config["USERNAME_CHANGE_LIMIT"]
-    window = current_app.config["USERNAME_CHANGE_WINDOW"]
+def _activity_cap_wait(user, activity_type, limit, window):
+    """How long until `user` is back under a per-account cap (a timedelta), or None if they are
+    under it now: at most `limit` rows of `activity_type` per `window`, counted from their own
+    activity log. Only what wrote a row counts, so each caller decides what that is."""
     now = datetime.now(timezone.utc).replace(tzinfo = None)   # the column is naive UTC
     recent = (UserActivity.query.filter(UserActivity.user_id == user.id,
-                                        UserActivity.activity_type == "username_changed",
+                                        UserActivity.activity_type == activity_type,
                                         UserActivity.timestamp >= now - window)
               .order_by(UserActivity.timestamp.desc(), UserActivity.id.desc()).limit(limit).all())
     if len(recent) < limit:
         return None
-    # The oldest of the changes that fill the allowance is the one that frees a slot first.
+    # The oldest of the rows that fill the allowance is the one that frees a slot first.
     return max(recent[-1].timestamp + window - now, timedelta(seconds = 1))
 
-def _username_cap_text():
-    """"2 times in the last 24 hours", from the config."""
-    limit = current_app.config["USERNAME_CHANGE_LIMIT"]
-    hours = int(current_app.config["USERNAME_CHANGE_WINDOW"].total_seconds() // 3600)
+def _cap_text(limit, window):
+    """"2 times in the last 24 hours"."""
+    hours = int(window.total_seconds() // 3600)
     return f"{limit} time{'s' if limit != 1 else ''} in the last {hours} hour{'s' if hours != 1 else ''}"
+
+def _username_change_wait(user):
+    """At most USERNAME_CHANGE_LIMIT successful username changes per USERNAME_CHANGE_WINDOW.
+    Attempts that were refused (taken, invalid) never wrote a `username_changed` row, so they
+    don't count here -- the route's per-IP limit covers those."""
+    return _activity_cap_wait(user, "username_changed", current_app.config["USERNAME_CHANGE_LIMIT"],
+                              current_app.config["USERNAME_CHANGE_WINDOW"])
+
+def _email_change_wait(user):
+    """At most EMAIL_CHANGE_LIMIT email-change requests per EMAIL_CHANGE_WINDOW. EVERY request
+    that got as far as writing its `email_change_requested` row counts, whether or not an email
+    went out: if a request for an address that already has an account were free, "that one didn't
+    use up my allowance" would reveal that the address is registered."""
+    return _activity_cap_wait(user, "email_change_requested", current_app.config["EMAIL_CHANGE_LIMIT"],
+                              current_app.config["EMAIL_CHANGE_WINDOW"])
+
+def _username_cap_text():
+    return _cap_text(current_app.config["USERNAME_CHANGE_LIMIT"], current_app.config["USERNAME_CHANGE_WINDOW"])
 
 
 @auth_blueprint.route("/v1/account/username", methods=["POST"])
@@ -2312,6 +2328,11 @@ def account_request_email_change():
         return _render_account("info")
     if new_email.lower() == user.email.lower():
         flash("That is already your email address.", "info")
+        return _render_account("info")
+    wait = _email_change_wait(user)
+    if wait is not None:
+        cap = _cap_text(current_app.config["EMAIL_CHANGE_LIMIT"], current_app.config["EMAIL_CHANGE_WINDOW"])
+        flash(f"You've asked to change your email {cap}. You can ask again in {_about(wait)}.", "warning")
         return _render_account("info")
 
     # An address that belongs to another account gets the SAME answer and no email: saying "that

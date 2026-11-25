@@ -326,6 +326,104 @@ class TestRequestEmailChange:
         assert ses_outbox == []
 
 
+class TestEmailChangeLimit:
+    """A cap on how often one account may ASK to change its email (EMAIL_CHANGE_LIMIT per
+    EMAIL_CHANGE_WINDOW, default 3 per 24 hours). Each request can send an email, so this is what
+    keeps one account from running up the mail bill; the per-IP limit alone can be sidestepped."""
+
+    def _post(self, client, new_email=None, password=TEST_PASSWORD):
+        return client.post("/v1/account/email", headers=HX,
+                           data={"new_email": new_email or f"{unique('fresh')}@example.org",
+                                 "current_password": password})
+
+    def test_three_requests_send_three_emails(self, client, db_session, login_as, ses_outbox):
+        login_as(make_user())
+        for _ in range(3):
+            self._post(client)
+        assert len(ses_outbox) == 3
+
+    def test_fourth_request_sends_nothing(self, client, db_session, login_as, ses_outbox):
+        user = login_as(make_user())
+        for _ in range(3):
+            self._post(client)
+        body = self._post(client).get_data(as_text=True)
+        assert len(ses_outbox) == 3
+        assert "asked to change your email 3 times" in body
+        assert len(_activity(user, "email_change_requested")) == 3
+
+    def test_refusal_says_when_it_opens_up_again(self, client, db_session, login_as, ses_outbox):
+        user = login_as(make_user())
+        for _ in range(3):
+            self._post(client)
+        for row in _activity(user, "email_change_requested"):
+            row.timestamp = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=18)
+        db.session.flush()
+        assert "about 6 hours" in self._post(client).get_data(as_text=True)
+
+    def test_requests_older_than_the_window_do_not_count(self, client, db_session, login_as,
+                                                         ses_outbox):
+        user = login_as(make_user())
+        for _ in range(3):
+            self._post(client)
+        for row in _activity(user, "email_change_requested"):
+            row.timestamp = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=25)
+        db.session.flush()
+        self._post(client)
+        assert len(ses_outbox) == 4
+
+    def test_a_request_for_a_taken_address_counts_like_any_other(self, client, db_session,
+                                                                 login_as, ses_outbox):
+        """If those were free, "this one didn't use up my allowance" would say the address has
+        an account -- the very thing the identical answer is there to hide."""
+        other = make_user()
+        login_as(make_user())
+        for _ in range(3):
+            self._post(client, other.email)
+        self._post(client)                       # a fresh address, but the allowance is spent
+        assert ses_outbox == []
+
+    def test_refused_attempts_do_not_use_up_the_allowance(self, client, db_session, login_as,
+                                                          ses_outbox):
+        login_as(make_user())
+        for _ in range(2):
+            self._post(client, "not-an-email")
+            self._post(client, password="Not-my-password-1!")
+        for _ in range(3):
+            self._post(client)
+        assert len(ses_outbox) == 3
+
+    def test_the_cap_is_per_account(self, client, db_session, login_as, ses_outbox):
+        login_as(make_user())
+        for _ in range(3):
+            self._post(client)
+        login_as(make_user())
+        self._post(client)
+        assert len(ses_outbox) == 4
+
+    def test_the_cap_comes_from_config(self, client, db_session, login_as, ses_outbox,
+                                       monkeypatch):
+        monkeypatch.setitem(current_app.config, "EMAIL_CHANGE_LIMIT", 1)
+        login_as(make_user())
+        self._post(client)
+        self._post(client)
+        assert len(ses_outbox) == 1
+
+    def test_at_the_cap_the_form_says_so_and_is_switched_off(self, client, db_session, login_as,
+                                                             ses_outbox):
+        login_as(make_user())
+        for _ in range(3):
+            self._post(client)
+        body = client.get("/v1/account", headers=HX).get_data(as_text=True)
+        assert "You can ask again in about 24 hours" in body
+        assert 'hx-post="/v1/account/email"' not in body
+
+    def test_under_the_cap_the_form_is_there(self, client, db_session, login_as):
+        login_as(make_user())
+        body = client.get("/v1/account", headers=HX).get_data(as_text=True)
+        assert 'hx-post="/v1/account/email"' in body
+        assert "You can ask again" not in body
+
+
 class TestConfirmEmailChange:
     @pytest.fixture()
     def pending(self, client, db_session, login_as, ses_outbox):

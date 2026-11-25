@@ -360,6 +360,23 @@ a { text-decoration: none; }
   border-top-left-radius: var(--radius) !important;
   border-top-right-radius: var(--radius) !important;
 }
+/* Tabs in a card header (the My account page). Bootstrap fills the active tab from --bs-card-bg
+   (its own body colour) and draws its own borders; the site paints cards with --c-surface
+   without touching that variable, so the tab only happens to match the card in the light theme
+   and is a grey slab on the dark one. Point the tab at the card's own tokens, so the active tab
+   is one piece with the panel under it in both themes. (Two classes: must outrank Bootstrap's
+   own .nav-tabs defaults.) */
+.nav-tabs.card-header-tabs {
+  --bs-card-bg: var(--c-surface);
+  --bs-nav-tabs-link-active-bg: var(--c-surface);
+  --bs-nav-tabs-link-active-color: var(--c-text);
+  --bs-nav-tabs-link-active-border-color: var(--c-border) var(--c-border) var(--c-surface);
+  --bs-nav-tabs-link-hover-border-color: var(--c-border) var(--c-border) transparent;
+}
+/* Keep them on one line: a tab that wraps onto a second row is cut off from the panel it belongs
+   to. On a narrow card the row scrolls sideways instead. */
+.nav-tabs.card-header-tabs { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+.nav-tabs.card-header-tabs .nav-link { white-space: nowrap; }
 .card hr { border-color: var(--c-border); opacity: 1; }
 
 /* Dashboard fold rows. Definite (viewport-relative) heights give the chart a
