@@ -43,6 +43,15 @@
                         Manage data sources
                     </button>
                 </li>
+                <li>
+                    <button class="dropdown-item"
+                        hx-get="/v1/groups/{{ group.id }}/landing"
+                        hx-target="#modal-container"
+                        hx-swap="innerHTML"
+                        hx-on::after-request="new bootstrap.Modal(document.getElementById('adjustPermissionsModal')).show()">
+                        Starting charts
+                    </button>
+                </li>
             </ul>
         </div>
         {% endif %}

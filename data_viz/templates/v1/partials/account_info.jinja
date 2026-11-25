@@ -1,0 +1,72 @@
+{# The "Account info" tab of My account: who the signed-in user is and the groups they are in,
+   with the two things they can change here themselves (username, email). Both forms post back
+   and swap the whole #account-div. Group roles are read-only: a group's managers change them
+   on User Management. #}
+<div id="account-tab-info">
+    <form class="row g-2 align-items-start mb-3"
+          hx-post="/v1/account/username" hx-target="#account-div" hx-swap="outerHTML"
+          hx-disabled-elt="find button[type='submit']">
+        <div class="col-sm-3">
+            <label class="col-form-label fw-semibold" for="account-username">Username</label>
+            {% if current_user.site_admin %}<span class="badge bg-primary ms-1">Site Admin</span>{% endif %}
+        </div>
+        <div class="col-sm-9">
+            <div class="input-group">
+                <input type="text" class="form-control" id="account-username" name="username"
+                       value="{{ current_user.username }}" autocomplete="username"
+                       minlength="3" maxlength="30" required{% if username_wait %} disabled{% endif %}>
+                <button type="submit" class="btn btn-outline-primary"{% if username_wait %} disabled{% endif %}>Save</button>
+            </div>
+            {% if username_wait %}
+            <div class="form-text">You've changed your username as often as is allowed for now. You can change it again in {{ username_wait }}.</div>
+            {% else %}
+            <div class="form-text">3-30 characters: letters, numbers, and . _ - only. You can also sign in with your email.</div>
+            {% endif %}
+        </div>
+    </form>
+
+    <div class="row g-2 mb-3">
+        <div class="col-sm-3"><span class="col-form-label d-block fw-semibold">Email</span></div>
+        <div class="col-sm-9">
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <span>{{ current_user.email }}</span>
+                <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse"
+                        data-bs-target="#account-email-form" aria-expanded="false" aria-controls="account-email-form">
+                    Change
+                </button>
+            </div>
+            <form class="collapse mt-2 p-3 border rounded" id="account-email-form"
+                  hx-post="/v1/account/email" hx-target="#account-div" hx-swap="outerHTML"
+                  hx-disabled-elt="find button[type='submit']">
+                <p class="form-text mt-0">We'll send a confirmation link to the new address. Your email
+                    only changes once you open that link, so a typo can't lock you out.</p>
+                <div class="mb-2">
+                    <label class="form-label mb-1" for="account-new-email">New email address</label>
+                    <input type="email" class="form-control" id="account-new-email" name="new_email"
+                           autocomplete="email" maxlength="254" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label mb-1" for="account-email-password">Your current password</label>
+                    <input type="password" class="form-control" id="account-email-password"
+                           name="current_password" autocomplete="current-password" required>
+                </div>
+                <button type="submit" class="btn btn-primary">Send confirmation link</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="row g-2">
+        <div class="col-sm-3"><span class="fw-semibold">Groups</span></div>
+        <div class="col-sm-9">
+            {% if memberships %}
+            <ul class="list-unstyled mb-0">
+                {% for membership in memberships %}
+                <li>{{ membership.group.name }} <span class="text-body-secondary">· {{ membership.role }}</span></li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <span class="text-muted">You are not in any groups.</span>
+            {% endif %}
+        </div>
+    </div>
+</div>

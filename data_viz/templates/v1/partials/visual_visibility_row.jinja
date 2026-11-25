@@ -31,6 +31,10 @@
             {% endfor %}
         </div>
     </td>
+    {# The site-wide default is a site-admin setting (it is one per province across every
+       source), so the column exists only for them -- see visual_visibility_section.jinja. A
+       group's own starting chart is set from Group Management. #}
+    {% if current_user.site_admin %}
     <td>
         {% if row.is_root %}
             <button type="button"
@@ -39,13 +43,14 @@
                 hx-target="#vis-section-{{ v.data_source_id }}"
                 hx-swap="outerHTML"
                 {% if v.is_default %}aria-pressed="true"
-                title="Default visual for this page (click to unset)"
-                aria-label="Default visual for {{ v | visual_label }} (click to unset)"
+                title="Site-wide default for this page (click to unset)"
+                aria-label="Site-wide default visual for {{ v | visual_label }} (click to unset)"
                 {% else %}aria-pressed="false"
-                title="Make this the page's default visual"
-                aria-label="Make {{ v | visual_label }} the page's default visual"{% endif %}>
+                title="Make this the page's site-wide default"
+                aria-label="Make {{ v | visual_label }} the page's site-wide default"{% endif %}>
                 <i class="bi {{ 'bi-star-fill' if v.is_default else 'bi-star' }}"></i>
             </button>
         {% endif %}
     </td>
+    {% endif %}
 </tr>

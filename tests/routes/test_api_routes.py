@@ -32,7 +32,8 @@ class TestProvinceDataApi:
     def test_known_province_returns_contract_shape(self, client, db_session):
         seed_ontario_visual("api_pub")
         payload = client.get("/api/v1/province/ontario/data").get_json()
-        assert set(payload) == {"data", "config", "default", "categories"}
+        assert set(payload) == {"data", "config", "default", "categories", "landing"}
+        assert payload["landing"] is None   # nothing to choose between for an anonymous viewer
         assert "api_pub" in payload["data"]
         assert "api_pub" in payload["config"]
         block = payload["data"]["api_pub"]

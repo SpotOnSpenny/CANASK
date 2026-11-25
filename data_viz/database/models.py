@@ -270,6 +270,66 @@ class GroupVisuals(db.Model):
     def __repr__(self):
         return f"<GroupVisual Group ID: {self.group_id}, Visual ID: {self.visual_id}>"
 
+class GroupLandingVisuals(db.Model):
+    """The visual a group's members open a province page on ("starting chart"): one per
+    (group, province), set by the group's Data Owners on the Group Management page. It only
+    affects that group's members, and only when the member can actually see the visual --
+    visual_query.resolve_landing skips a pick the viewer can't see, so nothing here has to be
+    cleaned up when a grant or a visibility level changes. `province` is the Visuals.province
+    scope key (a province slug or a national scope such as "canada")."""
+    __tablename__ = "group_landing_visuals"
+    __table_args__ = (db.UniqueConstraint("group_id", "province", name = "uq_group_landing_province"),)
+
+    id = db.Column(db.Integer, primary_key = True)
+    group_id = db.Column(db.Integer, db.ForeignKey("groups.id", ondelete = "CASCADE"), nullable = False)
+    province = db.Column(db.String(255), nullable = False)
+    visual_id = db.Column(db.Integer, db.ForeignKey("visuals.id", ondelete = "CASCADE"), nullable = False)
+    set_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete = "SET NULL"), nullable = True)
+    updated_at = db.Column(db.DateTime, nullable = False, default = db.func.current_timestamp(),
+                           onupdate = db.func.current_timestamp())
+
+    group = db.relationship("Groups", foreign_keys = [group_id])
+    visual = db.relationship("Visuals", foreign_keys = [visual_id])
+
+    def __repr__(self):
+        return f"<GroupLandingVisual Group ID: {self.group_id}, {self.province} -> Visual ID: {self.visual_id}>"
+
+class UserLandingChoices(db.Model):
+    """A user's own starting chart for one page ("My account" -> Starting charts): any top-level
+    visual they can see there, one per (user, province). It beats their groups' picks
+    (GroupLandingVisuals) and the site-wide default, but only while they can still see the
+    visual -- visual_query.resolve_landing ignores a choice that has gone out of view rather
+    than deleting it."""
+    __tablename__ = "user_landing_choices"
+    __table_args__ = (db.UniqueConstraint("user_id", "province", name = "uq_user_landing_province"),)
+
+    id = db.Column(db.Integer, primary_key = True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id", ondelete = "CASCADE"), nullable = False)
+    province = db.Column(db.String(255), nullable = False)
+    visual_id = db.Column(db.Integer, db.ForeignKey("visuals.id", ondelete = "CASCADE"), nullable = False)
+
+    def __repr__(self):
+        return f"<UserLandingChoice User ID: {self.user_id}, {self.province} -> Visual ID: {self.visual_id}>"
+
+class UserStartingViews(db.Model):
+    """A user's saved starting view for a page whose view lives in the address (Confluence, the
+    DAS Explorer -- see data_viz/starting_views.py): one per (user, page), the page's recognised
+    settings as a query string. Applied by the page's own script when it is opened with nothing
+    in the address; a setting that no longer resolves is handled there, like any stale link.
+    (`query_string`, not `query`: that name is Flask-SQLAlchemy's Model.query.)"""
+    __tablename__ = "user_starting_views"
+    __table_args__ = (db.UniqueConstraint("user_id", "page", name = "uq_user_starting_view_page"),)
+
+    id = db.Column(db.Integer, primary_key = True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id", ondelete = "CASCADE"), nullable = False)
+    page = db.Column(db.String(50), nullable = False)
+    query_string = db.Column(db.String(2000), nullable = False)
+    updated_at = db.Column(db.DateTime, nullable = False, default = db.func.current_timestamp(),
+                           onupdate = db.func.current_timestamp())
+
+    def __repr__(self):
+        return f"<UserStartingView User ID: {self.user_id}, {self.page}>"
+
 class DataSources(db.Model):
     __tablename__ = "data_sources"
 

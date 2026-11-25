@@ -759,6 +759,76 @@ function feedbackSubmit(token) {
   }
 }
 
+// --- Show / hide password ---------------------------------------------------------------------
+// Every password-type field on the site (sign-in, invite, reset, the account page, and the
+// "your password" / "site admin key" confirmations in the admin modals) gets an eye button that
+// reveals what was typed. It is added here, once, rather than in each template: a field added
+// later gets it for free, including fields that arrive in an HTMX swap (modals, account tabs).
+function enhancePasswordFields(root) {
+  const scope = root && root.querySelectorAll ? root : document;
+  const fields = Array.from(scope.querySelectorAll('input[type="password"]'));
+  if (scope.matches && scope.matches('input[type="password"]')) fields.unshift(scope);
+  fields.forEach((input) => {
+    if (input.dataset.passwordToggle) return;
+    input.dataset.passwordToggle = "on";
+
+    // The button sits in an input group with the field. A Bootstrap ".invalid-feedback" message
+    // only shows as a LATER SIBLING of its field, so one that followed the field moves in too.
+    let group = input.parentElement;
+    if (!group.classList.contains("input-group")) {
+      const feedback = input.nextElementSibling;
+      group = document.createElement("div");
+      group.className = "input-group password-toggle-group";
+      input.parentElement.insertBefore(group, input);
+      group.appendChild(input);
+      if (feedback && feedback.classList.contains("invalid-feedback")) {
+        group.classList.add("has-validation");
+        group.appendChild(feedback);
+      }
+    }
+
+    // Name the button after the field's own label ("Show site admin key"), not just "password".
+    const label = input.id ? document.querySelector(`label[for="${CSS.escape(input.id)}"]`) : null;
+    const what = (label ? label.textContent.trim().toLowerCase() : "") || "password";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "btn btn-outline-secondary password-toggle"
+      + (input.classList.contains("form-control-sm") ? " btn-sm" : "");
+    const icon = document.createElement("i");
+    icon.className = "bi bi-eye";
+    icon.setAttribute("aria-hidden", "true");
+    button.appendChild(icon);
+    const show = (visible) => {
+      input.type = visible ? "text" : "password";
+      icon.className = visible ? "bi bi-eye-slash" : "bi bi-eye";
+      button.setAttribute("aria-pressed", visible ? "true" : "false");
+      button.setAttribute("aria-label", `${visible ? "Hide" : "Show"} ${what}`);
+      button.title = `${visible ? "Hide" : "Show"} ${what}`;
+    };
+    show(false);
+    button.addEventListener("click", () => show(input.type === "password"));
+    input.insertAdjacentElement("afterend", button);
+    input._hidePassword = () => show(false);
+  });
+}
+
+// A revealed field goes back to hidden when its form is sent, so the browser treats it as a
+// password again (autofill, "save password") and it is not left readable on screen.
+document.addEventListener("submit", (event) => {
+  if (!event.target || !event.target.querySelectorAll) return;
+  event.target.querySelectorAll("input[data-password-toggle]").forEach((input) => {
+    if (input._hidePassword) input._hidePassword();
+  });
+}, true);
+
+// htmx:load fires for the page itself and for every piece of content swapped in afterwards.
+document.body.addEventListener("htmx:load", (event) => enhancePasswordFields(event.detail.elt));
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", () => enhancePasswordFields(document));
+} else {
+  enhancePasswordFields(document);
+}
+
 // Watch for HTMX signals to know when to run the mobile nav and feedback init functions
 document.body.addEventListener("htmx:afterSettle", (event) => {
   if (event.detail.target && event.detail.target.id == "page-container") {
@@ -828,6 +898,11 @@ let visuals = {};
 // Ordered top-level menu dropdown names for the current province, served by the DB (build_province_menu)
 // rather than hard-coded -- derived from the visuals' menu-parent values.
 let menuCategories = [];
+// payload.landing: only for a viewer who has not set their own starting chart for this page and
+// whose groups picked DIFFERENT ones -- {options: [{group, visual, visual_id, label}], active:
+// visual name}. null for everyone else. It drives a one-time notice (renderLandingNotice); the
+// lasting control, where they can pick any chart they can see, is on the My account page.
+let landingChoice = null;
 
 // Province-scale `geo` layout settings, spread into each map's `layout.geo` alongside `fitbounds`.
 // Two Plotly defaults fight province maps:
@@ -929,7 +1004,7 @@ let suppressInitialPush = true;
 // appends it whenever the active visual is one of them, so the existing syncUrl push/replace +
 // Back/Forward machinery deep-links the selection for free.
 let activeRendererParams = "";
-const SELF_CONTAINED_URL_TYPES = new Set(["treemap", "found_substance_lines", "stacked_hbar"]);
+const SELF_CONTAINED_URL_TYPES = new Set(["treemap", "found_substance_lines", "stacked_hbar", "grouped_bar", "stacked_bar"]);
 // Time grain + alternate chart type for grain-capable visuals (manifest visual_options.time_grains /
 // chart_types). Module state like the treemap params: masterLoop clamps both to what the current
 // visual offers, the toggles set them and re-run masterLoop, and buildVisualUrl serializes them as
@@ -940,6 +1015,13 @@ let activeChartType = null;   // null = the visual's own chart_type
 // Map/Trend toggles and carries into the drilled child. null = the visual's first data type; rides
 // the URL as ?measure= (omitted at that default).
 let activeMeasure = null;
+// Where each heatmap's slider is parked, by visual id. Absent = the latest period, the default,
+// which is deliberately NOT recorded: a link without it keeps opening on the newest data. Rides
+// the URL as ?period=<key> for that visual's map view only. A key that isn't on the slider
+// (another grain: "2025" vs "2025-Q2" vs "2025-04") is dropped by the renderer. Reset per page
+// by fetchRegionData. (createVisualPie has a year slider too, but no visual is a pie today, so
+// it is not wired up.)
+let activePeriods = {};
 const GRAIN_ORDER = ["year", "quarter", "month"];
 const GRAIN_LABELS = { year: "Year", quarter: "Quarter", month: "Month" };
 const CHART_TYPE_LABELS = { heatmap: "Map", line: "Trend" };
@@ -1014,6 +1096,12 @@ function buildVisualUrl(location, year, category) {
   if (rootCfg && rootCfg["type"] === "heatmap" && activeMeasure && activeMeasure !== rootTypes[0]
       && rootTypes.includes(activeMeasure)) {
     query.push("measure=" + encodeURIComponent(activeMeasure));
+  }
+  // The map's slider position: only on the map itself (not drilled, not its Trend view).
+  const shownPeriod = activePeriods[rootVid];
+  if (shownPeriod && location == null && rootCfg && rootCfg["type"] === "heatmap"
+      && (activeChartType || "heatmap") === "heatmap") {
+    query.push("period=" + encodeURIComponent(shownPeriod));
   }
   return path + (query.length ? "?" + query.join("&") : "");
 }
@@ -1253,6 +1341,108 @@ function createMenu(province) {
     // append the menu item to the appropriate parent category
     document.getElementById(`${slugify(details["menu-parent"])}-dropdown-menu`).appendChild(li);
   }
+  renderLandingNotice();
+}
+
+// One-time notice above the page (#vis-landing-notice) for someone whose groups picked different
+// starting charts for this page and who has not set their own yet (landingChoice is non-null).
+// It asks which chart they want to see first and lists every pick as a button, the one showing
+// now included -- pressing any of them is saved as their own starting chart, so the notice does
+// not come back. The x only hides it for this browser session. Group and visual names go in via
+// textContent only.
+function landingNoticeKey(scope) { return `canask-landing-notice-dismissed:${scope}`; }
+
+function renderLandingNotice() {
+  const host = document.getElementById("vis-landing-notice");
+  if (!host) return;
+  host.innerHTML = "";
+  host.classList.add("d-none");
+  if (!landingChoice || !Array.isArray(landingChoice.options) || landingChoice.options.length < 2) return;
+  try { if (sessionStorage.getItem(landingNoticeKey(province))) return; } catch (e) { /* storage blocked */ }
+
+  const box = document.createElement("div");
+  box.className = "alert alert-info landing-notice mb-0";
+  box.setAttribute("role", "status");
+
+  const text = document.createElement("div");
+  text.className = "landing-notice-text";
+  const lead = document.createElement("strong");
+  lead.textContent = "Which chart do you want to see first on this page?";
+  text.appendChild(lead);
+  text.appendChild(document.createTextNode(" You're in more than one group, and each has picked a different one. You can choose any other chart, or change your mind later, in "));
+  const link = document.createElement("a");
+  link.href = "/v1/account/starting-charts";
+  link.className = "alert-link";
+  link.textContent = "My account";
+  text.appendChild(link);
+  text.appendChild(document.createTextNode("."));
+  box.appendChild(text);
+
+  const actions = document.createElement("div");
+  actions.className = "landing-notice-actions";
+  for (const option of landingChoice.options) {
+    const showing = option.visual === landingChoice.active;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = showing ? "btn btn-sm btn-outline-secondary" : "btn btn-sm btn-primary";
+    button.textContent = showing ? `${option.label} (${option.group}, showing now)` : `${option.label} (${option.group})`;
+    button.onclick = () => chooseLanding(option);
+    actions.appendChild(button);
+  }
+  box.appendChild(actions);
+
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "btn-close landing-notice-close";
+  close.setAttribute("aria-label", "Not now");
+  close.title = "Not now";
+  close.onclick = () => {
+    try { sessionStorage.setItem(landingNoticeKey(province), "1"); } catch (e) { /* storage blocked */ }
+    host.innerHTML = "";
+    host.classList.add("d-none");
+  };
+  box.appendChild(close);
+
+  host.appendChild(box);
+  host.classList.remove("d-none");
+}
+
+// Save the chart picked in the notice as the viewer's own starting chart (also when it is the one
+// already showing: that is what stops the notice coming back), then show it. A failed save leaves
+// the page as it was and says so. `province`, `landingChoice` and `visuals` are page globals that
+// an HTMX navigation replaces, so the ones this click belongs to are captured first and nothing
+// is written if the page changed during the save.
+async function chooseLanding(option) {
+  const scope = province;
+  const choice = landingChoice;
+  const body = new FormData();
+  body.append("visual_id", option.visual_id);
+  let saved;
+  try {
+    const response = await fetch(`/v1/landing-choice/${encodeURIComponent(scope)}`, {
+      method: "POST",
+      headers: { "X-CSRFToken": document.querySelector("meta[name='csrf-token']").getAttribute("content") },
+      body,
+      signal: AbortSignal.timeout(10000),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data["default"]) throw new Error(data.error || `status ${response.status}`);
+    saved = data["default"];
+  } catch (error) {
+    console.error("Could not save the starting chart:", error);
+    // A timeout only aborts this side; the server may still have saved it, so point at a reload.
+    showFlash("We couldn't confirm that was saved. Reload the page to check.", "danger");
+    return;
+  }
+  if (province !== scope || landingChoice !== choice) return;   // navigated away meanwhile
+  landingChoice = null;   // they have their own starting chart now: nothing left to ask
+  visuals["default-visuals"][scope] = saved;
+  renderLandingNotice();
+  showFlash(`Saved. This page will open on ${option.label} from now on.`, "success");
+  if (saved === currentVisual || !visuals[scope] || !visuals[scope][saved]) return;
+  if (visuals[scope][saved]["type"] !== "map") resetVisualControl();
+  currentVisual = saved;
+  masterLoop();
 }
 
 // ---- Client-side adapter from the generic fact contract to the legacy block shape ----
@@ -1636,6 +1826,8 @@ async function fetchRegionData(province){
         "default-visuals": { [province]: payload["default"] },
     };
     menuCategories = payload.categories || [];
+    activePeriods = {};   // slider positions belong to the page they were set on
+    landingChoice = payload.landing || null;
     currentData = payload.data;   // generic blocks; renderers derive their data from .facts (above)
     currentGeojson = (geojson && geojson.ok) ? await geojson.json() : null;   // null = province has no map
 }
@@ -1934,6 +2126,14 @@ async function createVisualHeatMap(province, visualToGen, geojson, heatByType, m
   activeMeasure = dataType;
   const mapData = heatByType[dataType];
   const periods = (Object.values(mapData)[0] || {}).x || [];
+  // Where the slider starts: the linked / last-used period for THIS map if it exists at this
+  // grain, else the latest. Anything else recorded for this map is stale (e.g. the grain changed).
+  let startIndex = periods.length - 1;
+  if (activePeriods[visualToGen] != null) {
+    const wanted = periods.indexOf(activePeriods[visualToGen]);
+    if (wanted >= 0 && wanted < periods.length - 1) startIndex = wanted;
+    else delete activePeriods[visualToGen];
+  }
   const measure = HEATMAP_MEASURE_LABELS[dataType] || HEATMAP_MEASURE_LABELS.counts;
   const mapTitle = dataType === "counts" ? mapOptions["heatmap-title"] : mapOptions[`heatmap-${dataType}-title`];
 
@@ -1960,7 +2160,7 @@ async function createVisualHeatMap(province, visualToGen, geojson, heatByType, m
         // colorbar would put its own label up against the chart title: centre a shorter bar.
         ...(window.innerWidth > 768 ? {} : { len: 0.6, y: 0.5, yanchor: "middle", thickness: 12, nticks: 4 }),
       },
-      visible: year_index === periods.length - 1,   // the latest period, matching the slider's start
+      visible: year_index === startIndex,   // matches the slider's start (the latest unless linked)
       hoverinfo: "none",   // label drawn by attachGeoHoverTip (events still fire)
     };
     dataSlider.push(chartData);
@@ -1993,7 +2193,7 @@ async function createVisualHeatMap(province, visualToGen, geojson, heatByType, m
     },
     sliders: [
       {
-        active: steps.length - 1,
+        active: startIndex,
         steps: steps,
         x: 0.5,
         xanchor: "center",
@@ -2032,6 +2232,15 @@ async function createVisualHeatMap(province, visualToGen, geojson, heatByType, m
     // rewrites a string colorbar title into {text} on gd.data.
     attachGeoHoverTip(visDiv, (point) => (point.location == null ? null
       : { name: point.location, value: `${measure.hover}: ${point.z}` }));
+    // Moving the slider records the period in the address (replaceState: not a step to go Back
+    // through), so a copied link opens on the same map. The latest period is the default and is
+    // left out. visDiv was purged before this render, so the listener does not stack.
+    visDiv.on("plotly_sliderchange", function (event) {
+      const index = event.slider.active;
+      if (index === steps.length - 1) delete activePeriods[visualToGen];
+      else activePeriods[visualToGen] = steps[index].label;
+      if (!isReplaying) history.replaceState(history.state, "", buildVisualUrl(null, null, null));
+    });
     visDiv.on("plotly_click", function (data) {
       if (!canDrill(province, visualToGen)) {
         console.warn("No accessible next-level visual for this visual");
@@ -3144,7 +3353,20 @@ async function createVisualStratifiedBar(province, block, currentVisual, source,
 
   const substances = Array.from(new Set(parsed.map(p => p.substance))).sort();
   const years = _sortYears(parsed.map(p => p.year));
-  const sel = { substance: substances[0], year: years[years.length - 1] };   // default: first substance, latest year
+  const latestYear = years[years.length - 1];
+  const sel = { substance: substances[0], year: latestYear };   // default: first substance, latest year
+  // Deep link / Back-Forward: sb.s (substance slug) and sb.y (year); each is left out at its
+  // default, so a link without sb.y keeps opening on the newest year.
+  const urlParams = new URLSearchParams(window.location.search || "");
+  sel.substance = matchSlug(substances, urlParams.get("sb.s")) || substances[0];
+  if (years.includes(urlParams.get("sb.y"))) sel.year = urlParams.get("sb.y");
+  function selToParams() {
+    const p = new URLSearchParams();
+    if (sel.substance !== substances[0]) p.set("sb.s", slugify(sel.substance));
+    if (sel.year !== latestYear) p.set("sb.y", sel.year);
+    return p.toString();
+  }
+  function syncBarUrl() { activeRendererParams = selToParams(); syncUrl(null, null, null); }
   const substanceLabel = s => (SUBSTANCE_DISPLAY[s] || s.toSentenceCase());
 
   // Layout: title (header), chart, controls row (footer) -- all inside #vis-div so the next visual's
@@ -3169,7 +3391,7 @@ async function createVisualStratifiedBar(province, block, currentVisual, source,
     const select = document.createElement("select"); select.className = "form-select form-select-sm";
     options.forEach(o => { const opt = document.createElement("option"); opt.value = o.value; opt.innerText = o.label; select.appendChild(opt); });
     select.value = current;
-    select.onchange = () => { onChange(select.value); render(); };
+    select.onchange = () => { onChange(select.value); render(); syncBarUrl(); };
     wrap.appendChild(lab); wrap.appendChild(select); controlHost.appendChild(wrap);
   }
 
@@ -3185,6 +3407,7 @@ async function createVisualStratifiedBar(province, block, currentVisual, source,
     slider.max = Math.max(0, values.length - 1); slider.value = currentIdx;
     const readout = document.createElement("div"); readout.className = "small text-muted"; readout.innerText = values[currentIdx];
     slider.oninput = () => { const i = parseInt(slider.value, 10) || 0; readout.innerText = values[i]; onChange(values[i]); render(); };
+    slider.onchange = () => { syncBarUrl(); };   // on release, like the treemap: one history entry per pick
     wrap.appendChild(lab); wrap.appendChild(slider); wrap.appendChild(readout); controlHost.appendChild(wrap);
   }
 
@@ -3250,8 +3473,9 @@ async function createVisualStratifiedBar(province, block, currentVisual, source,
   }
 
   makeSelect(cfg.filter_label || "Substance", substances.map(s => ({ value: s, label: substanceLabel(s) })), sel.substance, v => { sel.substance = v; });
-  makeSlider(cfg.time_label || "Year", years, years.length - 1, v => { sel.year = v; });
+  makeSlider(cfg.time_label || "Year", years, years.indexOf(sel.year), v => { sel.year = v; });
   render();
+  syncBarUrl();
 }
 
 
@@ -4056,32 +4280,41 @@ function parseVisualPath(pathname, search) {
 // URL to the resolved state). entryVid is a level-1 visual id (server-resolved, or slugToVisualId'd).
 function replayFromPath(entryVid, locationSlug, categorySlug, yearParam) {
   seedGrainFromUrl();
+  // ?period= is the slider position of the map this link lands on, so it is assigned just before
+  // that visual renders; the renderer drops a period that isn't on its slider, and no ?period=
+  // means the latest.
+  const linkedPeriod = new URLSearchParams(window.location.search || "").get("period");
+  const show = function (...args) {
+    if (linkedPeriod) activePeriods[currentVisual] = linkedPeriod;
+    else delete activePeriods[currentVisual];
+    masterLoop(...args);
+  };
   if (!entryVid || !visuals[province] || !visuals[province][entryVid] || !currentData[entryVid]) {
     currentVisual = visuals["default-visuals"][province];
-    masterLoop();
+    show();
     return;
   }
   currentVisual = entryVid;
   route = [];
   lastLocation = null;
 
-  if (!locationSlug) { masterLoop(); return; }                       // level 1
-  if (!canDrill(province, currentVisual)) { masterLoop(); return; }
+  if (!locationSlug) { show(); return; }                       // level 1
+  if (!canDrill(province, currentVisual)) { show(); return; }
   // The location lives in the DRILL TARGET's facts, not the entry's: a level-1 map (map_none) has no
   // facts of its own, and even for a heatmap the drilled child carries the same geo. Resolve the slug
   // against next-vis's geo values so map and heatmap entries both drill correctly.
   const nextVid = visuals[province][currentVisual]["next-vis"];
   const location = reverseSlugGeo((currentData[nextVid] || {}).facts || [], locationSlug);
-  if (location == null) { masterLoop(); return; }                    // unknown region -> stay level 1
+  if (location == null) { show(); return; }                    // unknown region -> stay level 1
   moveUpOneLevel(province);
-  if (!categorySlug) { masterLoop(location); return; }               // level 2
-  if (!canDrill(province, currentVisual)) { masterLoop(location); return; }
+  if (!categorySlug) { show(location); return; }               // level 2
+  if (!canDrill(province, currentVisual)) { show(location); return; }
   const pieFacts = currentData[currentVisual].facts || [];
   const category = reverseSlugCategory(pieFacts, location, categorySlug);
-  if (category == null) { masterLoop(location); return; }            // unknown category -> stay level 2
+  if (category == null) { show(location); return; }            // unknown category -> stay level 2
   const year = resolveYear(pieFacts, location, category, yearParam);
   moveUpOneLevel(province);
-  masterLoop(location, year, category);                              // level 3
+  show(location, year, category);                              // level 3
 }
 
 // Seed the time grain, chart type and heatmap measure from ?grain= / ?chart= / ?measure= (deep link
@@ -4295,15 +4528,153 @@ var DAS_MAP_ROWS_DIM = { map_province: "province", map_city: "city" };
 // rebuilds it, destroying any previous Tabulator instance bound to removed DOM.
 var dasState = null;
 
+// ---------------- deep links and saved starting views (shared with confluence.js) ----------------
+// The two pages with no chart list keep their view in the address. A signed-in user can save one
+// such view per page (the template's "Save as my starting view" button, or a pasted link on My
+// account); the template hands it back as data-starting-view on the page's root element.
+
+// The settings a page should open on: the address's own query string if it has one (a deep link
+// always wins), else the user's saved starting view, else nothing.
+//
+// "The address's own" needs care. Arriving through the side menu is an HTMX swap, and the page's
+// script runs BEFORE htmx pushes the new URL: the address still shows the page being left, query
+// string and all. So the query only counts when the path is already this page's.
+function pageStartingParams(rootId, pagePath) {
+    const own = window.location.pathname === pagePath ? window.location.search : "";
+    if (own && own.length > 1) return new URLSearchParams(own);
+    const root = document.getElementById(rootId);
+    return new URLSearchParams((root && root.dataset.startingView) || "");
+}
+
+// Write a page's settings into the address (replaceState: refinements of one page, not steps to go
+// Back through). `buildQuery` is called at write time so it reflects what is on screen then. For
+// the same reason as above, if the address still shows the previous page, wait for htmx to push
+// this one rather than writing this page's settings onto that one; give up if the page is left.
+function writePageQuery(rootId, pagePath, buildQuery, tries) {
+    if (!document.getElementById(rootId)) return;
+    if (window.location.pathname !== pagePath) {
+        if ((tries || 0) < 16) setTimeout(() => writePageQuery(rootId, pagePath, buildQuery, (tries || 0) + 1), 250);
+        return;
+    }
+    const query = buildQuery();
+    if (query == null) return;
+    window.history.replaceState(window.history.state, "", query ? `${pagePath}?${query}` : pagePath);
+}
+
+// The page's "Save as my starting view" button: store whatever the address carries right now.
+async function saveStartingView(page) {
+    const query = window.location.search.replace(/^\?/, "");
+    if (!query) {
+        showFlash(page === "confluence" ? "Build an overlay first, then save it as your starting view."
+                                        : "There is nothing to save yet.", "warning");
+        return;
+    }
+    const body = new FormData();
+    body.append("query", query);
+    try {
+        const response = await fetch(`/v1/starting-view/${encodeURIComponent(page)}`, {
+            method: "POST",
+            headers: { "X-CSRFToken": document.querySelector("meta[name='csrf-token']").getAttribute("content") },
+            body: body,
+            signal: AbortSignal.timeout(10000),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            showFlash(data.error || "Could not save that. Please try again.", "danger");
+            return;
+        }
+        showFlash("Saved. This page will open on this view from now on. You can clear it under My account.", "success");
+    } catch (error) {
+        console.error("Could not save the starting view:", error);
+        showFlash("We couldn't confirm that was saved. Reload the page to check.", "danger");
+    }
+}
+
+var DAS_PAGE_PATH = "/v1/national/das-explorer";
+
 function initDasExplorer(cfg) {
     if (!document.getElementById("das-table")) return;
     if (dasState && dasState.table) {
         try { dasState.table.destroy(); } catch (e) { /* already-removed DOM */ }
     }
-    dasState = { cfg: cfg, dataset: Object.keys(cfg.datasets)[0], table: null, pivot: null };
+    // Deep link / saved starting view: ?ds=&f_<field>=&sort=<field>.<dir>&rows=&cols=&measure=&chart=
+    // (written back by dasSyncUrl). Anything that no longer resolves is simply ignored.
+    const params = pageStartingParams("das-explorer-page", DAS_PAGE_PATH);
+    const wanted = params.get("ds");
+    // `view` is the chart last built (what the address records); `pivot` its data. `wantedPeriod`
+    // is a linked map-slider position, claimed by the first chart built.
+    dasState = { cfg: cfg, dataset: cfg.datasets[wanted] ? wanted : Object.keys(cfg.datasets)[0],
+                 table: null, pivot: null, view: null, wantedPeriod: params.get("period") }; 
     dasBuildDatasetToggle();
     dasBuildPivotControls();
-    dasBuildTable();
+    const buildChart = dasRestorePivotControls(params);
+    dasBuildTable(params);
+    if (buildChart) {
+        // The chart respects the table's header filters, so wait until the table has them.
+        dasState.table.on("tableBuilt", function () {
+            const card = document.getElementById("das-visualize-card");
+            if (card && window.bootstrap) bootstrap.Collapse.getOrCreateInstance(card, { toggle: false }).show();
+            dasApplyPivot();
+        });
+    }
+}
+
+// Point the chart builder's selects at a linked chart. Returns true when the link asks for a
+// chart this dataset can build (a `chart` type on offer), i.e. when it should be built on load.
+function dasRestorePivotControls(params) {
+    const setIfOffered = function (id, value) {
+        const select = document.getElementById(id);
+        if (!select || value == null) return false;
+        const offered = Array.from(select.options).some(o => o.value === value);
+        if (offered) select.value = value;
+        return offered;
+    };
+    setIfOffered("das-pivot-rows", params.get("rows"));
+    setIfOffered("das-pivot-cols", params.get("cols"));
+    setIfOffered("das-pivot-measure", params.get("measure"));
+    return setIfOffered("das-pivot-type", params.get("chart"));
+}
+
+// The table's opening header filters and sort from a link: only for columns this dataset has.
+// A multiselect dropdown takes every repeated f_<field> value; anything else takes the first.
+function dasInitialTableState(params) {
+    const ds = dasDatasetCfg();
+    const state = { filters: [], sort: [] };
+    if (!params) return state;
+    ds.columns.forEach(col => {
+        const values = params.getAll(`f_${col.field}`).filter(v => v !== "");
+        if (!values.length) return;
+        const multi = (ds.kinds || {})[col.field] === "select" && col.headerFilterParams && col.headerFilterParams.multiselect;
+        state.filters.push({ field: col.field, value: multi ? values : values[0] });
+    });
+    const fields = ds.columns.map(col => col.field);
+    params.getAll("sort").forEach(entry => {
+        const cut = entry.lastIndexOf(".");
+        const field = entry.slice(0, cut), dir = entry.slice(cut + 1);
+        if (cut > 0 && fields.includes(field) && (dir === "asc" || dir === "desc")) state.sort.push({ column: field, dir: dir });
+    });
+    return state;
+}
+
+// Keep the address in step with what is on screen (dataset, header filters, sort, and the chart
+// last built), so the page can be linked to, reloaded, or saved as a starting view.
+function dasSyncUrl() {
+    writePageQuery("das-explorer-page", DAS_PAGE_PATH, function () {
+        if (!dasState || !document.getElementById("das-table")) return null;
+        const query = new URLSearchParams({ ds: dasState.dataset });
+        if (dasState.table) {
+            dasAppendFilterParams(query, dasState.table.getHeaderFilters());
+            dasState.table.getSorters().forEach(s => query.append("sort", `${s.field}.${s.dir}`));
+        }
+        if (dasState.view) {
+            query.set("rows", dasState.view.rows);
+            if (dasState.view.cols) query.set("cols", dasState.view.cols);
+            query.set("measure", dasState.view.measure);
+            query.set("chart", dasState.view.chart);
+            if (dasState.view.period) query.set("period", dasState.view.period);
+        }
+        return query.toString();
+    });
 }
 
 function dasDatasetCfg() {
@@ -4326,6 +4697,7 @@ function dasBuildDatasetToggle() {
         input.onchange = function () {
             dasState.dataset = key;
             dasState.pivot = null;
+            dasState.view = null;
             dasResetChart(document.getElementById("das-pivot-chart"), "");
             document.getElementById("das-pivot-truncated").classList.add("d-none");
             dasSetUnmappedNote("");
@@ -4439,8 +4811,9 @@ function dasRowsUrl(url, config, params) {
     return `${url}?${query.toString()}`;
 }
 
-function dasBuildTable() {
+function dasBuildTable(params) {
     const ds = dasDatasetCfg();
+    const initial = dasInitialTableState(params);
     document.getElementById("das-table-title").textContent = ds.label;
     if (dasState.table) {
         try { dasState.table.destroy(); } catch (e) { /* already-removed DOM */ }
@@ -4466,6 +4839,9 @@ function dasBuildTable() {
         paginationSizeSelector: [25, 50, 100, 200],
         sortMode: "remote",
         filterMode: "remote",
+        // From a deep link or the user's saved starting view (empty otherwise).
+        initialHeaderFilter: initial.filters,
+        initialSort: initial.sort,
         ajaxURL: `${DAS_API_BASE}/${dasState.dataset}/rows`,
         ajaxURLGenerator: dasRowsUrl,
         // Don't fire a request the server would 400: while a text filter holds a (usually
@@ -4494,6 +4870,8 @@ function dasBuildTable() {
         else if (message.includes("400")) hint = " (check your filter syntax)";
         document.getElementById("das-table-title").textContent = `${ds.label}: data failed to load${hint}`;
     });
+    // Every load reflects the current filters and sort: record them in the address.
+    dasState.table.on("dataLoaded", dasSyncUrl);
     dasWireFilterValidation();
 }
 
@@ -4659,7 +5037,14 @@ async function dasApplyPivot() {
             data: pivot, chartType: chartType,
             exportInfo: dasPivotDescribe(rows, chartType === "pie" ? "" : cols, headerFilters, pivot.measure),
         };
+        // A map's slider position carries over a rebuild with the same time split (and comes from
+        // the link on the first build); dasRenderPivot drops it if that period is not on the map.
+        const period = dasState.wantedPeriod
+            || (dasState.view && dasState.view.cols === cols ? dasState.view.period : null);
+        dasState.wantedPeriod = null;
+        dasState.view = { rows: rows, cols: cols, measure: measure, chart: chartType, period: period };
         dasRenderPivot();
+        dasSyncUrl();
     } catch (error) {
         console.error("DAS pivot failed:", error);
         dasResetChart(chart, '<p class="text-danger text-center py-3">Sorry, that chart couldn\'t be built. Please try again.</p>');
@@ -4747,6 +5132,33 @@ function dasMapLayout(layout, frames, t) {
             })),
         }];
     }
+}
+
+// Park a slider map (traces + layout from dasMapLayout, steps possibly re-masked by the caller)
+// on `period`: that step becomes active and its mask decides which traces are visible. Returns
+// the period now showing, or null when it is the latest one -- the default, which is deliberately
+// not recorded, so a link without it keeps opening on the newest data. An unknown period is the
+// latest too. Shared with confluence.js.
+function dasApplyMapPeriod(traces, layout, period) {
+    const slider = layout.sliders && layout.sliders[0];
+    if (!slider || period == null) return null;
+    const index = slider.steps.findIndex(step => step.label === period);
+    if (index < 0 || index === slider.steps.length - 1) return null;
+    slider.active = index;
+    const mask = slider.steps[index].args[1];
+    traces.forEach((trace, i) => { trace.visible = mask[i]; });
+    return period;
+}
+
+// Tell `onChange(period)` when the user moves a slider map (null = back on the latest period).
+// Plotly.react keeps listeners on the same element, so the previous one is dropped first.
+function dasWatchMapSlider(chart, onChange) {
+    if (chart.removeAllListeners) chart.removeAllListeners("plotly_sliderchange");
+    chart.on("plotly_sliderchange", function (event) {
+        const steps = event.slider.steps || [];
+        const index = event.slider.active;
+        onChange(index === steps.length - 1 || !steps[index] ? null : steps[index].label);
+    });
 }
 
 function dasMapColorbar(p, t) {
@@ -4927,8 +5339,18 @@ function dasRenderPivot() {
 
     document.getElementById("das-pivot-truncated").classList.toggle("d-none", !p.truncated);
     const isMap = chartType === "map_province" || chartType === "map_city";
+    // Park the map's slider where the link / the last render left it (a theme redraw comes
+    // through here too); any other chart has no slider.
+    if (dasState.view) dasState.view.period = isMap ? dasApplyMapPeriod(traces, layout, dasState.view.period) : null;
     const plotted = Plotly.react(chart, traces, themeChartLayout(layout), chartConfig({ responsive: true }, dasPivotExportInfo));
-    if (isMap) plotted.then(() => dasFitMapHeight(chart));
+    if (isMap) plotted.then(() => {
+        dasFitMapHeight(chart);
+        dasWatchMapSlider(chart, function (period) {
+            if (!dasState || !dasState.view) return;
+            dasState.view.period = period;
+            dasSyncUrl();
+        });
+    });
 }
 
 // Geo subplots keep the map's true geographic aspect ratio, so the flat height used for every
@@ -4991,10 +5413,15 @@ var CONFLUENCE_API = "/api/v1/confluence/data";
 // Survives HTMX swaps (the bundle loads once per full page load); initConfluence rebuilds it.
 var confluenceState = null;
 
+var CONFLUENCE_PAGE_PATH = "/v1/national/confluence";
+
 function initConfluence(cfg) {
     if (!document.getElementById("confluence-chart")) return;
     // seq/controller: only the newest Overlay request may draw (see confluenceApply).
-    confluenceState = { cfg: cfg, data: null, geojson: null, geojsons: {}, seq: 0, controller: null };
+    // period: a map pairing's slider position (null = the latest); addressParams: the settings of
+    // the overlay on screen, which confluenceSyncAddress writes to the address with the period.
+    confluenceState = { cfg: cfg, data: null, geojson: null, geojsons: {}, seq: 0, controller: null,
+                        period: null, addressParams: null };
 
     const provinceSelect = document.getElementById("confluence-province");
     const slugs = Object.keys(cfg.provinces).sort((a, b) =>
@@ -5181,10 +5608,12 @@ function confluenceCheckedKeys() {
 // Returns true when it found a valid pairing and kicked off the fetch. A link that no longer
 // resolves (or names unknown substances) says so rather than quietly showing something else.
 function confluenceReplayFromUrl() {
-    const params = new URLSearchParams(window.location.search);
+    // The address's own settings, else the signed-in user's saved starting view (dasExplorer.js).
+    const params = pageStartingParams("confluence-page", CONFLUENCE_PAGE_PATH);
     const cfg = confluenceState.cfg;
     const province = params.get("province");
     if (!province) return false;
+    confluenceState.period = params.get("period");   // dropped at render if it isn't on the map
     if (!cfg.provinces[province]) {
         confluenceSetNote("confluence-link-note", "The linked province isn't available, so the default pairing is shown instead.");
         return false;
@@ -5346,8 +5775,9 @@ async function confluenceApply() {
         // Plotly.react draws beside existing children rather than replacing them, so the
         // skeleton must go before the first render (dasApplyPivot does the same).
         chart.innerHTML = "";
-        window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}`);
-        confluenceRender();
+        state.addressParams = params;
+        confluenceRender();          // settles state.period (a map keeps it if that period exists)
+        confluenceSyncAddress();
     } catch (error) {
         if (stale()) return;   // superseded (and aborted) by a newer Overlay
         console.error("Confluence failed:", error);
@@ -5415,11 +5845,25 @@ function confluenceExportInfo() {
     return { title: heading ? heading.textContent.trim() : "", place: d && d.province ? d.province.label : "" };
 }
 
+// Write the overlay on screen into the address: its settings plus, for a map parked on an earlier
+// period, that period. Not `window.location.pathname`: on arrival through the side menu the
+// address still shows the previous page for a moment (see writePageQuery in dasExplorer.js).
+function confluenceSyncAddress() {
+    writePageQuery("confluence-page", CONFLUENCE_PAGE_PATH, function () {
+        const state = confluenceState;
+        if (!state || !state.addressParams) return null;
+        const query = new URLSearchParams(state.addressParams);
+        if (state.period) query.set("period", state.period);
+        return query.toString();
+    });
+}
+
 function confluenceRender() {
     const state = confluenceState;
     const d = state && state.data;
     const chart = document.getElementById("confluence-chart");
     if (!d || !chart) return;
+    if (d.das.mode !== "cities") state.period = null;   // only a map pairing has a slider
     const perCapita = d.measure === "rates" ? " per 100,000 population" : "";
     const title = `${d.visual_label}${perCapita} · DAS samples (${d.das.basis} date, ${d.province.label})`;
     document.getElementById("confluence-chart-title").textContent = title;
@@ -5623,6 +6067,8 @@ function confluenceRenderCities(d, chart) {
             step.args = ["visible", traces.map((_, i) => Math.floor(i / 2) === j)];
         });
     }
+    // Park the slider where the link / the last render left it (needs the pair masks above).
+    confluenceState.period = dasApplyMapPeriod(traces, layout, confluenceState.period);
     const notes = [];
     if (unmatchedAreas.length) {
         notes.push(`${unmatchedAreas.length} ${unmatchedAreas.length === 1 ? "area has" : "areas have"} no map outline and ${unmatchedAreas.length === 1 ? "isn't" : "aren't"} drawn (see the table): ${unmatchedAreas.join("; ")}.`);
@@ -5640,6 +6086,11 @@ function confluenceRenderCities(d, chart) {
             dasFitMapHeight(chart);
             attachGeoHoverTip(chart, (point) => (point.location == null ? null
                 : { name: point.location, value: `${point.z} ${measure.label}` }));
+            dasWatchMapSlider(chart, function (period) {
+                if (!confluenceState) return;
+                confluenceState.period = period;
+                confluenceSyncAddress();
+            });
         })
         .catch(error => {
             console.error("Confluence map render failed:", error);

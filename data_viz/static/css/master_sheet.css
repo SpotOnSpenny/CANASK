@@ -366,6 +366,21 @@ a { text-decoration: none; }
    tall area AND let percentage-height children (.col.h-100 → #viz-card) resolve,
    while the parent container is allowed to grow (rule below) so the table and
    "About these data" rows sit below the fold and stay inside the scroll region. */
+/* The show / hide button main.js adds beside every password field (enhancePasswordFields): it
+   takes the field's own border so the pair reads as one control, in both themes. */
+.password-toggle-group .password-toggle,
+.input-group .password-toggle { border-color: var(--bs-border-color); color: var(--c-muted); background: transparent; }
+.input-group .password-toggle:hover,
+.input-group .password-toggle:focus-visible { color: var(--c-text); background: var(--c-surface-2, rgba(127, 127, 127, 0.12)); }
+
+/* The one-time "your groups start this page on different charts" notice above the menu row
+   (renderLandingNotice): the sentence on its own line, then the buttons with the dismiss x at the
+   far end of that second line -- not in the top-right corner, where the floating theme toggle
+   sits over it on a page scrolled to the top. */
+.landing-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; padding: 0.6rem 0.9rem; }
+.landing-notice-text { flex: 1 1 100%; }
+.landing-notice-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.landing-notice-close { margin-left: auto; }
 .menu-row { height: 15vh; min-height: 124px; }
 .data-row { height: 80vh; min-height: 440px; }
 

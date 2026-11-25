@@ -110,6 +110,10 @@
 
     {% if current_user.is_authenticated %}
     <p class="rail-section-label">Account</p>
+    <a href="/v1/account" hx-get="/v1/account" hx-trigger="click" hx-target="#content-div"
+        hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/v1/account" class="nav-link htmx-element">
+        <i class="bi bi-person-circle nav-ic"></i>My account
+    </a>
     {% if nav_perms.manage_users %}
     <a href="/v1/invite-user" hx-get="/v1/invite-user" hx-trigger="click" hx-target="#content-div"
         hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/v1/invite-user" class="nav-link htmx-element">
@@ -202,8 +206,14 @@
         </a>
         {% endif %}
         {% endfor %}
-        {% if nav_perms.manage_users %}
+        {% if current_user.is_authenticated %}
         <h2 class="nav-title">Account</h2>
+        <a href="/v1/account" hx-get="/v1/account" hx-trigger="click" hx-target="#content-div"
+            hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/v1/account" class="mobile-nav-link htmx-element">
+            My account
+        </a>
+        {% endif %}
+        {% if nav_perms.manage_users %}
         <a href="/v1/user-management" hx-get="/v1/user-management" hx-trigger="click" hx-target="#content-div"
             hx-swap="innerHTML swap:1s settle:1s" hx-push-url="/v1/user-management" class="mobile-nav-link htmx-element">
             User management

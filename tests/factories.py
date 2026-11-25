@@ -18,6 +18,7 @@ from data_viz.database.models import (
     DasSampleDrugs,
     DasSamples,
     GroupDataSources,
+    GroupLandingVisuals,
     Groups,
     GroupVisuals,
     InviteGroups,
@@ -26,6 +27,7 @@ from data_viz.database.models import (
     SiteAdminKey,
     User,
     UserGroups,
+    UserLandingChoices,
     VisualQuery,
     Visuals,
 )
@@ -137,6 +139,23 @@ def grant_visual(group, visual):
     db.session.add(grant)
     db.session.flush()
     return grant
+
+
+def set_landing(group, visual, set_by=None):
+    """The visual `group`'s members open `visual.province` on (a GroupLandingVisuals row)."""
+    row = GroupLandingVisuals(group_id=group.id, province=visual.province, visual_id=visual.id,
+                              set_by=set_by.id if set_by is not None else None)
+    db.session.add(row)
+    db.session.flush()
+    return row
+
+
+def choose_landing(user, visual):
+    """A user's own starting chart for `visual.province` (a UserLandingChoices row)."""
+    row = UserLandingChoices(user_id=user.id, province=visual.province, visual_id=visual.id)
+    db.session.add(row)
+    db.session.flush()
+    return row
 
 
 def grant_data_source(group, source):

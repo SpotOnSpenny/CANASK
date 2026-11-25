@@ -1,10 +1,10 @@
 # Standard library imports
 from functools import wraps
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 
 # External imports
-from flask import Blueprint, request, render_template, flash, current_app, redirect, url_for, session, make_response
+from flask import Blueprint, request, render_template, flash, current_app, redirect, url_for, session, make_response, jsonify
 from bcrypt import checkpw, gensalt, hashpw
 import jwt
 from flask_login import login_user, current_user, logout_user
@@ -17,10 +17,11 @@ from sqlalchemy import or_, and_, func
 from data_viz.auth import login_manager
 from data_viz.database import db
 from data_viz.database.models import User, Invites, Groups, UserGroups, UserActivity, InviteGroups, DataSources, GroupDataSources, Visuals, GroupVisuals, PasswordResets
-from data_viz.auth.auth_helpers import get_user_groups, get_assignable_roles, validate_password, create_user, create_group, assign_group, assign_site_admin, get_manageable_users, get_directory_users, get_user_memberships_in_groups, get_manageable_groups, set_group_data_sources, owned_data_sources, can_manage_source, teams_for_source, visuals_for_source, set_group_visuals, set_visual_visibility, set_source_visibility, set_province_default_visual, visibility_rows_for_source, is_last_active_site_admin, site_admin_key_is_set, check_site_admin_key, deactivate_user, set_user_password
+from data_viz.auth.auth_helpers import get_user_groups, get_assignable_roles, validate_password, create_user, create_group, assign_group, assign_site_admin, get_manageable_users, get_directory_users, get_user_memberships_in_groups, get_manageable_groups, set_group_data_sources, owned_data_sources, can_manage_source, teams_for_source, visuals_for_source, set_group_visuals, set_visual_visibility, set_source_visibility, set_province_default_visual, visibility_rows_for_source, landing_scopes_for, set_group_landing, set_user_landing_choice, user_starting_charts, landing_scope_label, can_open_view_page, set_user_starting_view, user_starting_views, is_last_active_site_admin, site_admin_key_is_set, check_site_admin_key, deactivate_user, set_user_password
 from data_viz.auth.role_hierarchy import GROUP_ROLES, ROLE_HIERARCHY
 from data_viz.auth.restricted import RestrictedSourceRefusal, blocked_group_ids, uncovered_source_ids
 from data_viz.extensions import limiter
+from data_viz.starting_views import PAGES as STARTING_VIEW_PAGES
 from data_viz.email import send_ses_email
 from data_viz.recaptcha import verify_recaptcha
 from data_viz.validation import validate_email, validate_username, validate_text, validate_role, MAX_GROUP_NAME, MAX_GROUP_DESC
@@ -1807,23 +1808,38 @@ def group_data_sources(group_id, groups_with_required_role = None):
     # they can't pick it) but locked, and never attachable below.
     locked_ids = uncovered_source_ids(current_user)
 
+    # A non-site-admin may only attach sources they already own; otherwise a Data Owner could
+    # create a group (auto-owning it), attach every source, and thereby self-grant management of
+    # all sources -- letting them flip any private or group-level visual to public. Sources already on the
+    # group that the caller can't manage are preserved so a reconcile doesn't detach them.
+    # A site admin may attach anything except a restricted source they are not covered for
+    # (attaching it to a group of their choosing would be self-granting the agreement).
+    if current_user.site_admin:
+        attachable_ids = {s.id for s in all_sources} - locked_ids
+    else:
+        attachable_ids = {s.id for s in owned_data_sources(current_user)} - locked_ids
+
     if request.method == "GET":
-        source_rows = [{"source": s, "checked": s.id in current_ids, "locked": s.id in locked_ids}
-                       for s in all_sources]
+        # A site admin sees the whole catalogue (an uncovered restricted source shown locked, so
+        # they can see why they can't pick it). Anyone else sees only what they may hand out --
+        # the sources they own -- plus whatever is already on the group, locked if it isn't
+        # theirs to change: listing the rest of the catalogue with live checkboxes read as "you
+        # can attach these", which the POST below has always refused.
+        source_rows = []
+        for s in all_sources:
+            if not current_user.site_admin and s.id not in attachable_ids and s.id not in current_ids:
+                continue
+            if s.id in attachable_ids:
+                locked = None
+            elif s.id in locked_ids:
+                locked = "agreement"
+            else:
+                locked = "not_yours"
+            source_rows.append({"source": s, "checked": s.id in current_ids, "locked": locked})
         return render_template("v1/partials/group_data_sources_modal.jinja",
                             group = group, source_rows = source_rows)
 
     if request.method == "POST":
-        # A non-site-admin may only attach sources they already own; otherwise a Data Owner could
-        # create a group (auto-owning it), attach every source, and thereby self-grant management of
-        # all sources -- letting them flip any private or group-level visual to public. Sources already on the
-        # group that the caller can't manage are preserved so a reconcile doesn't detach them.
-        # A site admin may attach anything except a restricted source they are not covered for
-        # (attaching it to a group of their choosing would be self-granting the agreement).
-        if current_user.site_admin:
-            attachable_ids = {s.id for s in all_sources} - locked_ids
-        else:
-            attachable_ids = {s.id for s in owned_data_sources(current_user)} - locked_ids
         submitted = set(current_ids - attachable_ids)
         for raw in request.form.getlist("source_ids"):
             try:
@@ -1833,6 +1849,17 @@ def group_data_sources(group_id, groups_with_required_role = None):
             if sid in attachable_ids:
                 submitted.add(sid)
         submitted = list(submitted)
+
+        # Removing a source is a two-step action. It takes the group's access to the source's
+        # non-public visuals, clears its visual grants and starting charts (re-attaching brings
+        # none of them back), and a Data Owner who owns the source only through this group
+        # cannot attach it again. The modal asks first and sends confirm_remove=1 on the second
+        # press; anything else that would detach (a stale page, a hand-built request) applies
+        # NOTHING -- not even the additions in the same save, so a refused save is never half-done.
+        if (current_ids - set(submitted)) and request.form.get("confirm_remove") != "1":
+            flash("Nothing was changed. Removing a data source needs confirming: open "
+                  "\"Manage data sources\" again, save, then confirm the removal.", "warning")
+            return _render_group_row(group)
 
         changes = set_group_data_sources(group_id, submitted, changed_by = current_user.id)
         if changes:
@@ -1847,6 +1874,545 @@ def group_data_sources(group_id, groups_with_required_role = None):
                             data_sources = group_sources,
                             source_count = len(group_sources),
                             blocked_group_ids = _admin_blocked_group_ids())
+
+
+# --------------------------------------------------------------------------------------- #
+# Starting charts: the visual a group's members open each province page on. Set per group by its
+# Data Owners (it changes nothing for anyone outside the group). Any user can also set their own
+# for a page, from the charts they can see (the account page, below), which beats their group's.
+# Read side: visual_query.landing_for.
+# --------------------------------------------------------------------------------------- #
+
+LANDING_FIELD_PREFIX = "landing__"   # form field "landing__<scope>" -> a visual id, or "" = site default
+
+def _render_group_row(group):
+    """The Group Management row for `group`, as the group-scoped modals swap it back in."""
+    source_ids = {gds.data_source_id for gds in GroupDataSources.query.filter_by(group_id = group.id).all()}
+    group_sources = (DataSources.query.filter(DataSources.id.in_(source_ids))
+                     .order_by(DataSources.name).all()) if source_ids else []
+    return render_template("v1/partials/group_row.jinja",
+                        group = group,
+                        data_sources = group_sources,
+                        source_count = len(group_sources),
+                        blocked_group_ids = _admin_blocked_group_ids())
+
+
+@auth_blueprint.route("/v1/groups/<int:group_id>/landing", methods=["GET", "POST"])
+@require_auth
+@require_role("Data Owner", group_id_source = "url", action = "set a group's starting charts")
+def group_landing(group_id, groups_with_required_role = None):
+    # A group holding a restricted source this site admin is outside of never gets here:
+    # require_role refuses a blocked group for every group-scoped ("url") route.
+    group = Groups.query.get(group_id)
+    if not group:
+        flash("Group not found.", "danger")
+        return redirect(url_for("auth.group_management"))
+
+    if request.method == "GET":
+        scopes = landing_scopes_for(group_id)
+        source_names = dict(DataSources.query.with_entities(DataSources.id, DataSources.name).all())
+        for scope in scopes:
+            # Candidates grouped by data source, for the <optgroup>s (first-appearance order).
+            by_source = {}
+            for visual in scope["candidates"]:
+                by_source.setdefault(source_names.get(visual.data_source_id, "Other"), []).append(visual)
+            scope["by_source"] = list(by_source.items())
+        return render_template("v1/partials/group_landing_modal.jinja", group = group,
+                            scopes = scopes, field_prefix = LANDING_FIELD_PREFIX)
+
+    picks = {}
+    for field, raw in request.form.items():
+        if not field.startswith(LANDING_FIELD_PREFIX):
+            continue
+        raw = raw.strip()
+        # isascii() too: str.isdigit() is true for characters such as "\u00b2" that int() rejects.
+        if raw and not (raw.isascii() and raw.isdigit()):
+            flash("That isn't a chart this group can use.", "danger")
+            return _render_group_row(group)
+        picks[field[len(LANDING_FIELD_PREFIX):]] = int(raw) if raw else None
+    try:
+        changes = set_group_landing(group_id, picks, changed_by = current_user.id)
+        if changes:
+            flash(f"Starting charts updated for {group.name}: {'; '.join(changes)}.", "success")
+    except ValueError as exc:
+        # Validation failure (a visual the group's members can't all see): set_group_landing
+        # raises before writing anything, so flash and re-render the row unchanged.
+        flash(str(exc), "danger")
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error(f"Error setting starting charts for group {group_id}: {exc}")
+        flash("Could not update this group's starting charts. Please try again.", "danger")
+    return _render_group_row(group)
+
+
+@auth_blueprint.route("/v1/landing-choice/<scope>", methods=["POST"])
+@require_auth
+def landing_choice(scope):
+    """The signed-in user's own starting chart for `scope`: `visual_id` = a top-level visual they
+    can see there, or "" to go back to the default. Two callers: the select on their account page
+    (HTMX -> the re-rendered section, with the outcome as a flash) and the one-time notice on a
+    province page (a plain fetch in visualGeneration.js -> JSON)."""
+    from_page = request.headers.get("HX-Request") == "true"
+    error, opens_on = None, None
+    if "visual_id" not in request.form:
+        # Only an explicit empty value means "back to the default"; a bare POST is a mistake.
+        error, status = "No chart was chosen.", 400
+    else:
+        raw = request.form.get("visual_id", "").strip()
+        try:
+            opens_on = set_user_landing_choice(current_user, scope, raw or None)
+        except ValueError as exc:
+            error, status = str(exc), 400
+        except Exception as exc:
+            db.session.rollback()
+            current_app.logger.error(f"Error saving landing choice for {scope}: {exc}")
+            error, status = "Could not save your choice. Please try again.", 500
+
+    if not from_page:
+        return (jsonify({"error": error}), status) if error else jsonify({"default": opens_on})
+    # htmx does not swap a 4xx/5xx body, so the account page always gets 200 + the section as
+    # it now stands; a refusal rides out as the flash.
+    context = _starting_charts_context()
+    if error:
+        flash(error, "danger")
+    else:
+        row = next((r for r in context["scopes"] if r["province"] == scope), None)
+        opened = next((c for c in row["charts"] if c.name == opens_on), None) if row else None
+        flash(f"Saved. {landing_scope_label(scope)} will open on "
+              f"{(opened.menu_name or opened.name) if opened else 'its default chart'}.", "success")
+    return render_template("v1/partials/starting_charts_section.jinja", **context)
+
+
+def _starting_charts_context():
+    """What the Starting charts section renders: the chart pages (`scopes`) and the two pages
+    that take a saved view instead (`views`)."""
+    return {"scopes": user_starting_charts(current_user), "views": user_starting_views(current_user)}
+
+
+@auth_blueprint.route("/v1/starting-view/<page>", methods=["POST"])
+@require_auth
+def starting_view(page):
+    """Save or clear the signed-in user's starting view for a page whose view lives in the
+    address (Confluence, the DAS Explorer). `query` = the page's current query string (its own
+    "Save as my starting view" button, a plain fetch -> JSON); `link` = a link pasted on the
+    account page; `clear` = remove it (both HTMX -> the re-rendered section + a flash)."""
+    from_account = request.headers.get("HX-Request") == "true"
+
+    def _answer(error = None, status = 400, message = None):
+        if not from_account:
+            return (jsonify({"error": error}), status) if error else jsonify({"saved": True})
+        flash(error or message, "danger" if error else "success")
+        return render_template("v1/partials/starting_charts_section.jinja", **_starting_charts_context())
+
+    if page not in STARTING_VIEW_PAGES:
+        return ("", 404) if not from_account else _answer("That page doesn't have a starting view.")
+    label = STARTING_VIEW_PAGES[page]["label"]
+    if not can_open_view_page(current_user, page):
+        return _answer(f"You don't have access to the {label} page.", status = 403)
+    try:
+        if "clear" in request.form:
+            set_user_starting_view(current_user, page, None)
+            return _answer(message = f"Cleared. {label} will open on its usual view.")
+        raw = request.form.get("link") if "link" in request.form else request.form.get("query")
+        set_user_starting_view(current_user, page, raw or "")
+    except ValueError as exc:
+        return _answer(str(exc))
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error(f"Error saving starting view for {page}: {exc}")
+        return _answer("Could not save that. Please try again.", status = 500)
+    return _answer(message = f"Saved. {label} will open on that view.")
+
+
+# --------------------------------------------------------------------------------------- #
+# "My account": one tab per option. Each tab is its own URL, so it can be linked to (the province
+# page's notice links to starting-charts) and only the open tab's content is computed -- the
+# starting-charts list checks every page the user can open. A new option is an ACCOUNT_TABS entry,
+# a v1/partials/account_<key with _>.jinja partial, and its context in _account_context.
+# --------------------------------------------------------------------------------------- #
+ACCOUNT_TABS = (
+    ("info", "Account info"),
+    ("starting-charts", "Starting charts"),
+    ("password", "Password"),
+    ("sign-ins", "Sign-in activity"),
+)
+
+# What the "Sign-in activity" tab lists, newest first: the account's own sign-in and security
+# events. Everything else in UserActivity (group changes, admin actions...) is not for this page.
+ACCOUNT_ACTIVITY_TYPES = ("authentication attempt", "logout", "password reset",
+                          "username_changed", "email_change_requested", "email_changed")
+ACCOUNT_ACTIVITY_LIMIT = 20
+
+def _account_activity_label(row):
+    """A plain description of one UserActivity row for its own user. Never the raw `details`: a
+    failed sign-in's details quote whatever was typed into the username box, which is often a
+    password pasted into the wrong field."""
+    details = row.details or ""
+    if row.activity_type == "authentication attempt":
+        if details == "Successful login":
+            return "Signed in"
+        if "wrong current password" in details:
+            return "Wrong password entered on the account page"
+        if details.startswith("Failed login"):
+            return "Failed sign-in attempt"
+        if "blocked" in details.lower():
+            return "Sign-in blocked after too many failed attempts"
+        if details.startswith("Login refused"):
+            return "Sign-in refused"
+        return "Sign-in attempt"
+    if row.activity_type == "password reset":
+        return "Password changed" if "changed" in details.lower() else "Password reset by emailed link"
+    return {"logout": "Signed out",
+            "username_changed": "Username changed",
+            "email_change_requested": "Email change requested",
+            "email_changed": "Email changed"}.get(row.activity_type, row.activity_type)
+
+def _account_context(tab):
+    context = {"tabs": ACCOUNT_TABS, "active_tab": tab}
+    if tab == "info":
+        # At the cap, the username form is switched off and says when it opens up again.
+        wait = _username_change_wait(current_user)
+        context["username_wait"] = _about(wait) if wait is not None else None
+        context["memberships"] = (UserGroups.query.filter_by(user_id = current_user.id)
+                                  .join(Groups, Groups.id == UserGroups.group_id).order_by(Groups.name).all())
+    elif tab == "starting-charts":
+        context.update(_starting_charts_context())
+    elif tab == "sign-ins":
+        rows = (UserActivity.query.filter(UserActivity.user_id == current_user.id,
+                                          UserActivity.activity_type.in_(ACCOUNT_ACTIVITY_TYPES))
+                .order_by(UserActivity.timestamp.desc(), UserActivity.id.desc())
+                .limit(ACCOUNT_ACTIVITY_LIMIT).all())
+        context["activity"] = [{"when": row.timestamp, "what": _account_activity_label(row),
+                                "ip": row.ip_address} for row in rows]
+        context["activity_limit"] = ACCOUNT_ACTIVITY_LIMIT
+    return context
+
+def _render_account(tab):
+    """The account page on `tab`: the bare partial for HTMX (tab links and the forms all swap
+    #account-div), the full shell otherwise."""
+    context = _account_context(tab)
+    if request.headers.get("HX-Request") == "true":
+        return render_template("v1/account.jinja", **context)
+    return render_template("base.jinja", include_partials = "index",
+                        dash_template = "v1/account.jinja", **context)
+
+@auth_blueprint.route("/v1/account", methods=["GET"])
+@auth_blueprint.route("/v1/account/<tab>", methods=["GET"])
+@require_auth
+def account(tab = "info"):
+    """"My account" for the signed-in user: "info" (who they are and their groups, with the
+    username and email forms; roles are changed by a group's managers on User Management),
+    "starting-charts", "password" and "sign-ins"."""
+    if tab not in dict(ACCOUNT_TABS):
+        return redirect(url_for("auth.account"))
+    return _render_account(tab)
+
+
+def _confirm_own_password(action):
+    """Re-check the signed-in user's password before a sensitive account change (`action`
+    completes "trying to ..."). Returns None when it is right, else the message to show.
+
+    A wrong guess is logged exactly like a failed sign-in ("Failed login..."), so it counts
+    toward the same per-account lockout: someone sitting in a stolen session gets no more
+    guesses at the password here than at the login form."""
+    if login_locked_out(current_user):
+        _log_auth_attempt(current_user, current_user.username,
+                          f"Blocked while trying to {action}: too many recent failed attempts")
+        return "Too many failed attempts. Please wait a few minutes and try again."
+    password = request.form.get("current_password") or ""
+    if not checkpw(password.encode("utf-8"), current_user.password_hash.encode("utf-8")):
+        _log_auth_attempt(current_user, current_user.username,
+                          f"Failed login: wrong current password while trying to {action}")
+        return "Your current password is incorrect."
+    return None
+
+
+@auth_blueprint.route("/v1/account/password", methods=["POST"])
+@limiter.limit(lambda: current_app.config["RATELIMIT_LOGIN"])
+@require_auth
+def account_change_password():
+    new_password = request.form.get("new_password") or ""
+    error = _confirm_own_password("change their password")
+    if error is None:
+        if new_password != (request.form.get("confirm_password") or ""):
+            error = "The new passwords do not match."
+        else:
+            valid, message = validate_password(new_password)
+            if not valid:
+                error = message
+            elif checkpw(new_password.encode("utf-8"), current_user.password_hash.encode("utf-8")):
+                error = "Your new password must be different from your current one."
+    if error:
+        flash(error, "danger")
+        return _render_account("password")
+
+    user = current_user._get_current_object()
+    try:
+        set_user_password(user, new_password, ip_address = request.remote_addr,
+                          details = f"Password changed by {user.username} from their account page")
+    except Exception:
+        flash("We couldn't change your password just now. Please try again.", "danger")
+        return _render_account("password")
+    # set_user_password bumps session_version, which signs out EVERY session for the account,
+    # this one included. Sign this one straight back in under the new version.
+    login_user(user)
+    flash("Your password has been changed. You've been signed out everywhere else.", "success")
+    return _render_account("password")
+
+
+def _about(delta):
+    """A duration for a sentence, rounded UP so "you can try again in ..." is never early:
+    "about 4 hours", "about 1 hour", "about 25 minutes"."""
+    seconds = max(delta.total_seconds(), 0)
+    if seconds > 3600:
+        hours = -(-int(seconds) // 3600)
+        return f"about {hours} hours"
+    if seconds > 45 * 60:
+        return "about 1 hour"
+    minutes = max(-(-int(seconds) // 60), 1)
+    return f"about {minutes} minute{'s' if minutes != 1 else ''}"
+
+def _username_change_wait(user):
+    """How long until `user` may change their username again (a timedelta), or None if they may
+    now: at most USERNAME_CHANGE_LIMIT successful changes per USERNAME_CHANGE_WINDOW, counted from
+    their `username_changed` activity rows. Attempts that were refused (taken, invalid) never
+    wrote a row, so they don't count here -- the route's per-IP limit covers those."""
+    limit = current_app.config["USERNAME_CHANGE_LIMIT"]
+    window = current_app.config["USERNAME_CHANGE_WINDOW"]
+    now = datetime.now(timezone.utc).replace(tzinfo = None)   # the column is naive UTC
+    recent = (UserActivity.query.filter(UserActivity.user_id == user.id,
+                                        UserActivity.activity_type == "username_changed",
+                                        UserActivity.timestamp >= now - window)
+              .order_by(UserActivity.timestamp.desc(), UserActivity.id.desc()).limit(limit).all())
+    if len(recent) < limit:
+        return None
+    # The oldest of the changes that fill the allowance is the one that frees a slot first.
+    return max(recent[-1].timestamp + window - now, timedelta(seconds = 1))
+
+def _username_cap_text():
+    """"2 times in the last 24 hours", from the config."""
+    limit = current_app.config["USERNAME_CHANGE_LIMIT"]
+    hours = int(current_app.config["USERNAME_CHANGE_WINDOW"].total_seconds() // 3600)
+    return f"{limit} time{'s' if limit != 1 else ''} in the last {hours} hour{'s' if hours != 1 else ''}"
+
+
+@auth_blueprint.route("/v1/account/username", methods=["POST"])
+@limiter.limit(lambda: current_app.config["RATELIMIT_USERNAME_CHANGE"])
+@require_auth
+def account_change_username():
+    user = current_user._get_current_object()
+    valid, username = validate_username(request.form.get("username"))
+    wait = _username_change_wait(user)
+    if not valid:
+        flash(username, "danger")
+    elif username == user.username:
+        flash("That is already your username.", "info")
+    elif wait is not None:
+        flash(f"You've changed your username {_username_cap_text()}. "
+              f"You can change it again in {_about(wait)}.", "warning")
+    elif User.query.filter(func.lower(User.username) == username.lower(), User.id != user.id).first():
+        flash("Username already taken. Please choose a different username.", "danger")
+    else:
+        old = user.username
+        user.username = username
+        db.session.add(UserActivity(
+            user_id = user.id,
+            activity_type = "username_changed",
+            activity_target_type = "account",
+            activity_target_id = user.id,
+            details = f"Username changed from {old} to {username}",
+            ip_address = request.remote_addr))
+        try:
+            db.session.commit()
+            flash(f"Your username is now {username}.", "success")
+        except Exception as exc:
+            # The unique index is the real guard: two people can pass the check above at once.
+            db.session.rollback()
+            current_app.logger.error(f"Error changing username for user {user.id}: {exc}")
+            flash("Username already taken. Please choose a different username.", "danger")
+    return _render_account("info")
+
+
+def _email_change_token(user, new_email):
+    """A signed, self-contained request to change `user`'s email to `new_email`. It is only good
+    while the account still has the email AND the session_version it was issued under: confirming
+    it (or changing the password) moves one of those, so a link can't be used twice, and two
+    pending links can't both win. Same signing key as password resets; the "purpose" claim keeps
+    the two kinds of link from standing in for each other."""
+    return jwt.encode({
+        "purpose": "email_change",
+        "user_id": user.id,
+        "old_email": user.email,
+        "new_email": new_email,
+        "sv": user.session_version,
+        "exp": (datetime.now(timezone.utc) + current_app.config["PASSWORD_RESET_EXPIRY"]).timestamp(),
+    }, current_app.config["PASSWORD_RESET_JWT_SECRET"], algorithm = "HS256")
+
+def _read_email_change_token(token):
+    """(user, new_email, None) for a link that can still be confirmed, else (None, None, message).
+    Every rejection is logged (_log_token_attempt)."""
+    expired = "This confirmation link has expired. Please request the change again."
+    invalid = "This confirmation link is not valid."
+    stale = "This confirmation link is no longer valid. Please request the change again."
+    try:
+        payload = jwt.decode(token, current_app.config["PASSWORD_RESET_JWT_SECRET"], algorithms = ["HS256"])
+    except jwt.ExpiredSignatureError:
+        _log_token_attempt("email_change", "expired")
+        return None, None, expired
+    except jwt.InvalidTokenError:
+        _log_token_attempt("email_change", "invalid or tampered")
+        return None, None, invalid
+    if payload.get("purpose") != "email_change":
+        _log_token_attempt("email_change", "wrong token purpose")
+        return None, None, invalid
+    user = User.query.get(payload.get("user_id")) if payload.get("user_id") else None
+    new_email = payload.get("new_email")
+    if user is None or not new_email:
+        _log_token_attempt("email_change", "unknown account")
+        return None, None, invalid
+    if user.status != User.STATUS_ACTIVE:
+        _log_token_attempt("email_change", "account not active", user_id = user.id)
+        return None, None, stale
+    if (payload.get("sv") != user.session_version
+            or (payload.get("old_email") or "").lower() != user.email.lower()):
+        _log_token_attempt("email_change", "superseded", user_id = user.id)
+        return None, None, stale
+    if User.query.filter(func.lower(User.email) == new_email.lower(), User.id != user.id).first():
+        _log_token_attempt("email_change", "address now in use", user_id = user.id)
+        return None, None, stale
+    return user, new_email, None
+
+def _send_account_email(to_address, subject, html_body, dev_note):
+    """Send one account email. Under DEBUG (dev only) it goes to the server log INSTEAD of SES,
+    like the invite and reset links."""
+    if current_app.config["DEBUG"]:
+        current_app.logger.info("DEV %s for %s", dev_note, to_address)
+        return True
+    return send_ses_email([to_address], subject, html_body)
+
+
+@auth_blueprint.route("/v1/account/email", methods=["POST"])
+# Same budget as the forgot-password form: per-IP, plus the site-wide SES cost ceiling.
+@limiter.limit(lambda: current_app.config["RATELIMIT_PASSWORD_RESET"])
+@limiter.limit(lambda: current_app.config["RATELIMIT_PASSWORD_RESET_GLOBAL"],
+               key_func = lambda: "password-reset-global")
+@require_auth
+def account_request_email_change():
+    """Step one of changing your email: confirm your password, then a link goes to the NEW
+    address. The email on the account does not change until that link is confirmed
+    (account_confirm_email), so a typo can't cut you off from password resets."""
+    user = current_user._get_current_object()
+    valid, new_email = validate_email(request.form.get("new_email"), required = True)
+    if not valid:
+        flash(new_email, "danger")
+        return _render_account("info")
+    error = _confirm_own_password("change their email")
+    if error:
+        flash(error, "danger")
+        return _render_account("info")
+    if new_email.lower() == user.email.lower():
+        flash("That is already your email address.", "info")
+        return _render_account("info")
+
+    # An address that belongs to another account gets the SAME answer and no email: saying "that
+    # one is taken" would let any signed-in user test who has an account. (The link would be
+    # refused at confirmation anyway.)
+    taken = User.query.filter(func.lower(User.email) == new_email.lower(), User.id != user.id).first()
+    sent = None
+    if not taken:
+        base = current_app.config.get("PUBLIC_BASE_URL")
+        if not base:
+            current_app.logger.error("PUBLIC_BASE_URL is not set; cannot build email-change link for %s", user.username)
+            sent = False
+        else:
+            link = f"{base}/v1/account/confirm-email/{_email_change_token(user, new_email)}"
+            sent = _send_account_email(
+                new_email, "Confirm your new CANASK email address",
+                f"""
+                <p>Someone signed in to the CANASK account <strong>{user.username}</strong> asked to
+                change its email address to this one.</p>
+                <p><a href="{link}">Confirm the new email address</a>.</p>
+                <p>Or paste this link into your browser:<br>{link}</p>
+                <p>This link expires in {_format_duration(current_app.config["PASSWORD_RESET_EXPIRY"])}. If you
+                didn't ask for this, ignore this email and nothing will change.</p>
+                """,
+                f"email-change link: {link}")
+            if not sent:
+                current_app.logger.error("Failed to send email-change confirmation for user %s", user.id)
+    outcome = ("address already in use, nothing sent" if taken
+               else "confirmation sent" if sent else "confirmation could not be sent")
+    db.session.add(UserActivity(
+        user_id = user.id,
+        activity_type = "email_change_requested",
+        activity_target_type = "account",
+        activity_target_id = user.id,
+        details = f"Email change requested to {new_email} ({outcome})",
+        ip_address = request.remote_addr))
+    db.session.commit()
+    flash(f"We've sent a confirmation link to {new_email}. Your email stays {user.email} until "
+          f"you open it. If it doesn't arrive, check the address and try again.", "info")
+    return _render_account("info")
+
+
+@auth_blueprint.route("/v1/account/confirm-email/<token>", methods=["GET", "POST"])
+@limiter.limit(lambda: current_app.config["RATELIMIT_PASSWORD_RESET_SUBMIT"],
+               exempt_when = lambda: request.method == "GET")
+def account_confirm_email(token):
+    """Step two: the link from the new mailbox. No sign-in needed (it is often opened on another
+    device) -- the link itself is the proof. GET only shows a confirm button, because mail
+    scanners open links; the change is made on POST."""
+    def _leave():
+        target = url_for("auth.account") if current_user.is_authenticated else url_for("auth.login")
+        if request.headers.get("HX-Request"):
+            return "", 204, {"HX-Redirect": target}   # the flash renders on that page
+        return redirect(target)
+
+    user, new_email, error = _read_email_change_token(token)
+    if error:
+        flash(error, "danger")
+        return _leave()
+    if request.method == "GET":
+        return render_template("base.jinja", include_partials = "index",
+                            dash_template = "v1/confirm_email.jinja",
+                            token = token, account_user = user, new_email = new_email)
+
+    old_email = user.email
+    user.email = new_email
+    # Bumping the version is what makes the link single-use and kills any other pending link
+    # (_read_email_change_token). It also signs the account out everywhere, which is right for a
+    # change to how you sign in; this session is signed back in below if it is theirs.
+    user.session_version = (user.session_version or 0) + 1
+    db.session.add(UserActivity(
+        user_id = user.id,
+        activity_type = "email_changed",
+        activity_target_type = "account",
+        activity_target_id = user.id,
+        details = f"Email changed from {old_email} to {new_email}",
+        ip_address = request.remote_addr))
+    was_signed_in_as_them = current_user.is_authenticated and current_user.id == user.id
+    try:
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error(f"Error changing email for user {user.id}: {exc}")
+        flash("We couldn't change your email just now. Please request the change again.", "danger")
+        return _leave()
+    if was_signed_in_as_them:
+        login_user(user)
+    # Tell the address that just lost the account, in case its owner did not ask for this.
+    notified = _send_account_email(
+        old_email, "Your CANASK email address was changed",
+        f"""
+        <p>The email address on the CANASK account <strong>{user.username}</strong> was changed
+        from this address to <strong>{new_email}</strong>.</p>
+        <p>If you made this change, you don't need to do anything.</p>
+        <p>If you didn't, contact a CANASK site administrator right away.</p>
+        """,
+        f"email-changed notice (now {new_email})")
+    if not notified:
+        current_app.logger.error("Failed to send email-changed notice to the old address of user %s", user.id)
+    flash(f"Your email address is now {new_email}.", "success")
+    return _leave()
 
 
 # --------------------------------------------------------------------------------------- #
@@ -1993,8 +2559,15 @@ def bulk_set_visibility(source_id):
 @auth_blueprint.route("/v1/visuals/<int:visual_id>/default", methods=["POST"])
 @require_auth
 def set_default_visual(visual_id):
-    # Permission is source-ownership (Data Owner of the visual's source / site admin), like the
-    # visibility route above -- checked explicitly rather than via a role decorator.
+    # The site-wide default is one per province across every data source, so it is a site-admin
+    # setting: a Data Owner sees only their own sources and must not be able to move the page off
+    # another owner's visual. Owners choose what their OWN group opens on instead (group_landing).
+    if not current_user.site_admin:
+        flash("Only site admins can change a page's site-wide default. To set what a page opens "
+              "on for your own group, go to Group Management → Starting charts.", "danger")
+        return _ownership_bounce()
+    # The admin must still be able to manage the visual's source (a restricted source they are
+    # outside of is closed to them) -- checked explicitly rather than via a role decorator.
     visual = Visuals.query.get(visual_id)
     if not visual or visual.data_source_id is None or not can_manage_source(current_user, visual.data_source_id):
         flash("You do not have permission to change this visual's default status.", "danger")
@@ -2003,8 +2576,9 @@ def set_default_visual(visual_id):
     try:
         set_province_default_visual(visual_id, changed_by = current_user.id)
     except ValueError as exc:
-        # Validation failure (not found / not a root visual): set_province_default_visual raises
-        # before mutating, so flash (via the HX out-of-band swap) and re-render the section unchanged.
+        # Validation failure (not found / not a root visual / the current default is on a source
+        # this admin is outside of): set_province_default_visual raises before mutating, so flash
+        # (via the HX out-of-band swap) and re-render the section unchanged.
         flash(str(exc), "danger")
     except Exception as exc:
         # A DB/commit failure must not 500 the HTMX partial -- roll back, log, and re-render so the

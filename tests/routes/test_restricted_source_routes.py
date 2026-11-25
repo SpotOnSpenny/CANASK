@@ -251,7 +251,8 @@ class TestAttachingSources:
         client.post(f"/v1/groups/{second.id}/data-sources",
                     data={"source_ids": [str(source.id)]})
         assert holds(second, source)
-        client.post(f"/v1/groups/{second.id}/data-sources", data={})
+        # A removal has to be confirmed (the modal's second step sends confirm_remove=1).
+        client.post(f"/v1/groups/{second.id}/data-sources", data={"confirm_remove": "1"})
         assert not holds(second, source)
 
     def test_data_owner_cannot_attach_a_source_they_do_not_own(self, client, login_as,
@@ -817,12 +818,12 @@ class TestOtherPathsStayClosed:
         assert f'id="vis-section-{agreement.source.id}"' not in body
         assert agreement.source.name not in body
 
-    def test_pinned_setting_another_default_clears_the_restricted_visuals_default(
+    def test_outsider_cannot_move_the_default_off_the_restricted_visual(
             self, client, login_as, agreement, outsider):
-        """Pinned behaviour: the landing default is one per province ACROSS sources
-        (set_province_default_visual), so an outsider who sets an open "canada" visual as the
-        default clears the flag on the restricted visual they can neither see nor manage. It
-        changes which visual the page opens on, not who can see anything."""
+        """The site-wide landing default is one per province ACROSS sources, so setting an open
+        "canada" visual as the default would clear the flag on the restricted visual. An admin
+        outside the agreement can neither see nor manage that visual, so the change is refused
+        and the page keeps opening on it. (This used to be pinned the other way round.)"""
         agreement.visual.is_default = True
         db.session.flush()
         other = make_data_source()
@@ -830,9 +831,10 @@ class TestOtherPathsStayClosed:
                                   visibility="private", data_source=other, metric=None,
                                   level="1")
         login_as(outsider)
-        client.post(f"/v1/visuals/{open_visual.id}/default")
-        assert open_visual.is_default is True
-        assert agreement.visual.is_default is False
+        response = client.post(f"/v1/visuals/{open_visual.id}/default", headers=HX)
+        assert "data sharing agreement" in response.get_data(as_text=True)
+        assert not open_visual.is_default
+        assert agreement.visual.is_default is True
 
     def test_public_restricted_visual_shows_the_nav_link_to_anonymous(self, client,
                                                                       agreement):
@@ -1248,7 +1250,8 @@ class TestGroupDataSourcesRoute:
         grant_visual(agreement.group, granted)
         login_as(owner)
         response = client.post(f"/v1/groups/{agreement.group.id}/data-sources",
-                               data={"source_ids": [str(agreement.source.id)]}, headers=HX)
+                               data={"source_ids": [str(agreement.source.id)],
+                                     "confirm_remove": "1"}, headers=HX)
         assert not holds(agreement.group, extra)
         assert holds(agreement.group, agreement.source)
         assert GroupVisuals.query.filter_by(group_id=agreement.group.id,

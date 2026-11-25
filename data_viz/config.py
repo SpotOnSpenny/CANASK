@@ -93,6 +93,15 @@ class Config():
     RATELIMIT_PASSWORD_RESET_SUBMIT = os.environ.get("RATELIMIT_PASSWORD_RESET_SUBMIT", "10 per minute")  # per IP, POST only
     RATELIMIT_API = os.environ.get("RATELIMIT_API", "60 per minute")                   # per IP
     RATELIMIT_LOGIN = os.environ.get("RATELIMIT_LOGIN", "10 per minute")               # per IP, POST only
+    RATELIMIT_USERNAME_CHANGE = os.environ.get("RATELIMIT_USERNAME_CHANGE", "10 per hour")  # per IP, every attempt
+
+    # How often ONE account may change its username from the account page: successful changes only,
+    # counted from the activity log. Enough to fix a typo, not enough to cycle through names (audit
+    # rows quote the name as it was) or to take one somebody else just gave up. The per-IP limit
+    # above is the other half: it also covers the "already taken" answers, which would otherwise
+    # let a signed-in user test which usernames exist as fast as they can post.
+    USERNAME_CHANGE_LIMIT = int(os.environ.get("USERNAME_CHANGE_LIMIT", "2"))
+    USERNAME_CHANGE_WINDOW = timedelta(hours=int(os.environ.get("USERNAME_CHANGE_WINDOW_HOURS", "24")))
 
     # Per-account login lockout (complements the per-IP RATELIMIT_LOGIN, which a distributed attacker
     # can sidestep by rotating IPs). Counts recent failed attempts for one account; time-windowed so it
