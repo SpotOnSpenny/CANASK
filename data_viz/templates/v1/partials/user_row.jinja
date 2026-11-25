@@ -10,7 +10,29 @@
     {% endif %}
 {% endfor %}
 <tr id="user-row-{{ user.id }}" data-scope="{{ 'other' if outside else 'mine' }}" data-groups="{{ row_group_ids|join(' ') }}">
-    <td>{{ user.email }}</td>
+    <td>{{ user.email }}
+        {# How this account came to exist: when it was invited, by whom, into what, and what it
+           was called then if it has changed since. The inviter is read through the invite, so
+           their CURRENT name shows. A group manager sees this only for an invite that carried a
+           group they manage, and only those groups: who invited someone, and into what, says
+           which other groups they belong to. Never on a directory (`outside`) row. #}
+        {% if not outside %}
+        {% set joined = user.joined_invite %}
+        {% if joined %}
+            {% set joined_groups = [] %}
+            {% for ig in joined.invite_groups %}
+                {% if managed_group_ids is none or ig.group_id in managed_group_ids %}
+                    {% set _ = joined_groups.append(ig.group.name) %}
+                {% endif %}
+            {% endfor %}
+            {% if managed_group_ids is none or joined_groups %}
+        <div class="small text-body-secondary">Invited {{ joined.sent_at.strftime('%Y-%m-%d') }} by {{ joined.sent_by_user.username }}{% if joined.site_admin_invite %} (site admin invite){% elif joined_groups %} into {{ joined_groups | join(", ") }}{% endif %}{% if joined.email | lower != user.email | lower %} · as {{ joined.email }}{% endif %}{% if joined.accepted_username and joined.accepted_username != user.username %} · signed up as {{ joined.accepted_username }}{% endif %}</div>
+            {% endif %}
+        {% elif managed_group_ids is none %}
+        <div class="small text-body-secondary">No invite on record</div>
+        {% endif %}
+        {% endif %}
+    </td>
     <td>{{ user.username }}</td>
     <td>
         {% if user.site_admin and not outside %}

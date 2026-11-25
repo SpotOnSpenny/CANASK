@@ -1,5 +1,12 @@
 <tr id="invite-row-{{ invite.id }}">
-    <td>{{ invite.email }}</td>
+    <td>{{ invite.email }}
+        {# An accepted invite keeps the address it was SENT to; this line says who that account is
+           now, so the row still makes sense after they change their own username or email. #}
+        {% if invite.status == "accepted" and invite.accepted_user %}
+        {% set account = invite.accepted_user %}
+        <div class="small text-body-secondary">Account: {{ account.username }}{% if invite.accepted_username and invite.accepted_username != account.username %} (signed up as {{ invite.accepted_username }}){% endif %}{% if account.email | lower != invite.email | lower %} · now {{ account.email }}{% endif %}{% if account.status != "active" %} · {{ account.status }}{% endif %}</div>
+        {% endif %}
+    </td>
     <td>
         {% if invite.site_admin_invite %}
             <span class="badge bg-primary">Site Admin</span>

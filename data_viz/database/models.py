@@ -41,6 +41,13 @@ class User(UserMixin, db.Model):
         return f"{self.id}:{self.session_version}"
 
     @property
+    def joined_invite(self):
+        """The invite this account was created from (Invites.accepted_user_id), or None for an
+        account that never had one: the bootstrap admin, seeded and CLI-created accounts."""
+        invites = self.accepted_invites
+        return max(invites, key = lambda invite: invite.id) if invites else None
+
+    @property
     def is_active(self):
         # Flask-Login authentication gate. UserMixin.is_active is always True; override it so only
         # active accounts may log in AND keep an existing session. The kill-switch for existing
@@ -92,9 +99,20 @@ class Invites(db.Model):
     expiry_task_id = db.Column(db.String(255), nullable = True)
     sent_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable = False)
     site_admin_invite = db.Column(db.Boolean, default = False)
+    # Set when the invite is accepted (auth_helpers.create_user): the account it created, the
+    # username that person signed up with, and when. `email` above stays the address the invite
+    # was SENT to. Together they keep "who was invited, when, how and by whom" readable after the
+    # person changes their own username or email -- the invite list shows who the account is now
+    # (invite_row.jinja), the user list how each account came to exist (user_row.jinja). Both
+    # lists read the inviter and the account through these keys, so their current names show.
+    accepted_user_id = db.Column(db.Integer, db.ForeignKey("users.id", ondelete = "SET NULL"), nullable = True)
+    accepted_username = db.Column(db.String(255), nullable = True)
+    accepted_at = db.Column(db.DateTime, nullable = True)
 
     # Relationships
     sent_by_user = db.relationship("User", foreign_keys = [sent_by])
+    accepted_user = db.relationship("User", foreign_keys = [accepted_user_id],
+                                    backref = db.backref("accepted_invites", lazy = True))
     invite_groups = db.relationship("InviteGroups", backref="invite", lazy = True)
 
     def __repr__(self):

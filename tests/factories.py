@@ -214,6 +214,25 @@ def make_invite(email=None, sent_by=None, groups=(), site_admin_invite=False,
     return invite
 
 
+def make_joined_user(inviter=None, groups=(), site_admin_invite=False, username=None,
+                     email=None):
+    """A user who joined by accepting an invite, with the invite linked to the account the way
+    create_user leaves it. `groups` is an iterable of (group, role) pairs: the invite carries
+    them and the user gets the memberships. Returns (user, invite)."""
+    inviter = inviter or make_user(site_admin=True)
+    invite = make_invite(email=email, sent_by=inviter, groups=groups,
+                         site_admin_invite=site_admin_invite, status="accepted")
+    user = make_user(email=invite.email, username=username, site_admin=site_admin_invite)
+    user.invited_by = inviter.id
+    for group, role in groups:
+        add_membership(user, group, role)
+    invite.accepted_user_id = user.id
+    invite.accepted_username = user.username
+    invite.accepted_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.session.flush()
+    return user, invite
+
+
 def make_password_reset(user, expires_delta=timedelta(hours=1), used=False):
     reset = PasswordResets(
         user_id=user.id,

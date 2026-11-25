@@ -1,6 +1,7 @@
 # Standard Library Imports
 import re
 from collections import defaultdict
+from datetime import datetime, timezone
 
 # External Imports
 from bcrypt import hashpw, gensalt, checkpw
@@ -38,6 +39,11 @@ def create_user(email, username, password, invited_by = None, status = User.STAT
         invite = Invites.query.filter_by(email = email, status = "pending").first()
         if invite:
             invite.status = "accepted"
+            # Tie the invite to the account it created, with the name they signed up with: the
+            # invite keeps the address it was sent to, the account can change both later.
+            invite.accepted_user_id = user.id
+            invite.accepted_username = username
+            invite.accepted_at = datetime.now(timezone.utc).replace(tzinfo = None)
             db.session.add(invite)
         inviter = User.query.get(invited_by)
         details = f"Account created for {username} with email {email} with invite from {inviter.username}."
